@@ -35,6 +35,8 @@ from routes.customers import bp as customers_bp
 from routes.loyalty import bp as loyalty_bp
 from routes.terminals import bp as terminals_bp
 from routes.voids import bp as voids_bp
+from routes.services import bp as services_bp
+from routes.appointments import bp as appointments_bp
 
 app.register_blueprint(products_bp)
 app.register_blueprint(sales_bp)
@@ -50,6 +52,8 @@ app.register_blueprint(customers_bp)
 app.register_blueprint(loyalty_bp)
 app.register_blueprint(terminals_bp)
 app.register_blueprint(voids_bp)
+app.register_blueprint(services_bp)
+app.register_blueprint(appointments_bp)
 
 
 @app.route('/api/health')

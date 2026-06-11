@@ -9,7 +9,7 @@ class Category(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    tax_class = db.Column(db.String(20), default='standard')  # standard / reduced / exempt
+    tax_class = db.Column(db.String(20), default='standard')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     products = db.relationship('Product', backref='category_obj', lazy=True)
@@ -24,23 +24,15 @@ class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     barcode = db.Column(db.String(50), unique=True, index=True)
-
-    # Phase 3 — PLU code (produce, weight-based items without barcodes)
     plu_code = db.Column(db.String(20), unique=True, index=True)
-
     price = db.Column(db.Float, nullable=False)
     tax_class = db.Column(db.String(20), default='standard')
     tax_rate = db.Column(db.Float, default=0.0)
-
-    # Phase 3 — Weight-based pricing (price per kg/lb)
     is_weight_based = db.Column(db.Boolean, default=False)
-    weight_unit = db.Column(db.String(10), default='kg')  # kg | lb | g
-
-    # Phase 3 — Age restriction
+    weight_unit = db.Column(db.String(10), default='kg')
     age_restricted = db.Column(db.Boolean, default=False)
-    age_restriction_type = db.Column(db.String(20))  # alcohol | tobacco | other
+    age_restriction_type = db.Column(db.String(20))
     min_age = db.Column(db.Integer, default=18)
-
     stock_qty = db.Column(db.Integer, default=0)
     low_stock_threshold = db.Column(db.Integer, default=5)
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'), nullable=True)
@@ -52,20 +44,13 @@ class Product(db.Model):
 
     def to_dict(self):
         return {
-            'id': self.id,
-            'name': self.name,
-            'barcode': self.barcode,
-            'plu_code': self.plu_code,
-            'price': self.price,
-            'tax_class': self.tax_class,
-            'tax_rate': self.tax_rate,
-            'is_weight_based': self.is_weight_based,
-            'weight_unit': self.weight_unit,
+            'id': self.id, 'name': self.name, 'barcode': self.barcode,
+            'plu_code': self.plu_code, 'price': self.price,
+            'tax_class': self.tax_class, 'tax_rate': self.tax_rate,
+            'is_weight_based': self.is_weight_based, 'weight_unit': self.weight_unit,
             'age_restricted': self.age_restricted,
-            'age_restriction_type': self.age_restriction_type,
-            'min_age': self.min_age,
-            'stock_qty': self.stock_qty,
-            'low_stock_threshold': self.low_stock_threshold,
+            'age_restriction_type': self.age_restriction_type, 'min_age': self.min_age,
+            'stock_qty': self.stock_qty, 'low_stock_threshold': self.low_stock_threshold,
             'category_id': self.category_id,
             'category_name': self.category_obj.name if self.category_obj else None,
             'is_active': self.is_active,
@@ -78,14 +63,18 @@ class Staff(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     pin = db.Column(db.String(10))
-    role = db.Column(db.String(20), default='cashier')  # admin / cashier / manager
+    role = db.Column(db.String(20), default='cashier')  # admin / cashier / manager / stylist
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     shifts = db.relationship('Shift', backref='cashier', lazy=True)
+    appointments = db.relationship('Appointment', backref='staff', lazy=True)
 
     def to_dict(self):
-        return {'id': self.id, 'name': self.name, 'role': self.role, 'is_active': self.is_active}
+        return {
+            'id': self.id, 'name': self.name, 'role': self.role,
+            'is_active': self.is_active,
+        }
 
 
 class Sale(db.Model):
@@ -104,19 +93,21 @@ class Sale(db.Model):
     cashier_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=True)
     cashier_name = db.Column(db.String(100))
     shift_id = db.Column(db.Integer, db.ForeignKey('shifts.id'), nullable=True)
-
-    # Phase 3 — Customer / loyalty
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
     customer_name = db.Column(db.String(100))
     loyalty_points_earned = db.Column(db.Integer, default=0)
     loyalty_points_redeemed = db.Column(db.Integer, default=0)
     loyalty_discount = db.Column(db.Float, default=0.0)
-
-    # Phase 3 — Terminal (multi-lane)
     terminal_id = db.Column(db.String(50))
-
-    # Phase 3 — Age verification
     age_verified = db.Column(db.Boolean, default=False)
+
+    # Phase 4 — Salon fields
+    sale_type = db.Column(db.String(20), default='retail')  # retail / salon
+    tip_amount = db.Column(db.Float, default=0.0)
+    tip_method = db.Column(db.String(20))   # cash / card
+    tip_staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=True)
+    tip_staff_name = db.Column(db.String(100))
+    appointment_id = db.Column(db.Integer, db.ForeignKey('appointments.id'), nullable=True)
 
     status = db.Column(db.String(20), default='completed')
     offline_id = db.Column(db.String(50), unique=True, nullable=True)
@@ -128,27 +119,22 @@ class Sale(db.Model):
 
     def to_dict(self):
         return {
-            'id': self.id,
-            'receipt_number': self.receipt_number,
-            'subtotal': self.subtotal,
-            'tax_amount': self.tax_amount,
-            'discount_total': self.discount_total,
-            'total': self.total,
-            'payment_method': self.payment_method,
-            'cash_tendered': self.cash_tendered,
-            'change_given': self.change_given,
-            'card_amount': self.card_amount,
-            'cashier_name': self.cashier_name,
-            'shift_id': self.shift_id,
-            'customer_id': self.customer_id,
-            'customer_name': self.customer_name,
+            'id': self.id, 'receipt_number': self.receipt_number,
+            'subtotal': self.subtotal, 'tax_amount': self.tax_amount,
+            'discount_total': self.discount_total, 'total': self.total,
+            'payment_method': self.payment_method, 'cash_tendered': self.cash_tendered,
+            'change_given': self.change_given, 'card_amount': self.card_amount,
+            'cashier_name': self.cashier_name, 'shift_id': self.shift_id,
+            'customer_id': self.customer_id, 'customer_name': self.customer_name,
             'loyalty_points_earned': self.loyalty_points_earned,
             'loyalty_points_redeemed': self.loyalty_points_redeemed,
             'loyalty_discount': self.loyalty_discount,
-            'terminal_id': self.terminal_id,
-            'age_verified': self.age_verified,
-            'status': self.status,
-            'offline_id': self.offline_id,
+            'terminal_id': self.terminal_id, 'age_verified': self.age_verified,
+            'sale_type': self.sale_type,
+            'tip_amount': self.tip_amount, 'tip_method': self.tip_method,
+            'tip_staff_name': self.tip_staff_name,
+            'appointment_id': self.appointment_id,
+            'status': self.status, 'offline_id': self.offline_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'items': [i.to_dict() for i in self.items],
         }
@@ -163,22 +149,24 @@ class SaleItem(db.Model):
     product_name = db.Column(db.String(200), nullable=False)
     unit_price = db.Column(db.Float, nullable=False)
     qty = db.Column(db.Integer, nullable=False, default=1)
-    weight = db.Column(db.Float)          # for weight-based items (kg/lb)
+    weight = db.Column(db.Float)
     discount = db.Column(db.Float, default=0.0)
     tax_rate = db.Column(db.Float, default=0.0)
     line_total = db.Column(db.Float, nullable=False)
 
+    # Phase 4 — Salon fields
+    item_type = db.Column(db.String(20), default='product')  # product / service
+    service_id = db.Column(db.Integer, db.ForeignKey('services.id'), nullable=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=True)
+    staff_name = db.Column(db.String(100))
+
     def to_dict(self):
         return {
-            'id': self.id,
-            'product_id': self.product_id,
-            'product_name': self.product_name,
-            'unit_price': self.unit_price,
-            'qty': self.qty,
-            'weight': self.weight,
-            'discount': self.discount,
-            'tax_rate': self.tax_rate,
-            'line_total': self.line_total,
+            'id': self.id, 'product_id': self.product_id, 'product_name': self.product_name,
+            'unit_price': self.unit_price, 'qty': self.qty, 'weight': self.weight,
+            'discount': self.discount, 'tax_rate': self.tax_rate, 'line_total': self.line_total,
+            'item_type': self.item_type, 'service_id': self.service_id,
+            'staff_id': self.staff_id, 'staff_name': self.staff_name,
         }
 
 
@@ -195,9 +183,7 @@ class OfflineQueue(db.Model):
 
     def to_dict(self):
         return {
-            'id': self.id,
-            'offline_id': self.offline_id,
-            'status': self.status,
+            'id': self.id, 'offline_id': self.offline_id, 'status': self.status,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'synced_at': self.synced_at.isoformat() if self.synced_at else None,
         }
@@ -385,16 +371,15 @@ class StockAdjustment(db.Model):
 # ── Phase 3 Models ─────────────────────────────────────────────────────────────
 
 class LoyaltyTier(db.Model):
-    """Member pricing tiers — Bronze / Silver / Gold etc."""
     __tablename__ = 'loyalty_tiers'
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), nullable=False)           # Bronze / Silver / Gold
-    min_points = db.Column(db.Integer, default=0)             # points needed to reach this tier
-    discount_percent = db.Column(db.Float, default=0.0)       # auto discount at checkout
-    points_multiplier = db.Column(db.Float, default=1.0)      # earn rate multiplier
+    name = db.Column(db.String(50), nullable=False)
+    min_points = db.Column(db.Integer, default=0)
+    discount_percent = db.Column(db.Float, default=0.0)
+    points_multiplier = db.Column(db.Float, default=1.0)
     description = db.Column(db.String(200))
-    color = db.Column(db.String(20), default='#888888')       # UI badge color
+    color = db.Column(db.String(20), default='#888888')
     sort_order = db.Column(db.Integer, default=0)
 
     customers = db.relationship('Customer', backref='tier', lazy=True)
@@ -408,25 +393,27 @@ class LoyaltyTier(db.Model):
 
 
 class Customer(db.Model):
-    """Loyalty / member customer record."""
     __tablename__ = 'customers'
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(30), unique=True, index=True)
     email = db.Column(db.String(100))
-    member_id = db.Column(db.String(30), unique=True, index=True)  # loyalty card number
-    date_of_birth = db.Column(db.Date)                             # for age verification
+    member_id = db.Column(db.String(30), unique=True, index=True)
+    date_of_birth = db.Column(db.Date)
     loyalty_points = db.Column(db.Integer, default=0)
     tier_id = db.Column(db.Integer, db.ForeignKey('loyalty_tiers.id'), nullable=True)
     total_spent = db.Column(db.Float, default=0.0)
     visit_count = db.Column(db.Integer, default=0)
     is_active = db.Column(db.Boolean, default=True)
     notes = db.Column(db.Text)
+    # Phase 4 — salon preferences
+    preferences = db.Column(db.Text)   # free-text notes (allergies, style prefs)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     sales = db.relationship('Sale', backref='customer', lazy=True)
     loyalty_transactions = db.relationship('LoyaltyTransaction', backref='customer', lazy=True)
+    appointments = db.relationship('Appointment', backref='client', lazy=True)
 
     def to_dict(self):
         return {
@@ -438,22 +425,19 @@ class Customer(db.Model):
             'tier_name': self.tier.name if self.tier else None,
             'tier_color': self.tier.color if self.tier else None,
             'tier_discount_percent': self.tier.discount_percent if self.tier else 0.0,
-            'total_spent': self.total_spent,
-            'visit_count': self.visit_count,
-            'is_active': self.is_active,
-            'notes': self.notes,
+            'total_spent': self.total_spent, 'visit_count': self.visit_count,
+            'is_active': self.is_active, 'notes': self.notes, 'preferences': self.preferences,
         }
 
 
 class LoyaltyTransaction(db.Model):
-    """Points earn / redeem log."""
     __tablename__ = 'loyalty_transactions'
 
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
     sale_id = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=True)
-    type = db.Column(db.String(20), nullable=False)   # earn | redeem | manual_add | manual_remove | expire
-    points = db.Column(db.Integer, nullable=False)    # positive = earn, negative = redeem/remove
+    type = db.Column(db.String(20), nullable=False)
+    points = db.Column(db.Integer, nullable=False)
     balance_after = db.Column(db.Integer, nullable=False)
     notes = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -468,11 +452,10 @@ class LoyaltyTransaction(db.Model):
 
 
 class Terminal(db.Model):
-    """Multi-lane POS terminal registration."""
     __tablename__ = 'terminals'
 
     id = db.Column(db.Integer, primary_key=True)
-    terminal_id = db.Column(db.String(50), unique=True, nullable=False)  # e.g. "LANE-1"
+    terminal_id = db.Column(db.String(50), unique=True, nullable=False)
     name = db.Column(db.String(100))
     location = db.Column(db.String(100))
     ip_address = db.Column(db.String(45))
@@ -490,18 +473,17 @@ class Terminal(db.Model):
 
 
 class VoidLog(db.Model):
-    """Audit log for void transactions and no-sale drawer opens."""
     __tablename__ = 'void_logs'
 
     id = db.Column(db.Integer, primary_key=True)
-    type = db.Column(db.String(20), nullable=False)  # void_sale | no_sale | price_override
+    type = db.Column(db.String(20), nullable=False)
     sale_id = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=True)
     receipt_number = db.Column(db.String(30))
     terminal_id = db.Column(db.String(50))
     cashier_name = db.Column(db.String(100))
     manager_name = db.Column(db.String(100))
     reason = db.Column(db.String(200))
-    amount = db.Column(db.Float)     # sale total for context
+    amount = db.Column(db.Float)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -512,3 +494,106 @@ class VoidLog(db.Model):
             'reason': self.reason, 'amount': self.amount,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+# ── Phase 4 Models ─────────────────────────────────────────────────────────────
+
+class ServiceCategory(db.Model):
+    """Salon service categories (Hair, Nails, Wax, Facial, etc.)"""
+    __tablename__ = 'service_categories'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    color = db.Column(db.String(20), default='#4f6ef7')  # calendar color
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    services = db.relationship('Service', backref='service_category', lazy=True)
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'color': self.color}
+
+
+class Service(db.Model):
+    """Salon service — haircut, colour, manicure, etc."""
+    __tablename__ = 'services'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    price = db.Column(db.Float, nullable=False)
+    duration_minutes = db.Column(db.Integer, default=60)
+    category_id = db.Column(db.Integer, db.ForeignKey('service_categories.id'), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    appointment_services = db.relationship('AppointmentService', backref='service', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'name': self.name, 'description': self.description,
+            'price': self.price, 'duration_minutes': self.duration_minutes,
+            'category_id': self.category_id,
+            'category_name': self.service_category.name if self.service_category else None,
+            'category_color': self.service_category.color if self.service_category else '#4f6ef7',
+            'is_active': self.is_active,
+        }
+
+
+class Appointment(db.Model):
+    """Salon appointment — links client, staff, services, and eventually a sale."""
+    __tablename__ = 'appointments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
+    client_name = db.Column(db.String(100))    # denormalized for walk-ins
+    client_phone = db.Column(db.String(30))
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=True)
+    staff_name = db.Column(db.String(100))
+    start_time = db.Column(db.DateTime, nullable=False)
+    end_time = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(20), default='scheduled')
+    # scheduled / confirmed / checked_in / in_progress / completed / cancelled / no_show
+    notes = db.Column(db.Text)
+    total_price = db.Column(db.Float, default=0.0)
+    sale_id = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    services = db.relationship('AppointmentService', backref='appointment', lazy=True,
+                               cascade='all, delete-orphan')
+    sale = db.relationship('Sale', foreign_keys=[sale_id], backref='appointment_ref', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'client_id': self.client_id, 'client_name': self.client_name,
+            'client_phone': self.client_phone, 'staff_id': self.staff_id,
+            'staff_name': self.staff_name,
+            'start_time': self.start_time.isoformat() if self.start_time else None,
+            'end_time': self.end_time.isoformat() if self.end_time else None,
+            'status': self.status, 'notes': self.notes, 'total_price': self.total_price,
+            'sale_id': self.sale_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'services': [s.to_dict() for s in self.services],
+        }
+
+
+class AppointmentService(db.Model):
+    """Services booked within a single appointment."""
+    __tablename__ = 'appointment_services'
+
+    id = db.Column(db.Integer, primary_key=True)
+    appointment_id = db.Column(db.Integer, db.ForeignKey('appointments.id'), nullable=False)
+    service_id = db.Column(db.Integer, db.ForeignKey('services.id'), nullable=True)
+    service_name = db.Column(db.String(200))   # denormalized
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=True)
+    staff_name = db.Column(db.String(100))
+    price = db.Column(db.Float, nullable=False)
+    duration_minutes = db.Column(db.Integer, default=60)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'service_id': self.service_id, 'service_name': self.service_name,
+            'staff_id': self.staff_id, 'staff_name': self.staff_name,
+            'price': self.price, 'duration_minutes': self.duration_minutes,
+        }
+
+

@@ -11,20 +11,24 @@ import Loyalty from './pages/Loyalty'
 import Terminals from './pages/Terminals'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
+import Appointments from './pages/Appointments'
+import Services from './pages/Services'
 
 const NAV = [
-  { to: '/',               label: 'Checkout',  icon: '🛒', end: true },
-  { to: '/products',       label: 'Products',  icon: '📦' },
-  { to: '/inventory',      label: 'Inventory', icon: '🗂️' },
-  { to: '/suppliers',      label: 'Suppliers', icon: '🚚' },
-  { to: '/purchase-orders',label: 'Orders',    icon: '📋' },
-  { to: '/returns',        label: 'Returns',   icon: '↩️' },
-  { to: '/shifts',         label: 'Shifts',    icon: '⏱️' },
-  { to: '/customers',      label: 'Customers', icon: '👤' },
-  { to: '/loyalty',        label: 'Loyalty',   icon: '⭐' },
-  { to: '/terminals',      label: 'Terminals', icon: '🖥️' },
-  { to: '/reports',        label: 'Reports',   icon: '📊' },
-  { to: '/settings',       label: 'Settings',  icon: '⚙️' },
+  { to: '/',               label: 'Checkout',     icon: '🛒', end: true },
+  { to: '/appointments',   label: 'Appointments', icon: '📅' },
+  { to: '/services',       label: 'Services',     icon: '✂️' },
+  { to: '/products',       label: 'Products',     icon: '📦' },
+  { to: '/inventory',      label: 'Inventory',    icon: '🗂️' },
+  { to: '/suppliers',      label: 'Suppliers',    icon: '🚚' },
+  { to: '/purchase-orders',label: 'Orders',       icon: '📋' },
+  { to: '/returns',        label: 'Returns',      icon: '↩️' },
+  { to: '/shifts',         label: 'Shifts',       icon: '⏱️' },
+  { to: '/customers',      label: 'Customers',    icon: '👤' },
+  { to: '/loyalty',        label: 'Loyalty',      icon: '⭐' },
+  { to: '/terminals',      label: 'Terminals',    icon: '🖥️' },
+  { to: '/reports',        label: 'Reports',      icon: '📊' },
+  { to: '/settings',       label: 'Settings',     icon: '⚙️' },
 ]
 
 export default function App() {
@@ -56,6 +60,8 @@ export default function App() {
             <Route path="/terminals"       element={<Terminals />} />
             <Route path="/reports"         element={<Reports />} />
             <Route path="/settings"        element={<Settings />} />
+            <Route path="/appointments"    element={<Appointments />} />
+            <Route path="/services"        element={<Services />} />
           </Routes>
         </main>
       </div>

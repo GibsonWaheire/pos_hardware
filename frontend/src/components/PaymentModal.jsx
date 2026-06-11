@@ -8,7 +8,6 @@
 
 import { useState } from 'react'
 import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent } from '../api'
-import { v4 as uuidv4 } from 'crypto'
 
 // Simple UUID — crypto.randomUUID() works in modern browsers
 function newUUID() {
@@ -18,8 +17,17 @@ function newUUID() {
 
 export default function PaymentModal({
   method, items, subtotal, discountTotal, taxAmount, total,
+  customer, loyaltyPointsToRedeem, ageVerified,
+  salonMode, staff,
   onClose, onComplete,
 }) {
+  // Tip step (salon only)
+  const [tipStep, setTipStep] = useState(salonMode)   // show tip before payment
+  const [tipAmount, setTipAmount] = useState(0)
+  const [tipCustom, setTipCustom] = useState('')
+  const [tipMethod, setTipMethod] = useState('card')  // card | cash
+  const [tipStaffId, setTipStaffId] = useState(staff?.[0]?.id || '')
+
   const [cashInput, setCashInput] = useState('')
   const [cardStatus, setCardStatus] = useState('')  // '' | 'creating' | 'waiting' | 'capturing' | 'done' | 'error'
   const [cardIntentId, setCardIntentId] = useState(null)
@@ -27,32 +35,52 @@ export default function PaymentModal({
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
 
+  const grandTotal = total + tipAmount
+
   const cashAmount = parseFloat(cashInput) || 0
-  const change = Math.max(0, cashAmount - total)
+  const change = Math.max(0, cashAmount - grandTotal)
 
   const splitCashAmt = parseFloat(splitCash) || 0
-  const splitCardAmt = Math.max(0, total - splitCashAmt)
+  const splitCardAmt = Math.max(0, grandTotal - splitCashAmt)
+
+  // ── Shared sale payload builder ──────────────────────────────────────────
+
+  function buildPayload(overrides = {}) {
+    const tipStaff = staff?.find(s => s.id === parseInt(tipStaffId))
+    return {
+      items: items.map(i => ({
+        product_id: i.product_id || null,
+        product_name: i.product_name,
+        unit_price: i.unit_price,
+        qty: i.qty,
+        discount: i.discount,
+        tax_rate: i.tax_rate,
+        item_type: i.item_type || 'product',
+        service_id: i.service_id || null,
+        staff_id: i.staff_id || null,
+        staff_name: i.staff_name || '',
+      })),
+      sale_type: salonMode ? 'salon' : 'retail',
+      tip_amount: tipAmount,
+      tip_method: tipAmount > 0 ? tipMethod : null,
+      tip_staff_id: tipAmount > 0 && tipStaff ? tipStaff.id : null,
+      tip_staff_name: tipAmount > 0 && tipStaff ? tipStaff.name : null,
+      customer_id: customer?.id || null,
+      loyalty_points_to_redeem: loyaltyPointsToRedeem || 0,
+      age_verified: ageVerified || false,
+      offline_id: newUUID(),
+      ...overrides,
+    }
+  }
 
   // ── Cash payment ────────────────────────────────────────────────────────
 
   async function handleCashPay() {
-    if (cashAmount < total) { setError('Cash tendered must be ≥ total'); return }
+    if (cashAmount < grandTotal) { setError('Cash tendered must be ≥ total'); return }
     setProcessing(true)
     setError('')
     try {
-      const res = await createSale({
-        items: items.map(i => ({
-          product_id: i.product_id,
-          product_name: i.product_name,
-          unit_price: i.unit_price,
-          qty: i.qty,
-          discount: i.discount,
-          tax_rate: i.tax_rate,
-        })),
-        payment_method: 'cash',
-        cash_tendered: cashAmount,
-        offline_id: newUUID(),
-      })
+      const res = await createSale(buildPayload({ payment_method: 'cash', cash_tendered: cashAmount }))
       onComplete(res.data)
     } catch (e) {
       setError(e.message)
@@ -68,7 +96,7 @@ export default function PaymentModal({
     setError('')
     try {
       // Amount in cents for Stripe
-      const amountCents = Math.round(total * 100)
+      const amountCents = Math.round(grandTotal * 100)
       const intentRes = await createPaymentIntent(amountCents)
       const intentId = intentRes.data.payment_intent_id
       setCardIntentId(intentId)
@@ -92,19 +120,7 @@ export default function PaymentModal({
     setError('')
     try {
       await capturePaymentIntent(cardIntentId)
-      const res = await createSale({
-        items: items.map(i => ({
-          product_id: i.product_id,
-          product_name: i.product_name,
-          unit_price: i.unit_price,
-          qty: i.qty,
-          discount: i.discount,
-          tax_rate: i.tax_rate,
-        })),
-        payment_method: 'card',
-        stripe_payment_intent_id: cardIntentId,
-        offline_id: newUUID(),
-      })
+      const res = await createSale(buildPayload({ payment_method: 'card', stripe_payment_intent_id: cardIntentId }))
       setCardStatus('done')
       onComplete(res.data)
     } catch (e) {
@@ -127,7 +143,7 @@ export default function PaymentModal({
 
   async function handleSplitPay() {
     if (splitCashAmt <= 0) { setError('Enter cash portion'); return }
-    if (splitCashAmt >= total) { setError('Cash portion must be less than total — use Cash payment'); return }
+    if (splitCashAmt >= grandTotal) { setError('Cash portion must be less than total — use Cash payment'); return }
     setProcessing(true)
     setError('')
     try {
@@ -147,21 +163,12 @@ export default function PaymentModal({
     setCardStatus('capturing')
     try {
       await capturePaymentIntent(cardIntentId)
-      const res = await createSale({
-        items: items.map(i => ({
-          product_id: i.product_id,
-          product_name: i.product_name,
-          unit_price: i.unit_price,
-          qty: i.qty,
-          discount: i.discount,
-          tax_rate: i.tax_rate,
-        })),
+      const res = await createSale(buildPayload({
         payment_method: 'split',
         cash_tendered: splitCashAmt,
         card_amount: splitCardAmt,
         stripe_payment_intent_id: cardIntentId,
-        offline_id: newUUID(),
-      })
+      }))
       setCardStatus('done')
       onComplete(res.data)
     } catch (e) {
@@ -206,7 +213,8 @@ export default function PaymentModal({
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget && !processing) onClose() }}>
       <div className="modal">
         <div className="modal-title">
-          {method === 'cash' ? '💵 Cash Payment'
+          {tipStep ? 'Add a Tip?'
+            : method === 'cash' ? '💵 Cash Payment'
             : method === 'card' ? '💳 Card Payment'
             : '✂️ Split Payment'}
         </div>
@@ -227,10 +235,65 @@ export default function PaymentModal({
               <span>Tax</span><span>${taxAmount.toFixed(2)}</span>
             </div>
           )}
+          {tipAmount > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13, color: 'var(--success)' }}>
+              <span>Tip ({tipMethod})</span><span>+${tipAmount.toFixed(2)}</span>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 20, borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
-            <span>Total</span><span>${total.toFixed(2)}</span>
+            <span>Total</span><span>${grandTotal.toFixed(2)}</span>
           </div>
         </div>
+
+        {/* ── Tip step (salon mode) ── */}
+        {tipStep && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
+              {[0, 2, 5, 10, 15, 20].map(amt => (
+                <button key={amt} onClick={() => { setTipAmount(amt); setTipCustom('') }}
+                  className={`btn ${tipAmount === amt && !tipCustom ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ padding: '10px 0', fontSize: 14 }}>
+                  {amt === 0 ? 'No Tip' : `$${amt}`}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+              <input className="input" type="number" min="0" step="0.01" placeholder="Custom amount"
+                value={tipCustom}
+                onChange={e => { setTipCustom(e.target.value); setTipAmount(parseFloat(e.target.value) || 0) }}
+                style={{ flex: 1 }} />
+            </div>
+            {tipAmount > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                <div>
+                  <label className="label">Tip Method</label>
+                  <select className="input" value={tipMethod} onChange={e => setTipMethod(e.target.value)}>
+                    <option value="card">Card</option>
+                    <option value="cash">Cash</option>
+                  </select>
+                </div>
+                {staff?.length > 0 && (
+                  <div>
+                    <label className="label">Tip For</label>
+                    <select className="input" value={tipStaffId} onChange={e => setTipStaffId(e.target.value)}>
+                      <option value="">Any staff</option>
+                      {staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
+              <button className="btn btn-primary btn-lg" style={{ flex: 2 }} onClick={() => setTipStep(false)}>
+                {tipAmount > 0 ? `Continue with $${tipAmount.toFixed(2)} tip` : 'Skip Tip'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {!tipStep && (<>
+
 
         {/* ── Cash ── */}
         {method === 'cash' && (
@@ -274,7 +337,7 @@ export default function PaymentModal({
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
                   <button className="btn btn-primary btn-lg" style={{ flex: 2 }} onClick={handleCardPay}>
-                    Charge ${total.toFixed(2)}
+                    Charge ${grandTotal.toFixed(2)}
                   </button>
                 </div>
               </>
@@ -334,7 +397,7 @@ export default function PaymentModal({
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
                   <button className="btn btn-primary btn-lg" style={{ flex: 2 }} onClick={handleSplitPay}
-                    disabled={processing || splitCashAmt <= 0 || splitCashAmt >= total}>
+                    disabled={processing || splitCashAmt <= 0 || splitCashAmt >= grandTotal}>
                     Charge Card ${splitCardAmt.toFixed(2)}
                   </button>
                 </div>
@@ -365,6 +428,7 @@ export default function PaymentModal({
             )}
           </>
         )}
+        </>)}
       </div>
     </div>
   )

@@ -120,4 +120,24 @@ export const readScale = () => api.get('/scale/read')
 // PLU lookup
 export const getProductByPlu = (plu) => api.get(`/products/plu/${plu}`)
 
+// Services & Service Categories (Phase 4)
+export const getServiceCategories = () => api.get('/service-categories')
+export const createServiceCategory = (data) => api.post('/service-categories', data)
+export const updateServiceCategory = (id, data) => api.put(`/service-categories/${id}`, data)
+export const deleteServiceCategory = (id) => api.delete(`/service-categories/${id}`)
+export const getServices = (params) => api.get('/services', { params })
+export const getService = (id) => api.get(`/services/${id}`)
+export const createService = (data) => api.post('/services', data)
+export const updateService = (id, data) => api.put(`/services/${id}`, data)
+export const deleteService = (id) => api.delete(`/services/${id}`)
+
+// Appointments (Phase 4)
+export const getAppointments = (params) => api.get('/appointments', { params })
+export const getAppointment = (id) => api.get(`/appointments/${id}`)
+export const createAppointment = (data) => api.post('/appointments', data)
+export const updateAppointment = (id, data) => api.put(`/appointments/${id}`, data)
+export const updateAppointmentStatus = (id, status) => api.post(`/appointments/${id}/status`, { status })
+export const deleteAppointment = (id) => api.delete(`/appointments/${id}`)
+export const getClientAppointments = (clientId) => api.get(`/appointments/by-client/${clientId}`)
+
 export default api

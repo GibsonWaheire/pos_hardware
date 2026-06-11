@@ -12,39 +12,43 @@ export default function Cart({ items, onUpdateQty, onRemove }) {
 
   return (
     <div className="cart-items">
-      {items.map(item => (
-        <div key={item.product_id} className="cart-item">
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="cart-item-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {item.product_name}
+      {items.map(item => {
+        const itemId = item._key || item.product_id
+        return (
+          <div key={itemId} className="cart-item">
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="cart-item-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {item.product_name}
+              </div>
+              <div className="cart-item-sub">
+                ${item.unit_price.toFixed(2)} ea
+                {item.discount > 0 && <span style={{ color: 'var(--warning)' }}> · -${item.discount.toFixed(2)} disc</span>}
+                {item.tax_rate > 0 && <span> · {(item.tax_rate * 100).toFixed(0)}% tax</span>}
+                {item.item_type === 'service' && <span style={{ color: 'var(--accent)' }}> · service</span>}
+              </div>
             </div>
-            <div className="cart-item-sub">
-              ${item.unit_price.toFixed(2)} ea
-              {item.discount > 0 && <span style={{ color: 'var(--warning)' }}> · -${item.discount.toFixed(2)} disc</span>}
-              {item.tax_rate > 0 && <span> · {(item.tax_rate * 100).toFixed(0)}% tax</span>}
+
+            <div className="cart-qty">
+              <button className="qty-btn" onClick={() => onUpdateQty(itemId, -1)}>−</button>
+              <span className="qty-display">{item.qty}</span>
+              <button className="qty-btn" onClick={() => onUpdateQty(itemId, +1)}>+</button>
             </div>
+
+            <div className="cart-item-total">${item.line_total.toFixed(2)}</div>
+
+            <button
+              onClick={() => onRemove(itemId)}
+              style={{
+                background: 'none', border: 'none', color: 'var(--text-muted)',
+                cursor: 'pointer', fontSize: 16, padding: '0 4px',
+              }}
+              title="Remove"
+            >
+              ×
+            </button>
           </div>
-
-          <div className="cart-qty">
-            <button className="qty-btn" onClick={() => onUpdateQty(item.product_id, -1)}>−</button>
-            <span className="qty-display">{item.qty}</span>
-            <button className="qty-btn" onClick={() => onUpdateQty(item.product_id, +1)}>+</button>
-          </div>
-
-          <div className="cart-item-total">${item.line_total.toFixed(2)}</div>
-
-          <button
-            onClick={() => onRemove(item.product_id)}
-            style={{
-              background: 'none', border: 'none', color: 'var(--text-muted)',
-              cursor: 'pointer', fontSize: 16, padding: '0 4px',
-            }}
-            title="Remove"
-          >
-            ×
-          </button>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
