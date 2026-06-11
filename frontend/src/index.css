@@ -17,11 +17,22 @@
   font-family: 'Inter', system-ui, sans-serif;
 }
 
+/* Light theme overrides */
+[data-theme="light"] {
+  --bg:        #f4f5f7;
+  --surface:   #ffffff;
+  --surface2:  #eef0f5;
+  --border:    #d1d5e0;
+  --text:      #1a1d27;
+  --text-muted:#6b7280;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
   font-size: 14px;
+  transition: background .2s, color .2s;
 }
 
 /* ── Layout ─────────────────────────────────────────────── */

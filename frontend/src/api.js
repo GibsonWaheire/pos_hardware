@@ -532,6 +532,21 @@ export const getAccountByCustomer = (customerId) => withLocal(
   () => local.lsStub(null)
 )
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export const login = (pin, staffId) => withLocal(
+  () => api.post('/auth/login', { pin, staff_id: staffId }),
+  () => local.lsLogin(pin, staffId)
+)
+export const getMe = () => withLocal(
+  () => api.get('/auth/me'),
+  () => local.lsGetMe()
+)
+export const logout = () => withLocal(
+  () => api.post('/auth/logout'),
+  () => local.lsLogout()
+)
+
 // ── Cloud Sync ────────────────────────────────────────────────────────────────
 
 export const getSyncStatus = () => withLocal(

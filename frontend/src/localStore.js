@@ -740,6 +740,33 @@ export function lsUpdateStoreConfig(data) {
   return ok(updated)
 }
 
+// ── Auth (offline) ───────────────────────────────────────────────────────────
+
+const LS_SESSION = 'pos_hw_session'
+
+export function lsLogin(pin, staffId) {
+  let staff = ls(K.staff).find(s => s.pin === pin && s.is_active)
+  if (staffId) staff = ls(K.staff).find(s => s.id === Number(staffId) && s.pin === pin && s.is_active)
+  if (!staff) throw new Error('Invalid PIN')
+  localStorage.setItem(LS_SESSION, JSON.stringify(staff))
+  return ok({ staff })
+}
+
+export function lsGetMe() {
+  try {
+    const staff = JSON.parse(localStorage.getItem(LS_SESSION))
+    if (!staff) throw new Error('Not authenticated')
+    return ok({ staff })
+  } catch {
+    throw new Error('Not authenticated')
+  }
+}
+
+export function lsLogout() {
+  localStorage.removeItem(LS_SESSION)
+  return ok({ message: 'Logged out' })
+}
+
 // ── Stub responses for rarely-used endpoints ─────────────────────────────────
 
 export function lsStub(data = []) { return ok(data) }

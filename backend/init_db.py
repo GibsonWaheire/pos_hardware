@@ -70,21 +70,30 @@ def init_db():
         # Seed default categories if none exist
         if Category.query.count() == 0:
             defaults = [
-                Category(name='General', tax_class='standard'),
-                Category(name='Food & Beverage', tax_class='reduced'),
-                Category(name='Electronics', tax_class='standard'),
-                Category(name='Produce', tax_class='exempt'),
+                Category(name='Building Materials', tax_class='standard'),
+                Category(name='Plumbing',           tax_class='standard'),
+                Category(name='Electrical',         tax_class='standard'),
+                Category(name='Paint & Finishes',   tax_class='standard'),
+                Category(name='Hand Tools',         tax_class='standard'),
+                Category(name='Fasteners',          tax_class='standard'),
+                Category(name='Timber & Wood',      tax_class='standard'),
             ]
             db.session.add_all(defaults)
             db.session.commit()
-            print(f"Seeded {len(defaults)} default categories.")
+            print(f"Seeded {len(defaults)} hardware categories.")
 
-        # Seed a default admin if no staff exist
+        # Seed staff with hardware store roles if none exist
         if Staff.query.count() == 0:
-            admin = Staff(name='Admin', pin='0000', role='admin')
-            db.session.add(admin)
+            seed_staff = [
+                Staff(name='Admin',        pin='0000', role='admin'),
+                Staff(name='Manager',      pin='1111', role='manager'),
+                Staff(name='Cashier 1',    pin='2222', role='cashier'),
+                Staff(name='Inventory',    pin='3333', role='inventory'),
+                Staff(name='Purchasing',   pin='4444', role='purchasing'),
+            ]
+            db.session.add_all(seed_staff)
             db.session.commit()
-            print("Seeded default admin (PIN: 0000). Change this immediately.")
+            print("Seeded staff: Admin(0000) Manager(1111) Cashier(2222) Inventory(3333) Purchasing(4444)")
 
         # Seed sample products for development
         if Product.query.count() == 0:
