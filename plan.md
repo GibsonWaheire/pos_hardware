@@ -552,6 +552,245 @@ shift_reconciliations
 
 ---
 
+## Phase 9D — Manager Authorization Card (Sudo-Style Elevation)
+
+### Problem
+
+Manager PIN approval requires the manager to be physically at the terminal. If the manager is off-site, in a meeting, or stuck in traffic, the business stops: no shift opens, no voids, no override discounts. A single person becomes a hard bottleneck for every transaction that needs approval.
+
+### Solution: The Authorization Card
+
+The manager carries (or leaves) a physical card with a unique printed code — barcode, QR code, or NFC tag. Scanning the card grants one scoped permission for one action, then the authorization evaporates. The cashier's session never changes hands.
+
+**This is identical to `sudo` on Linux:**
+- You stay logged in as yourself
+- You borrow elevated permission for exactly one command
+- The permission expires the instant the command completes (or after 30 seconds if unused)
+- The audit log records both who did it and who authorized it
+
+---
+
+### Authorization Flows
+
+#### Shift opening
+```
+Cashier logs in → system detects no open shift
+→ Screen: "No shift open. Scan manager card to open shift."
+→ Cashier scans card (or enters manager PIN as fallback)
+→ Cashier types opening float amount
+→ Shift opens, logged as:
+    performed_by: Cashier Sarah
+    authorized_by: Manager John (via card)
+    auth_method: card
+```
+
+#### Item removal from cart
+```
+Cashier taps "Remove item"
+→ Modal: "Manager authorization required — Remove: Steel Bar Y12 × 2 (KES 2,500)"
+→ Timer: 30 seconds
+→ Cashier scans card  ← scanner is already on the desk
+→ Item removed from cart
+→ Cart unchanged otherwise, session unchanged
+→ Audit: removed by Cashier Sarah, authorized by Manager John via card
+```
+
+#### Discount override (above threshold)
+```
+Cashier enters 25% discount (threshold is 10%)
+→ Modal: "Manager authorization required — Discount: 25% on KES 12,000"
+→ Card scan or PIN
+→ Discount applied
+→ Audit: applied by Cashier Sarah, authorized by Manager John
+```
+
+#### Sale void
+```
+Cashier taps void on completed sale
+→ Modal: "Manager authorization required — Void: Receipt RCP-20260611-0042 (KES 3,200)"
+→ Card or PIN
+→ Void applied, stock restored
+```
+
+#### Return/refund
+```
+Same pattern — card or PIN required
+```
+
+---
+
+### The Card is a Convenience Layer, Not a Replacement
+
+| Situation | What happens |
+|---|---|
+| Card available, scanned | Instant authorization, no manager present needed |
+| Card unavailable | Modal shows "Use PIN instead" — manager types PIN manually |
+| Both unavailable | Manager must physically log in to authorize — unchanged from today |
+| Card lost/stolen | Admin deactivates card in Settings → Staff. Generate new one. |
+| Multiple managers | Each manager has their own card. Any valid manager card works. |
+
+The card never logs anyone in. It is purely a credential token for one action.
+
+---
+
+### How the Card Works Technically
+
+**Card code format:** UUID-style unique string (e.g. `MGR-7f3a9c2b-4d1e-41f8-b2a0-9e6c5d8f1234`)
+
+**Storage:** `staff.auth_card_code` — unique, nullable, hashed or stored plaintext (local SQLite, so plaintext is acceptable — hash if deploying to cloud)
+
+**Physical card:** Manager goes to Settings → Staff → their profile → clicks "Generate Card" → system shows the code as a printable QR code and barcode. Print, laminate, done.
+
+**Scanner reads card:** The USB barcode scanner is already a keyboard wedge — it types the code into whatever input field is focused. The authorization modal auto-focuses the card input field the moment it opens. Cashier holds card to scanner → code typed instantly → authorization granted.
+
+**30-second timeout:** Visual countdown ring in the modal. If no scan or PIN entered, modal closes and the action is cancelled. Prevents leaving an open authorization prompt unattended.
+
+---
+
+### Audit Log — Full Picture
+
+Every authorized action writes:
+
+```
+{
+  action:              'remove_cart_item',
+  entity_type:         'cart_item',
+  entity_name:         'Steel Bar Y12 × 2',
+
+  performed_by_id:     3,
+  performed_by_name:   'Cashier Sarah',
+  performed_by_role:   'cashier',
+
+  authorized_by_id:    2,
+  authorized_by_name:  'Manager John',
+  authorized_by_role:  'manager',
+  auth_method:         'card',   -- or 'pin' or 'manager_login'
+
+  details:             { qty: 2, unit_price: 1250, line_total: 2500 },
+  created_at:          '2026-06-11T14:32:07'
+}
+```
+
+The cashier is always the **performer**. The manager is always the **authorizer**. These are two separate identity fields — never conflated.
+
+---
+
+### Actions That Require Authorization
+
+Configurable thresholds stored in Settings. Defaults:
+
+| Action | Requires auth? | Threshold |
+|---|---|---|
+| Remove item from cart | Always | — |
+| Item discount > X% | Yes | 10% (configurable) |
+| Cart-level discount > X% | Yes | 5% (configurable) |
+| Price override at POS | Always | — |
+| Void completed sale | Always | — |
+| Process return/refund | Always | — |
+| Open shift | Always (card or PIN) | — |
+| Apply account payment | No (by design — cashier can charge accounts) | — |
+
+---
+
+### Data Model Changes
+
+**Staff model — one new field:**
+```
+auth_card_code  VARCHAR(100)  UNIQUE, NULLABLE
+```
+
+**AuditLog model — new fields:**
+```
+authorized_by_id    INTEGER
+authorized_by_name  VARCHAR(100)
+authorized_by_role  VARCHAR(20)
+auth_method         VARCHAR(20)   -- 'card' | 'pin' | 'manager_login' | 'self'
+```
+
+**Shift model — new fields (from Phase 9C):**
+```
+opened_by_id    INTEGER
+opened_by_name  VARCHAR(100)
+auth_method     VARCHAR(20)
+```
+
+---
+
+### Backend Changes
+
+**New endpoint: `POST /api/auth/authorize`**
+```
+Body: { card_code? | pin?, action, context? }
+Returns: {
+  authorized: true,
+  authorizer: { id, name, role },
+  token: 'one-time-use-string',
+  expires_at: ISO timestamp (+30s)
+}
+```
+The token is a short-lived string stored in memory (or a DB table `auth_tokens`). Routes that need elevation check for a valid, unexpired, unused token. Token is marked used after first consumption.
+
+**Updated endpoints that accept a token:**
+- `DELETE /api/cart/items/:id` — remove item (accepts auth token)
+- `POST /api/sales/:id/void` — void sale
+- `POST /api/shifts/open` — open shift for cashier
+- `POST /api/returns` — process return
+
+---
+
+### Frontend Changes
+
+**`ManagerAuthModal` (replaces current `ManagerPinModal`):**
+- Two tabs: "Scan Card" | "Enter PIN"
+- Card tab: auto-focused barcode input (scanner types here), 30-second countdown ring
+- PIN tab: 4-digit PIN pad (existing ManagerPinModal logic)
+- On success: calls `onConfirm(authorizer)` with the manager's identity
+- Does NOT change session, does NOT navigate anywhere
+
+**Usage pattern (same everywhere):**
+```jsx
+{showAuth && (
+  <ManagerAuthModal
+    title="Remove item from cart"
+    context="Steel Bar Y12 × 2 — KES 2,500"
+    requiredRole="manager"
+    onConfirm={(authorizer) => removeItem(itemId, authorizer)}
+    onClose={() => setShowAuth(false)}
+  />
+)}
+```
+
+**Cashier gate on POS page:**
+- On mount, check for open shift assigned to this cashier
+- If none: show "No shift open" screen with card scan prompt
+- If found: proceed normally to POS
+
+---
+
+### Card Generation (Settings → Staff)
+
+- Staff edit page gets a "Generate Authorization Card" button (manager/admin only)
+- Click → backend generates UUID card code → returns QR + barcode display
+- Print dialog opens with a printable card layout: store name, staff name, role, QR code, barcode, expiry (optional)
+- "Revoke Card" button — clears `auth_card_code`, existing card immediately stops working
+
+---
+
+### Implementation Order
+
+1. **Staff model** — add `auth_card_code` + migration (15 min)
+2. **AuditLog model** — add `authorized_by_*` + `auth_method` fields + migration (15 min)
+3. **Backend** — `POST /api/auth/authorize` endpoint, auth token table, token verification (45 min)
+4. **Backend** — Card generation endpoint `POST /api/staff/:id/generate-card` (20 min)
+5. **Frontend** — `ManagerAuthModal` with card tab + PIN tab + countdown timer (1 hr)
+6. **Frontend** — Wire ManagerAuthModal into: POS item removal, POS discount override, sale void, return, shift open (1 hr)
+7. **Frontend** — Cashier gate on POS (no shift = card prompt to open one) (30 min)
+8. **Frontend** — Card generation UI in Settings → Staff (30 min)
+9. **Shift model** — `opened_by_*` + `auth_method` fields (15 min)
+10. **Reports** — Show `authorized_by` column in audit log (15 min)
+
+---
+
 ## Phase 10 — Barcode Scanner + Receipt Printer (Backlog)
 
 - USB HID barcode scanner (keyboard wedge — already works with the barcode input field)
