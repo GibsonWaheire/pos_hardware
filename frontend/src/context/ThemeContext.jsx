@@ -5,7 +5,7 @@ const STORAGE_KEY = 'pos_hw_theme'
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() =>
-    localStorage.getItem(STORAGE_KEY) || 'dark'
+    localStorage.getItem(STORAGE_KEY) || 'light'
   )
 
   useEffect(() => {

@@ -170,11 +170,17 @@ body {
   font-weight: 600;
 }
 
-.badge-green { background: #14532d; color: #4ade80; }
-.badge-red { background: #450a0a; color: #f87171; }
-.badge-yellow { background: #451a03; color: #fbbf24; }
-.badge-blue { background: #1e3a5f; color: #60a5fa; }
-.badge-orange { background: #431407; color: #fb923c; }
+.badge-green  { background: #dcfce7; color: #15803d; }
+.badge-red    { background: #fee2e2; color: #b91c1c; }
+.badge-yellow { background: #fef9c3; color: #92400e; }
+.badge-blue   { background: #dbeafe; color: #1d4ed8; }
+.badge-orange { background: #ffedd5; color: #c2410c; }
+
+[data-theme="dark"] .badge-green  { background: #14532d; color: #4ade80; }
+[data-theme="dark"] .badge-red    { background: #450a0a; color: #f87171; }
+[data-theme="dark"] .badge-yellow { background: #451a03; color: #fbbf24; }
+[data-theme="dark"] .badge-blue   { background: #1e3a5f; color: #60a5fa; }
+[data-theme="dark"] .badge-orange { background: #431407; color: #fb923c; }
 
 /* ── Modal ──────────────────────────────────────────────── */
 
@@ -234,24 +240,28 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 10px;
-  overflow-y: auto;
-  flex: 1;
+  align-content: start;   /* tiles sit at top — don't stretch to fill height */
 }
 
 .product-tile {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px 10px;
+  padding: 12px 10px;
   cursor: pointer;
   text-align: center;
   transition: border-color 0.15s, background 0.15s;
+  height: 108px;          /* fixed height — all tiles identical regardless of count */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .product-tile:hover { border-color: var(--accent); background: var(--surface2); }
-.product-tile .tile-name { font-size: 13px; font-weight: 500; margin-bottom: 6px; line-height: 1.3; }
-.product-tile .tile-price { font-size: 16px; font-weight: 700; color: var(--accent); }
-.product-tile .tile-stock { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.product-tile .tile-name { font-size: 12px; font-weight: 500; margin-bottom: 5px; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.product-tile .tile-price { font-size: 15px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+.product-tile .tile-stock { font-size: 11px; color: var(--text-muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .cart-header {
   padding: 16px;

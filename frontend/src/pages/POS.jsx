@@ -141,6 +141,10 @@ export default function POS() {
   }
 
   async function loadProducts(showSpinner = true, append = false) {
+    // Don't fetch if nothing to filter on — prompt is shown instead
+    if (!searchQuery.trim() && !selectedCategory && !append) {
+      setProducts([]); setHasMore(false); setLoading(false); return
+    }
     if (showSpinner && !append) setLoading(true)
     if (append) setLoadingMore(true)
     const params = { active: 'true', limit: PAGE_SIZE, offset: append ? products.length : 0 }
@@ -398,18 +402,11 @@ export default function POS() {
         {/* Category filter tabs */}
         {categories.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
-            <button
-              className={`btn btn-sm ${selectedCategory === '' ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setSelectedCategory('')}
-              style={{ borderRadius: 20, fontSize: 12 }}
-            >
-              All
-            </button>
             {categories.map(cat => (
               <button
                 key={cat.id}
                 className={`btn btn-sm ${selectedCategory === String(cat.id) ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setSelectedCategory(String(cat.id))}
+                onClick={() => setSelectedCategory(s => s === String(cat.id) ? '' : String(cat.id))}
                 style={{ borderRadius: 20, fontSize: 12 }}
               >
                 {cat.name}
@@ -419,15 +416,15 @@ export default function POS() {
         )}
 
         {/* Product grid */}
-        {loading ? (
+        {!searchQuery.trim() && !selectedCategory ? (
+          <div className="empty-state" style={{ paddingTop: 60 }}>
+            Select a category above or search for a product
+          </div>
+        ) : loading ? (
           <div className="empty-state">Loading products...</div>
         ) : products.length === 0 ? (
           <div className="empty-state">
-            {selectedCategory
-              ? 'No products in this category'
-              : searchQuery
-              ? 'No products match your search'
-              : 'No products found'}
+            {selectedCategory ? 'No products in this category' : 'No products match your search'}
           </div>
         ) : (
           <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 0 }}>
