@@ -11,6 +11,7 @@ export default function Inventory() {
   const [adjError, setAdjError] = useState('')
   const [adjSaving, setAdjSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [stockSearch, setStockSearch] = useState('')
 
   useEffect(() => { loadAll() }, [])
 
@@ -23,7 +24,16 @@ export default function Inventory() {
         getStockAdjustments({ limit: 100 }),
       ])
       setOverview(ov.data)
-      setProducts(sl.data)
+      // Sort: in-stock items first (recently updated first), out-of-stock last
+      const sorted = [...sl.data].sort((a, b) => {
+        const aOut = a.stock_qty === 0
+        const bOut = b.stock_qty === 0
+        if (aOut !== bOut) return aOut ? 1 : -1
+        // Within same group: most recently updated first (if field available)
+        if (a.updated_at && b.updated_at) return new Date(b.updated_at) - new Date(a.updated_at)
+        return 0
+      })
+      setProducts(sorted)
       setAdjustments(adj.data)
     } catch (e) {
       console.error(e)
@@ -89,13 +99,25 @@ export default function Inventory() {
         {loading ? (
           <div className="empty-state">Loading inventory...</div>
         ) : tab === 'stock' ? (
+          <div>
+            <input
+              className="input"
+              placeholder="Search product name or barcode..."
+              value={stockSearch}
+              onChange={e => setStockSearch(e.target.value)}
+              style={{ marginBottom: 12 }}
+            />
           <div className="card" style={{ padding: 0 }}>
             <table className="table">
               <thead>
                 <tr><th>Product</th><th>Barcode</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th></th></tr>
               </thead>
               <tbody>
-                {products.map(p => (
+                {products.filter(p => {
+                  if (!stockSearch.trim()) return true
+                  const q = stockSearch.toLowerCase()
+                  return p.name.toLowerCase().includes(q) || (p.barcode || '').toLowerCase().includes(q)
+                }).map(p => (
                   <tr key={p.id}>
                     <td style={{ fontWeight: 500 }}>{p.name}</td>
                     <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: 12 }}>{p.barcode || '—'}</td>
@@ -123,6 +145,7 @@ export default function Inventory() {
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
 
         ) : tab === 'alerts' ? (

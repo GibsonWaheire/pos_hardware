@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getProducts, getDailyTotals, getProductByBarcode, getProductByPlu, lookupCustomer, readScale, getCurrentShift, openShift } from '../api'
+import { getProducts, getDailyTotals, getProductByBarcode, getProductByPlu, lookupCustomer, readScale, getCurrentShift, openShift, getCategories, getAccountByCustomer } from '../api'
 import { useAuth } from '../context/AuthContext'
 import Cart from '../components/Cart'
 import BarcodeInput from '../components/BarcodeInput'
@@ -90,30 +90,72 @@ export default function POS() {
   const [weightInput, setWeightInput] = useState('')
   const [scaleBusy, setScaleBusy] = useState(false)
 
+  // Category filter + pagination
+  const [categories, setCategories] = useState([])
+  const [selectedCategory, setSelectedCategory] = useState('')
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [lastRefreshed, setLastRefreshed] = useState(null)
+
   // Customer / loyalty
   const [customer, setCustomer] = useState(null)
   const [customerQuery, setCustomerQuery] = useState('')
   const [customerLookupMsg, setCustomerLookupMsg] = useState('')
   const [redeemPoints, setRedeemPoints] = useState('')
   const [ageVerified, setAgeVerified] = useState(false)
+  const [customerAccount, setCustomerAccount] = useState(null)
 
-  // Load products and totals only once the shift gate is cleared
+  const PAGE_SIZE = 24
+
+  // Load products, categories and totals once shift gate is cleared
   useEffect(() => {
     if (shiftStatus !== 'open') return
+    loadCategories()
     loadProducts()
     loadDailyTotals()
   }, [shiftStatus])
 
-  // Re-filter when search changes (only after shift is open)
+  // Re-filter when search or category changes
   useEffect(() => {
     if (shiftStatus !== 'open') return
-    loadProducts(searchQuery)
-  }, [searchQuery])
+    loadProducts()
+  }, [searchQuery, selectedCategory]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadProducts(q = '') {
-    setLoading(true)
-    try { const res = await getProducts({ q, active: 'true' }); setProducts(res.data) }
-    catch (e) { console.error(e) } finally { setLoading(false) }
+  // Auto-refresh product catalog every 2 minutes (silent — no spinner)
+  useEffect(() => {
+    if (shiftStatus !== 'open') return
+    const id = setInterval(() => loadProducts(false), 120_000)
+    return () => clearInterval(id)
+  }, [shiftStatus, searchQuery, selectedCategory]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch linked account whenever a customer is selected / cleared
+  useEffect(() => {
+    if (!customer?.id) { setCustomerAccount(null); return }
+    getAccountByCustomer(customer.id)
+      .then(r => setCustomerAccount(r.data))
+      .catch(() => setCustomerAccount(null))
+  }, [customer?.id])
+
+  async function loadCategories() {
+    try { const res = await getCategories(); setCategories(res.data) } catch {}
+  }
+
+  async function loadProducts(showSpinner = true, append = false) {
+    if (showSpinner && !append) setLoading(true)
+    if (append) setLoadingMore(true)
+    const params = { active: 'true', limit: PAGE_SIZE, offset: append ? products.length : 0 }
+    if (searchQuery.trim()) params.q = searchQuery.trim()
+    if (selectedCategory) params.category_id = selectedCategory
+    try {
+      const res = await getProducts(params)
+      const data = res.data
+      if (append) setProducts(prev => [...prev, ...data])
+      else setProducts(data)
+      setHasMore(data.length === PAGE_SIZE)
+      setLastRefreshed(new Date())
+    }
+    catch (e) { console.error(e) }
+    finally { setLoading(false); setLoadingMore(false) }
   }
 
   async function loadDailyTotals() {
@@ -206,6 +248,7 @@ export default function POS() {
   const clearCart = useCallback(() => {
     setCartItems([])
     setCustomer(null)
+    setCustomerAccount(null)
     setRedeemPoints('')
     setAgeVerified(false)
   }, [])
@@ -311,6 +354,11 @@ export default function POS() {
                 Today: {dailyTotals.transaction_count} sales · KES {dailyTotals.total_revenue.toFixed(2)}
               </span>
             )}
+            {lastRefreshed && (
+              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                Updated {Math.round((Date.now() - lastRefreshed) / 60000) || '<1'} min ago
+              </span>
+            )}
             <button
               className={`btn btn-sm ${priceCheckMode ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => { setPriceCheckMode(m => !m); setPriceCheckResult(null) }}
@@ -347,32 +395,81 @@ export default function POS() {
         <input className="input" placeholder="Search products..." value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)} style={{ flexShrink: 0 }} />
 
+        {/* Category filter tabs */}
+        {categories.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
+            <button
+              className={`btn btn-sm ${selectedCategory === '' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setSelectedCategory('')}
+              style={{ borderRadius: 20, fontSize: 12 }}
+            >
+              All
+            </button>
+            {categories.map(cat => (
+              <button
+                key={cat.id}
+                className={`btn btn-sm ${selectedCategory === String(cat.id) ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setSelectedCategory(String(cat.id))}
+                style={{ borderRadius: 20, fontSize: 12 }}
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Product grid */}
         {loading ? (
           <div className="empty-state">Loading products...</div>
         ) : products.length === 0 ? (
-          <div className="empty-state">No products found</div>
+          <div className="empty-state">
+            {selectedCategory
+              ? 'No products in this category'
+              : searchQuery
+              ? 'No products match your search'
+              : 'No products found'}
+          </div>
         ) : (
-          <div className="product-grid">
-            {products.map(product => (
-              <div key={product.id} className="product-tile" onClick={() => addToCart(product)}
-                style={{ borderColor: product.age_restricted ? 'var(--warning)' : undefined }}
-                title={[product.barcode, product.plu_code && `PLU: ${product.plu_code}`].filter(Boolean).join(' · ')}>
-                <div className="tile-name">{product.name}</div>
-                {product.age_restricted && <div style={{ fontSize: 10, color: 'var(--warning)', marginBottom: 2 }}>⚠ {product.age_restriction_type?.toUpperCase()} {product.min_age}+</div>}
-                <div className="tile-price">
-                  KES {product.price.toFixed(2)}{product.is_weight_based && `/${product.weight_unit}`}
-                </div>
-                <div className="tile-stock">
-                  {product.plu_code && <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>PLU:{product.plu_code}</span>}
-                  {product.stock_qty === 0
-                    ? <span style={{ color: 'var(--danger)' }}>Out of stock</span>
-                    : product.stock_qty <= product.low_stock_threshold
-                    ? <span style={{ color: 'var(--warning)' }}>Low ({product.stock_qty})</span>
-                    : <span>{product.stock_qty}</span>}
-                </div>
+          <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <div className="product-grid">
+              {products.map(product => {
+                const unit = product.is_weight_based
+                  ? product.weight_unit || 'kg'
+                  : product.weight_unit || 'pc'
+                return (
+                  <div key={product.id} className="product-tile" onClick={() => addToCart(product)}
+                    style={{ borderColor: product.age_restricted ? 'var(--warning)' : undefined }}
+                    title={[product.barcode, product.plu_code && `PLU: ${product.plu_code}`].filter(Boolean).join(' · ')}>
+                    <div className="tile-name">{product.name}</div>
+                    {product.age_restricted && <div style={{ fontSize: 10, color: 'var(--warning)', marginBottom: 2 }}>⚠ {product.age_restriction_type?.toUpperCase()} {product.min_age}+</div>}
+                    <div className="tile-price">
+                      KES {product.price.toFixed(2)}
+                      <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 2 }}>/{unit}</span>
+                    </div>
+                    <div className="tile-stock">
+                      {product.plu_code && <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>PLU:{product.plu_code}</span>}
+                      {product.stock_qty === 0
+                        ? <span style={{ color: 'var(--danger)' }}>Out of stock</span>
+                        : product.stock_qty <= product.low_stock_threshold
+                        ? <span style={{ color: 'var(--warning)' }}>Low ({product.stock_qty} {unit})</span>
+                        : <span>{product.stock_qty} {unit}</span>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {hasMore && (
+              <div style={{ textAlign: 'center', padding: '12px 0', flexShrink: 0 }}>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => loadProducts(true, true)}
+                  disabled={loadingMore}
+                  style={{ minWidth: 160 }}
+                >
+                  {loadingMore ? 'Loading...' : `Load more products`}
+                </button>
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
@@ -389,16 +486,34 @@ export default function POS() {
         {/* Customer / loyalty panel */}
         <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           {customer ? (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{customer.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  {customer.tier_name && <span style={{ color: customer.tier_color, marginRight: 6 }}>{customer.tier_name}</span>}
-                  {customer.loyalty_points.toLocaleString()} pts
-                  {customer.tier_discount_percent > 0 && <span style={{ color: 'var(--success)', marginLeft: 6 }}>−{customer.tier_discount_percent}%</span>}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{customer.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {customer.tier_name && <span style={{ color: customer.tier_color, marginRight: 6 }}>{customer.tier_name}</span>}
+                    {customer.loyalty_points.toLocaleString()} pts
+                    {customer.tier_discount_percent > 0 && <span style={{ color: 'var(--success)', marginLeft: 6 }}>−{customer.tier_discount_percent}%</span>}
+                  </div>
                 </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => { setCustomer(null); setRedeemPoints('') }}>✕</button>
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => { setCustomer(null); setRedeemPoints('') }}>✕</button>
+              {customerAccount != null && (
+                <div style={{ marginTop: 6, padding: '5px 8px', borderRadius: 6, background: 'var(--surface2)', fontSize: 11, display: 'flex', gap: 12, alignItems: 'center' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Account:</span>
+                  <span style={{ fontWeight: 700, color: customerAccount.balance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                    KES {Number(customerAccount.balance).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
+                  </span>
+                  {customerAccount.credit_limit > 0 && (
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      · Available: KES {Number(customerAccount.balance + customerAccount.credit_limit).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
+                    </span>
+                  )}
+                  {customerAccount.balance < 0 && (
+                    <span className="badge badge-red" style={{ fontSize: 9 }}>OWES</span>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 6 }}>

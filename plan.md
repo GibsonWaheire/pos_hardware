@@ -49,6 +49,42 @@
 - Manager cloud dashboard: view all branches
 - Stock transfer between branches
 
+### Phase 13 — POS UX, Inventory Order & Customer Account Refinements
+
+#### 13A — POS Product Grid: Category Filter + Pagination
+- Category filter tabs above product grid — cashier picks a category first instead of scrolling 20,000 items
+- Paginated loading: 24 products per page, "Load more" button at bottom of grid
+- Backend: `GET /api/products` should accept `category_id`, `limit`, `offset` params
+- Auto-refresh product catalog every 2 minutes (silent, no spinner) so cashiers always see the latest prices/stock without reloading
+- "Updated X min ago" timestamp shown in status bar
+
+#### 13B — Unit-Aware Product Display
+- Every product tile shows its sale unit: `/kg`, `/pcs`, `/bag`, `/box`, etc.
+- Weight-based items (nails, wire, etc.) use `weight_unit` from the product record (already tracked)
+- Piece-based items default to `/pc` when no unit is set
+- Managers can set `weight_unit` on any product (not just weight-based ones) to express bags, boxes, rolls, etc.
+- Weight entry modal already handles kg-based items — no change needed there
+
+#### 13C — Inventory Listing Sort Order
+- Stock list sorted: **in-stock items first** (sorted by `updated_at` desc so recently-updated products surface at top), **out-of-stock items pushed to bottom**
+- Inventory page gains a search/filter input for the stock tab
+- Goal: manager updating a product's price sees it bubble to the top immediately
+
+#### 13D — Customer Account Integration at POS
+- When cashier selects a customer (loyalty lookup), their linked account balance is **auto-fetched and displayed** in the customer panel
+- Shows: balance, available credit (balance + credit_limit), "OWES" badge if negative
+- "🏦 Account" payment button auto-populates the account search with the selected customer
+- **Advance payment flow**: customer deposits funds to their account (via Accounts page), returns later to pick items — cashier selects customer, pays via Account, balance is deducted and recorded in account transaction history
+- **Credit/debt flow**: customers with a premium account (credit_limit > 0) can take goods on credit; balance goes negative up to the credit limit; balance + credit_limit shown as "Available"
+- Account charge recorded automatically when sale completes with payment_method = 'account'
+- All of this already works end-to-end — Phase 13D improves the **cashier UX** to surface account info without requiring them to open the Accounts page
+
+#### 13E — Manager → Cashier Real-Time Product Sync
+- When a manager edits a product (price, stock, name, category) via the Products or Inventory page, the change persists in the DB immediately
+- POS auto-refresh (13A) picks it up within 2 minutes with no action from the cashier
+- No WebSocket needed — polling is sufficient for this use case
+- Future: push notification via SSE if sub-minute latency is required (Phase 14 candidate)
+
 ---
 
 ## Known Gaps / Tech Debt
@@ -57,6 +93,7 @@
 - Receipt printing uses env vars as fallback — ensure `.env` is populated on deployment
 - `python-escpos` and `pyserial` must be installed manually: `pip install python-escpos pyserial`
 - Stripe Terminal requires `STRIPE_SECRET_KEY` in `.env`
+- Backend `GET /api/products` needs `limit`, `offset`, `category_id` query params added (required for Phase 13A pagination)
 
 ---
 
