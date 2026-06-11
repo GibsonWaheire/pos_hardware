@@ -496,6 +496,33 @@ class VoidLog(db.Model):
         }
 
 
+# ── Phase 5 Models ─────────────────────────────────────────────────────────────
+
+class Store(db.Model):
+    """Store / location configuration — one row per installation."""
+    __tablename__ = 'stores'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), default='My Store')
+    address = db.Column(db.Text)
+    phone = db.Column(db.String(30))
+    email = db.Column(db.String(100))
+    currency = db.Column(db.String(10), default='USD')
+    timezone = db.Column(db.String(50), default='UTC')
+    tax_number = db.Column(db.String(50))
+    receipt_header = db.Column(db.Text)   # custom text above items
+    receipt_footer = db.Column(db.Text)   # custom text below totals
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'name': self.name, 'address': self.address,
+            'phone': self.phone, 'email': self.email, 'currency': self.currency,
+            'timezone': self.timezone, 'tax_number': self.tax_number,
+            'receipt_header': self.receipt_header, 'receipt_footer': self.receipt_footer,
+        }
+
+
 # ── Phase 4 Models ─────────────────────────────────────────────────────────────
 
 class ServiceCategory(db.Model):

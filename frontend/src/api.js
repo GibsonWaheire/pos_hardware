@@ -140,4 +140,20 @@ export const updateAppointmentStatus = (id, status) => api.post(`/appointments/$
 export const deleteAppointment = (id) => api.delete(`/appointments/${id}`)
 export const getClientAppointments = (clientId) => api.get(`/appointments/by-client/${clientId}`)
 
+// Dashboard (Phase 5)
+export const getDashboard = () => api.get('/dashboard')
+
+// Extended Reports (Phase 5)
+export const getReportByCashier = (params) => api.get('/reports/by-cashier', { params })
+export const getReportByCategory = (params) => api.get('/reports/by-category', { params })
+export const getInventoryReport = () => api.get('/reports/inventory')
+export const getExportCsvUrl = (params) => {
+  const q = new URLSearchParams(params).toString()
+  return `/api/reports/export/csv?${q}`
+}
+
+// Store config (Phase 5)
+export const getStoreConfig = () => api.get('/stores/config')
+export const updateStoreConfig = (data) => api.put('/stores/config', data)
+
 export default api

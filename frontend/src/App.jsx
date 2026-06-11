@@ -13,9 +13,11 @@ import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import Appointments from './pages/Appointments'
 import Services from './pages/Services'
+import Dashboard from './pages/Dashboard'
 
 const NAV = [
   { to: '/',               label: 'Checkout',     icon: '🛒', end: true },
+  { to: '/dashboard',      label: 'Dashboard',    icon: '📊' },
   { to: '/appointments',   label: 'Appointments', icon: '📅' },
   { to: '/services',       label: 'Services',     icon: '✂️' },
   { to: '/products',       label: 'Products',     icon: '📦' },
@@ -27,7 +29,7 @@ const NAV = [
   { to: '/customers',      label: 'Customers',    icon: '👤' },
   { to: '/loyalty',        label: 'Loyalty',      icon: '⭐' },
   { to: '/terminals',      label: 'Terminals',    icon: '🖥️' },
-  { to: '/reports',        label: 'Reports',      icon: '📊' },
+  { to: '/reports',        label: 'Reports',      icon: '📈' },
   { to: '/settings',       label: 'Settings',     icon: '⚙️' },
 ]
 
@@ -62,6 +64,7 @@ export default function App() {
             <Route path="/settings"        element={<Settings />} />
             <Route path="/appointments"    element={<Appointments />} />
             <Route path="/services"        element={<Services />} />
+            <Route path="/dashboard"       element={<Dashboard />} />
           </Routes>
         </main>
       </div>

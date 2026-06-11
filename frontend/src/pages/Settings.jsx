@@ -1,24 +1,38 @@
 import { useState, useEffect } from 'react'
-import { getStaff, createStaff, updateStaff } from '../api'
+import { getStaff, createStaff, updateStaff, getStoreConfig, updateStoreConfig } from '../api'
 
 const EMPTY_STAFF = { name: '', pin: '', role: 'cashier' }
+const EMPTY_STORE = { name: '', address: '', phone: '', email: '', currency: 'USD', timezone: 'UTC', tax_number: '', receipt_header: '', receipt_footer: '' }
 
 export default function Settings() {
   const [staff, setStaff] = useState([])
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState(EMPTY_STAFF)
+  const [storeForm, setStoreForm] = useState(EMPTY_STORE)
+  const [storeSaving, setStoreSaving] = useState(false)
+  const [storeMsg, setStoreMsg] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => { loadStaff() }, [])
+  useEffect(() => { loadStaff(); loadStore() }, [])
 
   async function loadStaff() {
+    try { const res = await getStaff(); setStaff(res.data) }
+    catch (e) { console.error(e) }
+  }
+
+  async function loadStore() {
+    try { const res = await getStoreConfig(); setStoreForm({ ...EMPTY_STORE, ...res.data }) }
+    catch (e) { console.error(e) }
+  }
+
+  async function saveStore() {
+    setStoreSaving(true); setStoreMsg('')
     try {
-      const res = await getStaff()
-      setStaff(res.data)
-    } catch (e) {
-      console.error(e)
-    }
+      await updateStoreConfig(storeForm)
+      setStoreMsg('Store settings saved')
+      setTimeout(() => setStoreMsg(''), 3000)
+    } catch (e) { setStoreMsg(e.message) } finally { setStoreSaving(false) }
   }
 
   async function handleSave() {
@@ -88,6 +102,72 @@ export default function Settings() {
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Store Configuration */}
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12, marginTop: 8 }}>Store Configuration</div>
+        <div className="card" style={{ marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="label">Store Name</label>
+              <input className="input" value={storeForm.name} onChange={e => setStoreForm({ ...storeForm, name: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="label">Phone</label>
+              <input className="input" value={storeForm.phone} onChange={e => setStoreForm({ ...storeForm, phone: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="label">Email</label>
+              <input className="input" type="email" value={storeForm.email} onChange={e => setStoreForm({ ...storeForm, email: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="label">Tax / VAT Number</label>
+              <input className="input" value={storeForm.tax_number} onChange={e => setStoreForm({ ...storeForm, tax_number: e.target.value })} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="label">Address</label>
+            <input className="input" value={storeForm.address} onChange={e => setStoreForm({ ...storeForm, address: e.target.value })} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="label">Currency</label>
+              <select className="input" value={storeForm.currency} onChange={e => setStoreForm({ ...storeForm, currency: e.target.value })}>
+                <option value="USD">USD ($)</option>
+                <option value="KES">KES (KSh)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="GBP">GBP (£)</option>
+                <option value="ZAR">ZAR (R)</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="label">Timezone</label>
+              <select className="input" value={storeForm.timezone} onChange={e => setStoreForm({ ...storeForm, timezone: e.target.value })}>
+                <option value="UTC">UTC</option>
+                <option value="Africa/Nairobi">Africa/Nairobi</option>
+                <option value="America/New_York">US Eastern</option>
+                <option value="America/Chicago">US Central</option>
+                <option value="America/Los_Angeles">US Pacific</option>
+                <option value="Europe/London">Europe/London</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="label">Receipt Header</label>
+              <input className="input" placeholder="e.g. Thank you for visiting!" value={storeForm.receipt_header} onChange={e => setStoreForm({ ...storeForm, receipt_header: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="label">Receipt Footer</label>
+              <input className="input" placeholder="e.g. No refunds after 7 days" value={storeForm.receipt_footer} onChange={e => setStoreForm({ ...storeForm, receipt_footer: e.target.value })} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginTop: 4 }}>
+            {storeMsg && <span style={{ fontSize: 13, color: storeMsg.includes('saved') ? 'var(--success)' : 'var(--danger)' }}>{storeMsg}</span>}
+            <button className="btn btn-primary" onClick={saveStore} disabled={storeSaving}>
+              {storeSaving ? 'Saving...' : 'Save Store Settings'}
+            </button>
+          </div>
         </div>
 
         {/* Hardware Status */}
