@@ -9,10 +9,30 @@ from db import db
 from models import Category, Product, Staff
 
 
+def _add_column_if_missing(conn, table, column, definition):
+    """SQLite-safe ALTER TABLE ADD COLUMN — silently skips if column exists."""
+    try:
+        conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+        print(f"  Added column {table}.{column}")
+    except Exception:
+        pass  # column already exists
+
+
 def init_db():
     with app.app_context():
         db.create_all()
         print("Tables created.")
+
+        # Phase 7 column migrations (safe to run on existing DBs)
+        conn = db.engine.raw_connection()
+        try:
+            _add_column_if_missing(conn, 'sales', 'mpesa_ref', 'VARCHAR(50)')
+            _add_column_if_missing(conn, 'sales', 'account_id', 'INTEGER REFERENCES customer_accounts(id)')
+            _add_column_if_missing(conn, 'sales', 'account_balance_before', 'FLOAT')
+            _add_column_if_missing(conn, 'sales', 'account_balance_after', 'FLOAT')
+            conn.commit()
+        finally:
+            conn.close()
 
         # Seed default categories if none exist
         if Category.query.count() == 0:

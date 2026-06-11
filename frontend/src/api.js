@@ -156,6 +156,16 @@ export const getExportCsvUrl = (params) => {
 export const getStoreConfig = () => api.get('/stores/config')
 export const updateStoreConfig = (data) => api.put('/stores/config', data)
 
+// Customer Accounts / Deposit Accounts (Phase 7)
+export const getAccounts = (params) => api.get('/accounts', { params })
+export const getAccount = (id) => api.get(`/accounts/${id}`)
+export const createAccount = (data) => api.post('/accounts', data)
+export const updateAccount = (id, data) => api.put(`/accounts/${id}`, data)
+export const depositToAccount = (id, data) => api.post(`/accounts/${id}/deposit`, data)
+export const adjustAccount = (id, data) => api.post(`/accounts/${id}/adjust`, data)
+export const lookupAccount = (q) => api.get('/accounts/lookup', { params: { q } })
+export const getAccountByCustomer = (customerId) => api.get(`/accounts/by-customer/${customerId}`)
+
 // Cloud Sync (Phase 6)
 export const getSyncStatus = () => api.get('/sync/status')
 export const runSync = () => api.post('/sync/run-sync')   // blocking — returns result

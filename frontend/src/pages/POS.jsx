@@ -512,6 +512,13 @@ export default function POS() {
             onClick={() => setPaymentOpen('cash')}>💵 Cash</button>
           <button className="btn btn-primary btn-lg" disabled={cartItems.length === 0 || (hasAgeRestricted && !ageVerified)}
             onClick={() => setPaymentOpen('card')}>💳 Card</button>
+          <button className="btn btn-ghost btn-lg" disabled={cartItems.length === 0 || (hasAgeRestricted && !ageVerified)}
+            onClick={() => setPaymentOpen('mpesa')}
+            style={{ background: '#4caf50', color: '#fff', border: 'none' }}>📱 M-Pesa</button>
+          <button className="btn btn-ghost btn-lg"
+            disabled={cartItems.length === 0 || (hasAgeRestricted && !ageVerified)}
+            onClick={() => setPaymentOpen('account')}
+            style={{ background: 'var(--accent)', color: '#fff', border: 'none', opacity: 0.9 }}>🏦 Account</button>
           <button className="btn btn-ghost btn-lg" style={{ gridColumn: 'span 2' }}
             disabled={cartItems.length === 0 || (hasAgeRestricted && !ageVerified)}
             onClick={() => setPaymentOpen('split')}>✂️ Split Payment</button>

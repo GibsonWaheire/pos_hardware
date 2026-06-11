@@ -116,6 +116,12 @@ class Sale(db.Model):
     # Phase 6 — cloud sync tracking
     cloud_synced_at = db.Column(db.DateTime, nullable=True)
 
+    # Phase 7 — M-Pesa and customer account (deposit/credit)
+    mpesa_ref = db.Column(db.String(50))            # M-Pesa confirmation code
+    account_id = db.Column(db.Integer, db.ForeignKey('customer_accounts.id'), nullable=True)
+    account_balance_before = db.Column(db.Float)   # balance before this charge
+    account_balance_after = db.Column(db.Float)    # balance after this charge
+
     items = db.relationship('SaleItem', backref='sale', lazy=True, cascade='all, delete-orphan')
     returns = db.relationship('Return', backref='original_sale', lazy=True)
 
@@ -136,6 +142,10 @@ class Sale(db.Model):
             'tip_amount': self.tip_amount, 'tip_method': self.tip_method,
             'tip_staff_name': self.tip_staff_name,
             'appointment_id': self.appointment_id,
+            'mpesa_ref': self.mpesa_ref,
+            'account_id': self.account_id,
+            'account_balance_before': self.account_balance_before,
+            'account_balance_after': self.account_balance_after,
             'status': self.status, 'offline_id': self.offline_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'items': [i.to_dict() for i in self.items],
@@ -547,6 +557,85 @@ class SyncLog(db.Model):
             'inventory_synced': self.inventory_synced,
             'status': self.status,
             'error_message': self.error_message,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ── Phase 7 Models ─────────────────────────────────────────────────────────────
+
+class CustomerAccount(db.Model):
+    """
+    Prepaid deposit account for a customer (common in Kenyan hardware stores).
+    Customer deposits a lump sum in advance; items are charged against the balance.
+    Balance can go negative (debt) up to credit_limit.
+    """
+    __tablename__ = 'customer_accounts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), unique=True, nullable=True)
+    customer_name = db.Column(db.String(100), nullable=False)
+    customer_phone = db.Column(db.String(30))
+    balance = db.Column(db.Float, default=0.0)          # positive = credit, negative = owes
+    total_deposited = db.Column(db.Float, default=0.0)
+    total_charged = db.Column(db.Float, default=0.0)
+    credit_limit = db.Column(db.Float, default=0.0)     # max allowed negative balance (0 = no credit line)
+    is_active = db.Column(db.Boolean, default=True)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    transactions = db.relationship('AccountTransaction', backref='account', lazy=True,
+                                   cascade='all, delete-orphan', order_by='AccountTransaction.created_at')
+    sales = db.relationship('Sale', backref='account', lazy=True, foreign_keys='Sale.account_id')
+
+    def to_dict(self, include_transactions=False):
+        d = {
+            'id': self.id,
+            'customer_id': self.customer_id,
+            'customer_name': self.customer_name,
+            'customer_phone': self.customer_phone,
+            'balance': round(self.balance, 2),
+            'total_deposited': round(self.total_deposited, 2),
+            'total_charged': round(self.total_charged, 2),
+            'credit_limit': round(self.credit_limit, 2),
+            'is_active': self.is_active,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+        if include_transactions:
+            d['transactions'] = [t.to_dict() for t in self.transactions]
+        return d
+
+
+class AccountTransaction(db.Model):
+    """Every credit or debit on a customer account."""
+    __tablename__ = 'account_transactions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('customer_accounts.id'), nullable=False)
+    type = db.Column(db.String(20), nullable=False)   # deposit | charge | refund | adjustment
+    amount = db.Column(db.Float, nullable=False)       # positive = money in, negative = money out
+    balance_after = db.Column(db.Float, nullable=False)
+    sale_id = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=True)
+    receipt_number = db.Column(db.String(30))          # DEP-YYYYMMDD-XXXX for deposits
+    payment_method = db.Column(db.String(20))          # cash | mpesa | card (for deposits)
+    mpesa_ref = db.Column(db.String(50))               # M-Pesa confirmation code
+    cashier_name = db.Column(db.String(100))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'account_id': self.account_id,
+            'type': self.type,
+            'amount': round(self.amount, 2),
+            'balance_after': round(self.balance_after, 2),
+            'sale_id': self.sale_id,
+            'receipt_number': self.receipt_number,
+            'payment_method': self.payment_method,
+            'mpesa_ref': self.mpesa_ref,
+            'cashier_name': self.cashier_name,
+            'notes': self.notes,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

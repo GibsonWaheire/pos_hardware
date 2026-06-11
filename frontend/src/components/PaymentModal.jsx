@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react'
-import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent } from '../api'
+import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount } from '../api'
 
 // Simple UUID — crypto.randomUUID() works in modern browsers
 function newUUID() {
@@ -32,8 +32,15 @@ export default function PaymentModal({
   const [cardStatus, setCardStatus] = useState('')  // '' | 'creating' | 'waiting' | 'capturing' | 'done' | 'error'
   const [cardIntentId, setCardIntentId] = useState(null)
   const [splitCash, setSplitCash] = useState('')
+  const [mpesaRef, setMpesaRef] = useState('')
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
+
+  // Account (deposit) payment state
+  const [acctQuery, setAcctQuery] = useState('')
+  const [acctResults, setAcctResults] = useState([])
+  const [selectedAcct, setSelectedAcct] = useState(null)
+  const [acctSearching, setAcctSearching] = useState(false)
 
   const grandTotal = total + tipAmount
 
@@ -70,6 +77,53 @@ export default function PaymentModal({
       age_verified: ageVerified || false,
       offline_id: newUUID(),
       ...overrides,
+    }
+  }
+
+  // ── M-Pesa payment ───────────────────────────────────────────────────────
+
+  async function handleMpesaPay() {
+    if (!mpesaRef.trim()) { setError('Enter M-Pesa confirmation code'); return }
+    setProcessing(true)
+    setError('')
+    try {
+      const res = await createSale(buildPayload({ payment_method: 'mpesa', mpesa_ref: mpesaRef.trim() }))
+      onComplete(res.data)
+    } catch (e) {
+      setError(e.message)
+      setProcessing(false)
+    }
+  }
+
+  // ── Account (deposit) payment ─────────────────────────────────────────────
+
+  async function handleAcctSearch(q) {
+    setAcctQuery(q)
+    setSelectedAcct(null)
+    if (!q.trim()) { setAcctResults([]); return }
+    setAcctSearching(true)
+    try {
+      const r = await lookupAccount(q)
+      setAcctResults(r.data)
+    } catch (e) { setError(e.message) }
+    finally { setAcctSearching(false) }
+  }
+
+  async function handleAccountPay() {
+    if (!selectedAcct) { setError('Select an account first'); return }
+    const available = selectedAcct.balance + selectedAcct.credit_limit
+    if (grandTotal > available) {
+      setError(`Insufficient balance. Available: KES ${available.toLocaleString('en-KE', {minimumFractionDigits:2})}, Required: KES ${grandTotal.toLocaleString('en-KE', {minimumFractionDigits:2})}`)
+      return
+    }
+    setProcessing(true)
+    setError('')
+    try {
+      const res = await createSale(buildPayload({ payment_method: 'account', account_id: selectedAcct.id }))
+      onComplete(res.data)
+    } catch (e) {
+      setError(e.message)
+      setProcessing(false)
     }
   }
 
@@ -216,6 +270,7 @@ export default function PaymentModal({
           {tipStep ? 'Add a Tip?'
             : method === 'cash' ? '💵 Cash Payment'
             : method === 'card' ? '💳 Card Payment'
+            : method === 'account' ? '🏦 Account Payment'
             : '✂️ Split Payment'}
         </div>
 
@@ -371,6 +426,115 @@ export default function PaymentModal({
                 <button className="btn btn-ghost btn-lg" style={{ width: '100%' }} onClick={handleCardCancel}>Try Again</button>
               </>
             )}
+          </>
+        )}
+
+        {/* ── M-Pesa ── */}
+        {method === 'mpesa' && (
+          <>
+            <div style={{ textAlign: 'center', padding: '12px 0 8px' }}>
+              <div style={{ fontSize: 42, marginBottom: 8 }}>📱</div>
+              <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>
+                KES {grandTotal.toLocaleString('en-KE', { minimumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                Customer sends via M-Pesa, then enter the confirmation code below.
+              </div>
+            </div>
+            <div style={{ marginTop: 16, marginBottom: 16 }}>
+              <label className="label">M-Pesa Confirmation Code</label>
+              <input className="input"
+                value={mpesaRef}
+                onChange={e => setMpesaRef(e.target.value.toUpperCase())}
+                placeholder="e.g. QJK8LPZ3A4"
+                style={{ fontFamily: 'monospace', fontSize: 18, letterSpacing: 2, textAlign: 'center' }}
+                autoFocus
+              />
+            </div>
+            {error && <p className="error-msg">{error}</p>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onClose} disabled={processing}>Cancel</button>
+              <button className="btn btn-success btn-lg" style={{ flex: 2 }} onClick={handleMpesaPay}
+                disabled={processing || !mpesaRef.trim()}>
+                {processing ? 'Processing...' : 'Confirm Payment'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Account (deposit) ── */}
+        {method === 'account' && (
+          <>
+            <label className="label">Search Customer Account</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input className="input" placeholder="Name or phone..."
+                value={acctQuery}
+                onChange={e => handleAcctSearch(e.target.value)}
+                autoFocus />
+            </div>
+            {acctSearching && <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>Searching...</div>}
+            {acctResults.length > 0 && !selectedAcct && (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, marginBottom: 12, overflow: 'hidden' }}>
+                {acctResults.map(a => (
+                  <div key={a.id}
+                    onClick={() => { setSelectedAcct(a); setAcctResults([]); setAcctQuery(a.customer_name) }}
+                    style={{
+                      padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    }}
+                    onMouseOver={e => e.currentTarget.style.background = 'var(--surface2)'}
+                    onMouseOut={e => e.currentTarget.style.background = ''}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{a.customer_name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{a.customer_phone || 'No phone'}</div>
+                    </div>
+                    <div style={{ fontWeight: 700, color: a.balance >= 0 ? 'var(--success)' : 'var(--danger)', fontSize: 14 }}>
+                      KES {Number(a.balance).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {selectedAcct && (
+              <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{selectedAcct.customer_name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selectedAcct.customer_phone || ''}</div>
+                  </div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setSelectedAcct(null); setAcctQuery('') }}>Change</button>
+                </div>
+                <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>Current Balance</div>
+                    <div style={{ fontWeight: 700, color: selectedAcct.balance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      KES {Number(selectedAcct.balance).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>After This Sale</div>
+                    <div style={{ fontWeight: 700, color: (selectedAcct.balance - grandTotal) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      KES {(selectedAcct.balance - grandTotal).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                </div>
+                {selectedAcct.credit_limit > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+                    Credit limit: KES {Number(selectedAcct.credit_limit).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
+                  </div>
+                )}
+              </div>
+            )}
+            {error && <p className="error-msg">{error}</p>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onClose} disabled={processing}>Cancel</button>
+              <button className="btn btn-primary btn-lg" style={{ flex: 2 }}
+                onClick={handleAccountPay}
+                disabled={processing || !selectedAcct}>
+                {processing ? 'Processing...' : `Charge KES ${grandTotal.toLocaleString('en-KE', { minimumFractionDigits: 2 })}`}
+              </button>
+            </div>
           </>
         )}
 

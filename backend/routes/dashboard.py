@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify
 from db import db
-from models import Sale, SaleItem, Customer, Appointment
+from models import Sale, SaleItem, Customer, Product, PurchaseOrder, CustomerAccount
 from datetime import datetime, date, timedelta
 from sqlalchemy import func
 
@@ -41,12 +41,28 @@ def dashboard():
         Customer.created_at <= today_end,
     ).count()
 
-    # Open appointments today
-    open_appointments = Appointment.query.filter(
-        Appointment.start_time >= today_start,
-        Appointment.start_time <= today_end,
-        Appointment.status.in_(['scheduled', 'confirmed', 'checked_in', 'in_progress']),
+    # Low stock products
+    low_stock_count = Product.query.filter(
+        Product.is_active == True,
+        Product.stock_qty <= Product.low_stock_threshold,
+        Product.stock_qty > 0,
     ).count()
+    out_of_stock_count = Product.query.filter(
+        Product.is_active == True,
+        Product.stock_qty == 0,
+    ).count()
+
+    # Pending purchase orders
+    pending_po_count = PurchaseOrder.query.filter(
+        PurchaseOrder.status.in_(['draft', 'ordered'])
+    ).count()
+
+    # Customer accounts overview
+    accounts = CustomerAccount.query.filter_by(is_active=True).all()
+    total_account_balance = sum(a.balance for a in accounts)
+    accounts_in_debt = sum(1 for a in accounts if a.balance < 0)
+    total_debt = sum(-a.balance for a in accounts if a.balance < 0)
+    total_credit = sum(a.balance for a in accounts if a.balance > 0)
 
     # Hourly breakdown (today, hours 0-23)
     today_sales = Sale.query.filter(
@@ -114,11 +130,25 @@ def dashboard():
     payment_split = [{'method': r[0], 'count': r[1], 'total': round(float(r[2] or 0), 2)} for r in payment_rows]
 
     return jsonify({
-        'today': {**today_stats, 'new_customers': new_customers, 'open_appointments': open_appointments},
+        'today': {**today_stats, 'new_customers': new_customers},
         'week': week_stats,
         'month': month_stats,
         'hourly': hourly_list,
         'daily_trend': daily_trend,
         'top_items': top_items,
         'payment_split': payment_split,
+        'inventory': {
+            'low_stock': low_stock_count,
+            'out_of_stock': out_of_stock_count,
+        },
+        'purchase_orders': {
+            'pending': pending_po_count,
+        },
+        'accounts': {
+            'count': len(accounts),
+            'total_balance': round(total_account_balance, 2),
+            'total_credit': round(total_credit, 2),
+            'total_debt': round(total_debt, 2),
+            'accounts_in_debt': accounts_in_debt,
+        },
     })

@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from db import db
-from models import Sale, SaleItem, Product, OfflineQueue
+from models import Sale, SaleItem, Product, OfflineQueue, CustomerAccount, AccountTransaction
 from datetime import datetime, date
 from hardware.printer import print_receipt
 from hardware.cash_drawer import open_drawer
@@ -41,8 +41,8 @@ def create_sale():
         return jsonify({'error': 'Sale must have at least one item'}), 400
 
     payment_method = data.get('payment_method', 'cash')
-    if payment_method not in ('cash', 'card', 'split'):
-        return jsonify({'error': 'payment_method must be cash, card, or split'}), 400
+    if payment_method not in ('cash', 'card', 'split', 'mpesa', 'account'):
+        return jsonify({'error': 'payment_method must be cash, card, split, mpesa, or account'}), 400
 
     # Build sale items and deduct stock
     sale_items = []
@@ -86,6 +86,28 @@ def create_sale():
 
     total = round(subtotal - discount_total + tax_amount, 2)
 
+    # Phase 7 — customer account payment
+    account = None
+    account_balance_before = None
+    account_balance_after = None
+
+    if payment_method == 'account':
+        acct_id = data.get('account_id')
+        if not acct_id:
+            return jsonify({'error': 'account_id required for account payment'}), 400
+        account = CustomerAccount.query.get(acct_id)
+        if not account or not account.is_active:
+            return jsonify({'error': 'Account not found or inactive'}), 404
+        available = round(account.balance + account.credit_limit, 2)
+        if total > available:
+            return jsonify({
+                'error': f'Insufficient balance. Available: KES {available:,.2f}, Required: KES {total:,.2f}'
+            }), 400
+        account_balance_before = account.balance
+        account.balance = round(account.balance - total, 2)
+        account.total_charged = round(account.total_charged + total, 2)
+        account_balance_after = account.balance
+
     cash_tendered = float(data.get('cash_tendered') or 0)
     card_amount = float(data.get('card_amount') or 0)
     change_given = round(cash_tendered - total, 2) if payment_method in ('cash', 'split') else 0.0
@@ -104,10 +126,29 @@ def create_sale():
         cashier_name=data.get('cashier_name', ''),
         offline_id=offline_id,
         stripe_payment_intent_id=data.get('stripe_payment_intent_id'),
+        mpesa_ref=data.get('mpesa_ref') or None,
+        account_id=account.id if account else None,
+        account_balance_before=account_balance_before,
+        account_balance_after=account_balance_after,
     )
     sale.items = sale_items
 
     db.session.add(sale)
+    db.session.flush()   # get sale.id before committing
+
+    # Create account charge transaction
+    if account:
+        txn = AccountTransaction(
+            account_id=account.id,
+            type='charge',
+            amount=-total,   # negative = money out of account
+            balance_after=account_balance_after,
+            sale_id=sale.id,
+            cashier_name=data.get('cashier_name', ''),
+            notes=f'Sale charged to account',
+        )
+        db.session.add(txn)
+
     db.session.commit()
 
     # Hardware actions (non-blocking — failures don't abort the sale)
