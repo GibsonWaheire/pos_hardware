@@ -360,3 +360,33 @@ body {
 .success-msg { color: var(--success); font-size: 12px; margin-top: 4px; }
 
 select.input { appearance: auto; }
+
+/* ── Print support ────────────────────────────────────── */
+
+/* Hidden on screen; visible only during window.print() */
+.print-page { display: none; }
+
+@media print {
+  /* Hide everything */
+  body * { visibility: hidden; }
+  /* Show only the print page */
+  .print-page, .print-page * { visibility: visible; }
+  .print-page {
+    position: absolute;
+    left: 0; top: 0;
+    width: 210mm;
+    min-height: 297mm;
+    padding: 20mm;
+    background: white !important;
+    color: black !important;
+    font-family: 'Times New Roman', serif;
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+  @page { size: A4; margin: 0; }
+}
+
+/* Screen-only — hides during print */
+@media print {
+  .no-print { display: none !important; }
+}

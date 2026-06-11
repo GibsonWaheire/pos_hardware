@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from app import app
 from db import db
-from models import Category, Product, Staff, PurchaserLimit  # noqa: F401 — ensure all models registered
+from models import Category, Product, Staff, PurchaserLimit, ShiftReport, ReportPrintEvent  # noqa: F401 — ensure all models registered
 
 
 def _add_column_if_missing(conn, table, column, definition):

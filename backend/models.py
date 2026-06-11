@@ -937,3 +937,82 @@ class PurchaserLimit(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
 
+
+# ── Phase 14 Models ─────────────────────────────────────────────────────────────
+
+class ShiftReport(db.Model):
+    """
+    Immutable end-of-shift report snapshot. Generated automatically when a shift
+    is closed. Must be printed and filed before the next shift can open.
+    """
+    __tablename__ = 'shift_reports'
+
+    id = db.Column(db.Integer, primary_key=True)
+    report_number  = db.Column(db.String(30), unique=True, index=True)  # RPT-YYYYMMDD-XXXX
+    type           = db.Column(db.String(30), default='SHIFT_DAILY')    # SHIFT_DAILY | INVENTORY | WEEKLY_SUMMARY
+    shift_id       = db.Column(db.Integer, db.ForeignKey('shifts.id'), nullable=True)
+    period_start   = db.Column(db.DateTime, nullable=True)
+    period_end     = db.Column(db.DateTime, nullable=True)
+    generated_by_id   = db.Column(db.Integer, nullable=True)
+    generated_by_name = db.Column(db.String(100))
+    generated_by_role = db.Column(db.String(20))
+    # Status lifecycle: GENERATED → PRINTED → FILED
+    status         = db.Column(db.String(20), default='GENERATED')
+    # Immutable JSON snapshot captured at generation time — never updated after creation
+    content        = db.Column(db.Text, nullable=False)
+    print_count    = db.Column(db.Integer, default=0)
+    printed_at     = db.Column(db.DateTime, nullable=True)
+    filed_by_id    = db.Column(db.Integer, nullable=True)
+    filed_by_name  = db.Column(db.String(100))
+    filed_at       = db.Column(db.DateTime, nullable=True)
+    signed_note    = db.Column(db.Text)
+    created_at     = db.Column(db.DateTime, default=datetime.utcnow)
+
+    print_events = db.relationship('ReportPrintEvent', backref='report', lazy=True,
+                                   cascade='all, delete-orphan')
+
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'report_number': self.report_number,
+            'type': self.type,
+            'shift_id': self.shift_id,
+            'period_start': self.period_start.isoformat() if self.period_start else None,
+            'period_end': self.period_end.isoformat() if self.period_end else None,
+            'generated_by_id': self.generated_by_id,
+            'generated_by_name': self.generated_by_name,
+            'generated_by_role': self.generated_by_role,
+            'status': self.status,
+            'content': json.loads(self.content) if self.content else {},
+            'print_count': self.print_count,
+            'printed_at': self.printed_at.isoformat() if self.printed_at else None,
+            'filed_by_name': self.filed_by_name,
+            'filed_at': self.filed_at.isoformat() if self.filed_at else None,
+            'signed_note': self.signed_note,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ReportPrintEvent(db.Model):
+    """Every time a ShiftReport is printed — tracks who printed and copy number."""
+    __tablename__ = 'report_print_events'
+
+    id             = db.Column(db.Integer, primary_key=True)
+    report_id      = db.Column(db.Integer, db.ForeignKey('shift_reports.id'), nullable=False)
+    printed_by_id  = db.Column(db.Integer, nullable=True)
+    printed_by_name = db.Column(db.String(100))
+    printed_by_role = db.Column(db.String(20))
+    printed_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    copy_number    = db.Column(db.Integer, default=1)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'report_id': self.report_id,
+            'printed_by_name': self.printed_by_name,
+            'printed_by_role': self.printed_by_role,
+            'printed_at': self.printed_at.isoformat() if self.printed_at else None,
+            'copy_number': self.copy_number,
+        }
+

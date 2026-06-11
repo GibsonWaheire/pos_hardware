@@ -490,6 +490,14 @@ export const getExportCsvUrl = (params) => {
   return `/api/reports/export/csv?${q}`
 }
 
+// ── Shift Reports (Phase 14 — filing system) ──────────────────────────────────
+
+export const getShiftReports  = (params) => api.get('/shift-reports', { params })
+export const getShiftReport   = (id)     => api.get(`/shift-reports/${id}`)
+export const getPendingReports = ()      => api.get('/shift-reports/pending')
+export const printShiftReport = (id)    => api.post(`/shift-reports/${id}/print`)
+export const fileShiftReport  = (id, data) => api.post(`/shift-reports/${id}/file`, data)
+
 // ── Store config ──────────────────────────────────────────────────────────────
 
 export const getStoreConfig = () => withLocal(
