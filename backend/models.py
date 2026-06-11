@@ -113,6 +113,8 @@ class Sale(db.Model):
     offline_id = db.Column(db.String(50), unique=True, nullable=True)
     stripe_payment_intent_id = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Phase 6 — cloud sync tracking
+    cloud_synced_at = db.Column(db.DateTime, nullable=True)
 
     items = db.relationship('SaleItem', backref='sale', lazy=True, cascade='all, delete-orphan')
     returns = db.relationship('Return', backref='original_sale', lazy=True)
@@ -410,6 +412,8 @@ class Customer(db.Model):
     # Phase 4 — salon preferences
     preferences = db.Column(db.Text)   # free-text notes (allergies, style prefs)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Phase 6 — cloud sync tracking
+    cloud_synced_at = db.Column(db.DateTime, nullable=True)
 
     sales = db.relationship('Sale', backref='customer', lazy=True)
     loyalty_transactions = db.relationship('LoyaltyTransaction', backref='customer', lazy=True)
@@ -520,6 +524,30 @@ class Store(db.Model):
             'phone': self.phone, 'email': self.email, 'currency': self.currency,
             'timezone': self.timezone, 'tax_number': self.tax_number,
             'receipt_header': self.receipt_header, 'receipt_footer': self.receipt_footer,
+        }
+
+
+class SyncLog(db.Model):
+    """One row per sync run — tracks what was pushed to cloud."""
+    __tablename__ = 'sync_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    sales_synced = db.Column(db.Integer, default=0)
+    customers_synced = db.Column(db.Integer, default=0)
+    inventory_synced = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(20), default='success')   # success | error
+    error_message = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'sales_synced': self.sales_synced,
+            'customers_synced': self.customers_synced,
+            'inventory_synced': self.inventory_synced,
+            'status': self.status,
+            'error_message': self.error_message,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 

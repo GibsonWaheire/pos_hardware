@@ -14,6 +14,7 @@ import Settings from './pages/Settings'
 import Appointments from './pages/Appointments'
 import Services from './pages/Services'
 import Dashboard from './pages/Dashboard'
+import CloudSync from './pages/CloudSync'
 
 const NAV = [
   { to: '/',               label: 'Checkout',     icon: '🛒', end: true },
@@ -30,6 +31,7 @@ const NAV = [
   { to: '/loyalty',        label: 'Loyalty',      icon: '⭐' },
   { to: '/terminals',      label: 'Terminals',    icon: '🖥️' },
   { to: '/reports',        label: 'Reports',      icon: '📈' },
+  { to: '/cloud-sync',     label: 'Cloud Sync',   icon: '☁️' },
   { to: '/settings',       label: 'Settings',     icon: '⚙️' },
 ]
 
@@ -65,6 +67,7 @@ export default function App() {
             <Route path="/appointments"    element={<Appointments />} />
             <Route path="/services"        element={<Services />} />
             <Route path="/dashboard"       element={<Dashboard />} />
+            <Route path="/cloud-sync"      element={<CloudSync />} />
           </Routes>
         </main>
       </div>

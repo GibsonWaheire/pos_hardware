@@ -156,4 +156,11 @@ export const getExportCsvUrl = (params) => {
 export const getStoreConfig = () => api.get('/stores/config')
 export const updateStoreConfig = (data) => api.put('/stores/config', data)
 
+// Cloud Sync (Phase 6)
+export const getSyncStatus = () => api.get('/sync/status')
+export const runSync = () => api.post('/sync/run-sync')   // blocking — returns result
+export const getSyncLogs = (params) => api.get('/sync/logs', { params })
+export const getCloudDashboard = () => api.get('/sync/cloud-dashboard')
+export const markAllPending = () => api.post('/sync/mark-all-pending')
+
 export default api

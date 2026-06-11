@@ -39,6 +39,7 @@ from routes.services import bp as services_bp
 from routes.appointments import bp as appointments_bp
 from routes.dashboard import bp as dashboard_bp
 from routes.stores import bp as stores_bp
+from routes.sync import bp as sync_bp
 
 app.register_blueprint(products_bp)
 app.register_blueprint(sales_bp)
@@ -58,6 +59,7 @@ app.register_blueprint(services_bp)
 app.register_blueprint(appointments_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(stores_bp)
+app.register_blueprint(sync_bp)
 
 
 @app.route('/api/health')
@@ -101,8 +103,33 @@ def server_error(e):
     return jsonify({'error': 'Internal server error', 'message': str(e)}), 500
 
 
+def _start_auto_sync():
+    """Background thread: sync to cloud every SYNC_INTERVAL_MINUTES minutes."""
+    import threading, time
+    from routes.sync import _do_sync
+
+    interval = int(os.getenv('SYNC_INTERVAL_MINUTES', 15)) * 60
+
+    def _loop():
+        time.sleep(30)   # wait for app to fully start
+        while True:
+            try:
+                _do_sync(app)
+            except Exception as e:
+                print(f'[auto-sync] error: {e}')
+            time.sleep(interval)
+
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
+    print(f'[auto-sync] started — every {os.getenv("SYNC_INTERVAL_MINUTES", 15)} min')
+
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5002))
     host = os.getenv('HOST', '0.0.0.0')
+
+    if os.getenv('CLOUD_SYNC_AUTO', '0') == '1' and os.getenv('CLOUD_DB_URL'):
+        _start_auto_sync()
+
     print(f"\n POS Hardware API on http://{host}:{port}/api")
     app.run(debug=True, port=port, host=host)
