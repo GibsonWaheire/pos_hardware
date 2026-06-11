@@ -23,13 +23,46 @@ def init_db():
         db.create_all()
         print("Tables created.")
 
-        # Phase 7 + 8 column migrations (safe to run on existing DBs)
+        # Column migrations (safe to run on existing DBs)
         conn = db.engine.raw_connection()
         try:
-            _add_column_if_missing(conn, 'sales', 'mpesa_ref', 'VARCHAR(50)')
-            _add_column_if_missing(conn, 'sales', 'account_id', 'INTEGER REFERENCES customer_accounts(id)')
+            # Products
+            _add_column_if_missing(conn, 'products', 'plu_code',              'VARCHAR(20)')
+            _add_column_if_missing(conn, 'products', 'is_weight_based',       'BOOLEAN DEFAULT 0')
+            _add_column_if_missing(conn, 'products', 'weight_unit',           'VARCHAR(10) DEFAULT "kg"')
+            _add_column_if_missing(conn, 'products', 'age_restricted',        'BOOLEAN DEFAULT 0')
+            _add_column_if_missing(conn, 'products', 'age_restriction_type',  'VARCHAR(20)')
+            _add_column_if_missing(conn, 'products', 'min_age',               'INTEGER DEFAULT 18')
+            try:
+                conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS ix_products_plu_code ON products (plu_code) WHERE plu_code IS NOT NULL')
+            except Exception:
+                pass
+            # SaleItems
+            _add_column_if_missing(conn, 'sale_items', 'weight',       'FLOAT')
+            _add_column_if_missing(conn, 'sale_items', 'item_type',    'VARCHAR(20) DEFAULT "product"')
+            _add_column_if_missing(conn, 'sale_items', 'service_id',   'INTEGER')
+            _add_column_if_missing(conn, 'sale_items', 'staff_id',     'INTEGER')
+            _add_column_if_missing(conn, 'sale_items', 'staff_name',   'VARCHAR(100)')
+            # Sales
+            _add_column_if_missing(conn, 'sales', 'shift_id',               'INTEGER')
+            _add_column_if_missing(conn, 'sales', 'customer_id',            'INTEGER')
+            _add_column_if_missing(conn, 'sales', 'customer_name',          'VARCHAR(100)')
+            _add_column_if_missing(conn, 'sales', 'loyalty_points_earned',  'INTEGER DEFAULT 0')
+            _add_column_if_missing(conn, 'sales', 'loyalty_points_redeemed','INTEGER DEFAULT 0')
+            _add_column_if_missing(conn, 'sales', 'loyalty_discount',       'FLOAT DEFAULT 0')
+            _add_column_if_missing(conn, 'sales', 'terminal_id',            'VARCHAR(50)')
+            _add_column_if_missing(conn, 'sales', 'age_verified',           'BOOLEAN DEFAULT 0')
+            _add_column_if_missing(conn, 'sales', 'sale_type',              'VARCHAR(20) DEFAULT "retail"')
+            _add_column_if_missing(conn, 'sales', 'tip_amount',             'FLOAT DEFAULT 0')
+            _add_column_if_missing(conn, 'sales', 'tip_method',             'VARCHAR(20)')
+            _add_column_if_missing(conn, 'sales', 'tip_staff_id',           'INTEGER')
+            _add_column_if_missing(conn, 'sales', 'tip_staff_name',         'VARCHAR(100)')
+            _add_column_if_missing(conn, 'sales', 'appointment_id',         'INTEGER')
+            _add_column_if_missing(conn, 'sales', 'cloud_synced_at',        'DATETIME')
+            _add_column_if_missing(conn, 'sales', 'mpesa_ref',              'VARCHAR(50)')
+            _add_column_if_missing(conn, 'sales', 'account_id',             'INTEGER')
             _add_column_if_missing(conn, 'sales', 'account_balance_before', 'FLOAT')
-            _add_column_if_missing(conn, 'sales', 'account_balance_after', 'FLOAT')
+            _add_column_if_missing(conn, 'sales', 'account_balance_after',  'FLOAT')
             conn.commit()
         finally:
             conn.close()
