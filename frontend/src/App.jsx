@@ -107,10 +107,15 @@ function AppInner() {
         {/* User badge + logout */}
         <div style={userBadge}>
           <div style={{ ...roleDot, background: ROLE_COLOUR[user.role] || '#888' }} />
-          <span style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.2 }}>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.3 }}>
             {user.name}
           </span>
-          <button onClick={handleLogout} title="Log out" style={logoutBtn}>⏻</button>
+          <span style={{ fontSize: 9, color: ROLE_COLOUR[user.role] || '#888', textTransform: 'uppercase', letterSpacing: 1 }}>
+            {user.role}
+          </span>
+          <button onClick={handleLogout} style={logoutBtn}>
+            Log out
+          </button>
         </div>
       </nav>
 
@@ -181,6 +186,15 @@ const roleDot = {
   width: 8, height: 8, borderRadius: '50%',
 }
 const logoutBtn = {
-  background: 'none', border: 'none', cursor: 'pointer',
-  fontSize: 14, color: 'var(--text-muted)', padding: '2px 0',
+  marginTop: 4,
+  width: '100%',
+  padding: '6px 0',
+  background: 'var(--surface2)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  color: 'var(--danger)',
+  fontSize: 11,
+  fontWeight: 600,
+  cursor: 'pointer',
+  letterSpacing: 0.5,
 }
