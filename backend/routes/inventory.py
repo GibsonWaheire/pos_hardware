@@ -1,7 +1,8 @@
 from flask import Blueprint, jsonify, request
 from db import db
 from models import Product, StockAdjustment
-from sqlalchemy import func
+from sqlalchemy import func, case
+from datetime import datetime
 
 bp = Blueprint('inventory', __name__, url_prefix='/api/inventory')
 
@@ -46,6 +47,7 @@ def adjust_stock():
     before = product.stock_qty
     product.stock_qty = max(0, product.stock_qty + qty_change)
     actual_change = product.stock_qty - before  # may differ if we hit 0 floor
+    product.updated_at = datetime.utcnow()      # so inventory sort surfaces this product at top
 
     adj = StockAdjustment(
         product_id=product.id,
@@ -75,9 +77,14 @@ def list_adjustments():
 
 @bp.route('/stock-levels', methods=['GET'])
 def stock_levels():
-    """All active products with current stock, sorted by stock qty ascending."""
+    """All active products: in-stock first (most recently updated first), out-of-stock last."""
+    # Use COALESCE so products with no update yet fall back to created_at for ordering
+    last_touched = func.coalesce(Product.updated_at, Product.created_at)
     products = (Product.query
                 .filter_by(is_active=True)
-                .order_by(Product.stock_qty.asc())
+                .order_by(
+                    case((Product.stock_qty == 0, 1), else_=0),  # out-of-stock → bottom
+                    last_touched.desc(),                          # most recently touched → top
+                )
                 .all())
     return jsonify([p.to_dict() for p in products])

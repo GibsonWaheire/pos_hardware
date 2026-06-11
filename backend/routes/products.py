@@ -32,6 +32,8 @@ def list_products():
     q = request.args.get('q', '').strip()
     category_id = request.args.get('category_id')
     active_only = request.args.get('active', 'true').lower() == 'true'
+    limit  = min(int(request.args.get('limit',  200)), 500)
+    offset = max(int(request.args.get('offset', 0)),   0)
 
     query = Product.query
     if active_only:
@@ -43,9 +45,10 @@ def list_products():
             db.or_(
                 Product.name.ilike(f'%{q}%'),
                 Product.barcode.ilike(f'%{q}%'),
+                Product.plu_code.ilike(f'%{q}%'),
             )
         )
-    products = query.order_by(Product.name).all()
+    products = query.order_by(Product.name).limit(limit).offset(offset).all()
     return jsonify([p.to_dict() for p in products])
 
 
