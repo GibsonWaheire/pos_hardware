@@ -7,7 +7,7 @@ export default function Inventory() {
   const [adjustments, setAdjustments] = useState([])
   const [tab, setTab] = useState('stock')  // stock | alerts | history
   const [adjustModal, setAdjustModal] = useState(null)  // null | product
-  const [adjForm, setAdjForm] = useState({ qty_change: '', reason: 'manual', cashier_name: '' })
+  const [adjForm, setAdjForm] = useState({ qty_change: '', reason: 'manual' })
   const [adjError, setAdjError] = useState('')
   const [adjSaving, setAdjSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -135,7 +135,7 @@ export default function Inventory() {
                     <td>
                       <button className="btn btn-ghost btn-sm" onClick={() => {
                         setAdjustModal(p)
-                        setAdjForm({ qty_change: '', reason: 'manual', cashier_name: '' })
+                        setAdjForm({ qty_change: '', reason: 'manual' })
                         setAdjError('')
                       }}>
                         Adjust
@@ -177,7 +177,7 @@ export default function Inventory() {
                     </div>
                     <button className="btn btn-ghost btn-sm" onClick={() => {
                       setAdjustModal(p)
-                      setAdjForm({ qty_change: '', reason: 'correction', cashier_name: '' })
+                      setAdjForm({ qty_change: '', reason: 'correction' })
                       setAdjError('')
                     }}>
                       Adjust
@@ -253,13 +253,6 @@ export default function Inventory() {
                 <option value="sample">Sample / promo</option>
                 <option value="other">Other</option>
               </select>
-            </div>
-
-            <div className="form-group">
-              <label className="label">Your name</label>
-              <input className="input" placeholder="Cashier / manager name"
-                value={adjForm.cashier_name}
-                onChange={e => setAdjForm({ ...adjForm, cashier_name: e.target.value })} />
             </div>
 
             {adjError && <p className="error-msg">{adjError}</p>}

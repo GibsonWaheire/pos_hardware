@@ -8,6 +8,7 @@ authorization and is recorded here for audit purposes.
 from flask import Blueprint, jsonify, request
 from db import db
 from models import VoidLog, Sale, Staff, Product
+from auth_utils import get_current_user
 from datetime import datetime
 
 bp = Blueprint('voids', __name__, url_prefix='/api/voids')
@@ -58,6 +59,9 @@ def void_sale():
             if product:
                 product.stock_qty += item.qty
 
+    user = get_current_user()
+    cashier_name = user['name'] if user else sale.cashier_name
+
     sale.status = 'voided'
 
     log = VoidLog(
@@ -65,7 +69,7 @@ def void_sale():
         sale_id=sale.id,
         receipt_number=sale.receipt_number,
         terminal_id=data.get('terminal_id', sale.terminal_id),
-        cashier_name=data.get('cashier_name', sale.cashier_name),
+        cashier_name=cashier_name,
         manager_name=manager.name,
         reason=data.get('reason', ''),
         amount=sale.total,
@@ -89,10 +93,13 @@ def no_sale():
     if not manager:
         return jsonify({'error': 'Invalid manager PIN'}), 401
 
+    user = get_current_user()
+    cashier_name = user['name'] if user else ''
+
     log = VoidLog(
         type='no_sale',
         terminal_id=data.get('terminal_id', ''),
-        cashier_name=data.get('cashier_name', ''),
+        cashier_name=cashier_name,
         manager_name=manager.name,
         reason=data.get('reason', 'No-sale / count'),
     )

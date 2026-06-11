@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from db import db
 from models import Return, ReturnItem, Sale, Product, StockAdjustment
+from auth_utils import get_current_user
 from datetime import date
 
 bp = Blueprint('returns', __name__, url_prefix='/api/returns')
@@ -44,6 +45,10 @@ def create_return():
     }
     """
     data = request.json or {}
+    user = get_current_user()
+    cashier_id   = user['id']   if user else None
+    cashier_name = user['name'] if user else 'Unknown'
+
     items_data = data.get('items', [])
     if not items_data:
         return jsonify({'error': 'Return must have at least one item'}), 400
@@ -77,7 +82,7 @@ def create_return():
                         qty_change=qty,
                         qty_after=product.stock_qty,
                         reason='return',
-                        cashier_name=data.get('cashier_name', ''),
+                        cashier_name=cashier_name,
                     )
                     db.session.add(adj)
 
@@ -107,8 +112,8 @@ def create_return():
         reason=data.get('reason', ''),
         refund_method=refund_method,
         total_refund=round(total_refund, 2),
-        cashier_id=data.get('cashier_id'),
-        cashier_name=data.get('cashier_name', ''),
+        cashier_id=cashier_id,
+        cashier_name=cashier_name,
         notes=data.get('notes', ''),
     )
     ret.items = return_items

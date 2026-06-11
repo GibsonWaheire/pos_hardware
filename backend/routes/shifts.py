@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from db import db
 from models import Shift, Sale
+from auth_utils import get_current_user
 from datetime import datetime
 
 bp = Blueprint('shifts', __name__, url_prefix='/api/shifts')
@@ -31,9 +32,13 @@ def open_shift():
     if existing:
         return jsonify({'error': 'A shift is already open', 'shift': existing.to_dict()}), 409
 
+    user = get_current_user()
+    cashier_id   = user['id']   if user else data.get('cashier_id')
+    cashier_name = user['name'] if user else data.get('cashier_name', '')
+
     shift = Shift(
-        cashier_id=data.get('cashier_id'),
-        cashier_name=data.get('cashier_name', ''),
+        cashier_id=cashier_id,
+        cashier_name=cashier_name,
         opening_float=float(data.get('opening_float', 0)),
         status='open',
     )

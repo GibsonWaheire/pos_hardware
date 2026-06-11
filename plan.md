@@ -79,6 +79,35 @@
 - Account charge recorded automatically when sale completes with payment_method = 'account'
 - All of this already works end-to-end — Phase 13D improves the **cashier UX** to surface account info without requiring them to open the Accounts page
 
+#### 13F — Accountability Hardening (Server-Side Identity on Every Write)
+
+**Problem identified:** Most write routes trust `cashier_name` / `cashier_id` sent in the request body from the frontend. This means:
+- A client can claim any identity (or no identity) for any action
+- Every sale currently records `cashier_id = None` and `cashier_name = ''` because `PaymentModal.jsx` never sends those fields
+- Stock adjustments, account deposits/adjustments, voids, returns — all rely on a manually-typed name field that can be blank or fabricated
+
+**Audit findings:**
+
+| Route | Gap |
+|---|---|
+| `sales.py` `POST /sales` | `cashier_id/name` blank — PaymentModal never sends them |
+| `inventory.py` `POST /inventory/adjust` | `cashier_name` from manual text box in UI |
+| `accounts.py` `POST /accounts/:id/deposit` | `cashier_name` from manual "Received By" text field |
+| `accounts.py` `POST /accounts/:id/adjust` | `cashier_name` from manual "Adjusted By" text field |
+| `voids.py` `POST /voids/void-sale` | `cashier_name` from request body |
+| `voids.py` `POST /voids/no-sale` | `cashier_name` from request body |
+| `returns.py` `POST /returns` | `cashier_id/name` from request body |
+| `shifts.py` `POST /shifts/open` | `cashier_id/name` from request body (frontend sends correct data but unverified) |
+| `products.py` all writes | **OK** — uses `get_current_user()` + `stamp()` |
+| `purchase_orders.py` all writes | **OK** — uses `_session_role()` from session |
+
+**Fix:** Each affected route calls `get_current_user()` to resolve identity from the server-side session. Frontend manual name fields are removed. No action can be attributed to anyone other than the authenticated session user.
+
+**Frontend fields removed (no longer needed):**
+- `Inventory.jsx` adjust modal: "Your name" input
+- `Accounts.jsx` deposit modal: "Received By" input
+- `Accounts.jsx` adjust modal: "Adjusted By" input
+
 #### 13E — Manager → Cashier Real-Time Product Sync
 - When a manager edits a product (price, stock, name, category) via the Products or Inventory page, the change persists in the DB immediately
 - POS auto-refresh (13A) picks it up within 2 minutes with no action from the cashier

@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from db import db
 from models import CustomerAccount, AccountTransaction
+from auth_utils import get_current_user
 from datetime import date
 
 bp = Blueprint('accounts', __name__, url_prefix='/api/accounts')
@@ -97,6 +98,9 @@ def deposit(account_id):
     if amount <= 0:
         return jsonify({'error': 'Amount must be positive'}), 400
 
+    user = get_current_user()
+    cashier_name = user['name'] if user else 'System'
+
     acct.balance = round(acct.balance + amount, 2)
     acct.total_deposited = round(acct.total_deposited + amount, 2)
 
@@ -108,7 +112,7 @@ def deposit(account_id):
         receipt_number=_gen_deposit_receipt(),
         payment_method=data.get('payment_method', 'cash'),
         mpesa_ref=data.get('mpesa_ref', '') or None,
-        cashier_name=data.get('cashier_name', ''),
+        cashier_name=cashier_name,
         notes=data.get('notes', '') or None,
     )
     db.session.add(txn)
@@ -124,6 +128,9 @@ def adjust(account_id):
     if amount == 0:
         return jsonify({'error': 'Amount cannot be zero'}), 400
 
+    user = get_current_user()
+    cashier_name = user['name'] if user else 'System'
+
     acct.balance = round(acct.balance + amount, 2)
 
     txn = AccountTransaction(
@@ -131,7 +138,7 @@ def adjust(account_id):
         type='adjustment',
         amount=amount,
         balance_after=acct.balance,
-        cashier_name=data.get('cashier_name', ''),
+        cashier_name=cashier_name,
         notes=data.get('notes', '') or None,
     )
     db.session.add(txn)

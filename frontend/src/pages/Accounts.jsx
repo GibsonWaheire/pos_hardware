@@ -339,7 +339,6 @@ function DepositModal({ account, onClose, onSave }) {
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState('mpesa')
   const [mpesaRef, setMpesaRef] = useState('')
-  const [cashierName, setCashierName] = useState('')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -351,7 +350,7 @@ function DepositModal({ account, onClose, onSave }) {
     setSaving(true)
     setError('')
     try {
-      await onSave({ amount: amt, payment_method: method, mpesa_ref: mpesaRef, cashier_name: cashierName, notes })
+      await onSave({ amount: amt, payment_method: method, mpesa_ref: mpesaRef, notes })
     } catch (e) {
       setError(e.message)
       setSaving(false)
@@ -400,11 +399,6 @@ function DepositModal({ account, onClose, onSave }) {
             </div>
           )}
           <div>
-            <label className="label">Received By</label>
-            <input className="input" value={cashierName} onChange={e => setCashierName(e.target.value)}
-              placeholder="Staff name" />
-          </div>
-          <div>
             <label className="label">Notes (optional)</label>
             <input className="input" value={notes} onChange={e => setNotes(e.target.value)}
               placeholder="e.g. For roofing materials - Phase 2" />
@@ -428,7 +422,6 @@ function DepositModal({ account, onClose, onSave }) {
 
 function AdjustModal({ account, onClose, onSave }) {
   const [amount, setAmount] = useState('')
-  const [cashierName, setCashierName] = useState('')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -440,7 +433,7 @@ function AdjustModal({ account, onClose, onSave }) {
     setSaving(true)
     setError('')
     try {
-      await onSave({ amount: amt, cashier_name: cashierName, notes })
+      await onSave({ amount: amt, notes })
     } catch (e) {
       setError(e.message)
       setSaving(false)
@@ -471,11 +464,6 @@ function AdjustModal({ account, onClose, onSave }) {
                 New balance: {fmt(newBalance)}
               </div>
             )}
-          </div>
-          <div>
-            <label className="label">Adjusted By</label>
-            <input className="input" value={cashierName} onChange={e => setCashierName(e.target.value)}
-              placeholder="Staff name" />
           </div>
           <div>
             <label className="label">Reason / Notes *</label>

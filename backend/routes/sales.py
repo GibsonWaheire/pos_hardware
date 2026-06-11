@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from db import db
 from models import Sale, SaleItem, Product, OfflineQueue, CustomerAccount, AccountTransaction
+from auth_utils import get_current_user
 from datetime import datetime, date
 from hardware.printer import print_receipt
 from hardware.cash_drawer import open_drawer
@@ -35,6 +36,11 @@ def create_sale():
         existing = Sale.query.filter_by(offline_id=offline_id).first()
         if existing:
             return jsonify(existing.to_dict()), 200
+
+    # Resolve cashier from server-side session — never trust the request body for identity
+    user = get_current_user()
+    cashier_id   = user['id']   if user else None
+    cashier_name = user['name'] if user else 'Unknown'
 
     items_data = data.get('items', [])
     if not items_data:
@@ -122,8 +128,8 @@ def create_sale():
         cash_tendered=cash_tendered if payment_method in ('cash', 'split') else None,
         change_given=change_given,
         card_amount=card_amount,
-        cashier_id=data.get('cashier_id'),
-        cashier_name=data.get('cashier_name', ''),
+        cashier_id=cashier_id,
+        cashier_name=cashier_name,
         offline_id=offline_id,
         stripe_payment_intent_id=data.get('stripe_payment_intent_id'),
         mpesa_ref=data.get('mpesa_ref') or None,
@@ -144,7 +150,7 @@ def create_sale():
             amount=-total,   # negative = money out of account
             balance_after=account_balance_after,
             sale_id=sale.id,
-            cashier_name=data.get('cashier_name', ''),
+            cashier_name=cashier_name,
             notes=f'Sale charged to account',
         )
         db.session.add(txn)

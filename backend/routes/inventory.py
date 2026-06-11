@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from db import db
 from models import Product, StockAdjustment
+from auth_utils import get_current_user, stamp
 from sqlalchemy import func, case
 from datetime import datetime
 
@@ -44,10 +45,13 @@ def adjust_stock():
     qty_change = int(qty_change)
     product = Product.query.get_or_404(product_id)
 
+    user = get_current_user()
+    cashier_name = user['name'] if user else 'System'
+
     before = product.stock_qty
     product.stock_qty = max(0, product.stock_qty + qty_change)
     actual_change = product.stock_qty - before  # may differ if we hit 0 floor
-    product.updated_at = datetime.utcnow()      # so inventory sort surfaces this product at top
+    stamp(product, user, is_create=False)       # sets updated_at + updated_by_*
 
     adj = StockAdjustment(
         product_id=product.id,
@@ -57,7 +61,7 @@ def adjust_stock():
         qty_after=product.stock_qty,
         reason=data.get('reason', 'manual'),
         reference_id=data.get('reference_id', ''),
-        cashier_name=data.get('cashier_name', ''),
+        cashier_name=cashier_name,
     )
     db.session.add(adj)
     db.session.commit()
