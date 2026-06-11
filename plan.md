@@ -32,6 +32,8 @@
 | 9C | Manager auth card (sudo elevation), shift gate on POS |
 | 9D | Purchaser limits, PO approval workflow, supplier role, cart removal auth, Settings overhaul |
 | 10 | ESC/POS receipt printer (KES, M-Pesa ref, KRA PIN), cash drawer, reprint button |
+| 13 | POS UX (category filter, pagination, unit display, account balance, auto-refresh), inventory sort, accountability hardening (server-side identity on all write routes) |
+| 14 | Shift report filing system (auto-generate on close, print/file lifecycle, A4 PDF view, shift-open gate) |
 
 ---
 
@@ -49,80 +51,82 @@
 - Manager cloud dashboard: view all branches
 - Stock transfer between branches
 
-### Phase 13 — POS UX, Inventory Order & Customer Account Refinements
+### Phase 13 — POS UX, Inventory Order & Customer Account Refinements ✅ COMPLETE
 
-#### 13A — POS Product Grid: Category Filter + Pagination
-- Category filter tabs above product grid — cashier picks a category first instead of scrolling 20,000 items
-- Paginated loading: 24 products per page, "Load more" button at bottom of grid
-- Backend: `GET /api/products` should accept `category_id`, `limit`, `offset` params
-- Auto-refresh product catalog every 2 minutes (silent, no spinner) so cashiers always see the latest prices/stock without reloading
-- "Updated X min ago" timestamp shown in status bar
+#### 13A — POS Product Grid: Category Filter + Pagination ✅
+- Category filter pill tabs; cashier must pick a category or search (no "All" to prevent loading 20k items)
+- 24 products per page, "Load more" appends next page
+- `GET /api/products` accepts `category_id`, `limit`, `offset`
+- Silent auto-refresh every 2 min; "Updated X min ago" status bar
 
-#### 13B — Unit-Aware Product Display
-- Every product tile shows its sale unit: `/kg`, `/pcs`, `/bag`, `/box`, etc.
-- Weight-based items (nails, wire, etc.) use `weight_unit` from the product record (already tracked)
-- Piece-based items default to `/pc` when no unit is set
-- Managers can set `weight_unit` on any product (not just weight-based ones) to express bags, boxes, rolls, etc.
-- Weight entry modal already handles kg-based items — no change needed there
+#### 13B — Unit-Aware Product Display ✅
+- Tiles show `/kg`, `/pc`, `/bag` etc. based on `weight_unit`
 
-#### 13C — Inventory Listing Sort Order
-- Stock list sorted: **in-stock items first** (sorted by `updated_at` desc so recently-updated products surface at top), **out-of-stock items pushed to bottom**
-- Inventory page gains a search/filter input for the stock tab
-- Goal: manager updating a product's price sees it bubble to the top immediately
+#### 13C — Inventory Sort Order ✅
+- In-stock items first (by `updated_at` desc), out-of-stock last
+- Search input on stock tab (name or barcode)
 
-#### 13D — Customer Account Integration at POS
-- When cashier selects a customer (loyalty lookup), their linked account balance is **auto-fetched and displayed** in the customer panel
-- Shows: balance, available credit (balance + credit_limit), "OWES" badge if negative
-- "🏦 Account" payment button auto-populates the account search with the selected customer
-- **Advance payment flow**: customer deposits funds to their account (via Accounts page), returns later to pick items — cashier selects customer, pays via Account, balance is deducted and recorded in account transaction history
-- **Credit/debt flow**: customers with a premium account (credit_limit > 0) can take goods on credit; balance goes negative up to the credit limit; balance + credit_limit shown as "Available"
-- Account charge recorded automatically when sale completes with payment_method = 'account'
-- All of this already works end-to-end — Phase 13D improves the **cashier UX** to surface account info without requiring them to open the Accounts page
+#### 13D — Customer Account at POS ✅
+- Balance + available credit auto-loaded when loyalty customer selected
+- "OWES" badge if negative balance
 
-#### 13F — Accountability Hardening (Server-Side Identity on Every Write)
+#### 13E — Manager → Cashier Product Sync ✅
+- Auto-refresh every 2 min ensures cashiers see latest prices without reload
 
-**Problem identified:** Most write routes trust `cashier_name` / `cashier_id` sent in the request body from the frontend. This means:
-- A client can claim any identity (or no identity) for any action
-- Every sale currently records `cashier_id = None` and `cashier_name = ''` because `PaymentModal.jsx` never sends those fields
-- Stock adjustments, account deposits/adjustments, voids, returns — all rely on a manually-typed name field that can be blank or fabricated
+#### 13F — Accountability Hardening ✅
+- All 6 write-heavy routes now resolve identity from Flask session (`get_current_user()`)
+- Removed manual cashier name fields from Inventory adjust, Accounts deposit/adjust
+- Every sale, adjustment, void, return, shift, and deposit is server-side linked to the authenticated user
 
-**Audit findings:**
+---
 
-| Route | Gap |
-|---|---|
-| `sales.py` `POST /sales` | `cashier_id/name` blank — PaymentModal never sends them |
-| `inventory.py` `POST /inventory/adjust` | `cashier_name` from manual text box in UI |
-| `accounts.py` `POST /accounts/:id/deposit` | `cashier_name` from manual "Received By" text field |
-| `accounts.py` `POST /accounts/:id/adjust` | `cashier_name` from manual "Adjusted By" text field |
-| `voids.py` `POST /voids/void-sale` | `cashier_name` from request body |
-| `voids.py` `POST /voids/no-sale` | `cashier_name` from request body |
-| `returns.py` `POST /returns` | `cashier_id/name` from request body |
-| `shifts.py` `POST /shifts/open` | `cashier_id/name` from request body (frontend sends correct data but unverified) |
-| `products.py` all writes | **OK** — uses `get_current_user()` + `stamp()` |
-| `purchase_orders.py` all writes | **OK** — uses `_session_role()` from session |
+### Phase 14 — Shift Report Filing System ✅ COMPLETE
 
-**Fix:** Each affected route calls `get_current_user()` to resolve identity from the server-side session. Frontend manual name fields are removed. No action can be attributed to anyone other than the authenticated session user.
+**Models added:**
+- `ShiftReport` — immutable snapshot generated on shift close (store, shift, cash reconciliation, sales by payment method, voids/overrides)
+- `ReportPrintEvent` — every print recorded with who printed and copy number
 
-**Frontend fields removed (no longer needed):**
-- `Inventory.jsx` adjust modal: "Your name" input
-- `Accounts.jsx` deposit modal: "Received By" input
-- `Accounts.jsx` adjust modal: "Adjusted By" input
+**Status lifecycle:** `GENERATED → PRINTED → FILED`
 
-#### 13E — Manager → Cashier Real-Time Product Sync
-- When a manager edits a product (price, stock, name, category) via the Products or Inventory page, the change persists in the DB immediately
-- POS auto-refresh (13A) picks it up within 2 minutes with no action from the cashier
-- No WebSocket needed — polling is sufficient for this use case
-- Future: push notification via SSE if sub-minute latency is required (Phase 14 candidate)
+**Backend (`/api/shift-reports`):**
+- `GET /` — list reports (filterable by status/type)
+- `GET /pending` — unfiled reports (manager/admin)
+- `GET /<id>` — single report
+- `POST /<id>/print` — records print event, advances to PRINTED; roles: manager, admin, inventory, purchasing
+- `POST /<id>/file` — marks FILED with signed note; roles: manager, admin only
+
+**Auto-generate on close:** `shifts.py` close route creates a `ShiftReport` snapshot after committing the shift close. Snapshot is immutable — never updated.
+
+**Shift-open gate:** `shifts.py` open route blocks if the last closed shift has a report in `GENERATED` or `PRINTED` status (must be FILED first). Only triggers if the shift had a report generated (old shifts without reports are not blocked).
+
+**Frontend (Reports.jsx — "Shift Reports" tab):**
+- Status filter: All / Pending / Filed
+- Table: report number, shift #, period, cashier, revenue, status badge, filed-by
+- Print button → records print event via API → opens browser print dialog
+- File button (manager/admin) → confirm modal with optional sign-off note
+- Warning if report hasn't been printed before filing
+
+**A4 print layout:**
+- Store header (name, address, phone, tax/PIN number)
+- Report number + generation timestamp
+- `REPRINT — COPY N` watermark if print_count > 1
+- Shift details (cashier, opened/closed)
+- Cash reconciliation table (opening float, cash sales, expected, closing count, variance — variance coloured red/green)
+- Sales summary (transactions, total revenue, cash/card/M-Pesa/split breakdown, tax, discounts)
+- Overrides & exceptions (void count + amount, no-sale events)
+- Dual signature lines: Cashier + Manager with date fields
+- Footer: generated by, filed by
 
 ---
 
 ## Known Gaps / Tech Debt
-- Discount override at POS not yet gated behind manager auth (item removal is, void is, but inline line-item discount is not)
+- Discount override at POS not yet gated behind manager auth (item removal and void are gated, inline line-item discount is not)
 - `Settings.jsx` role select still missing `purchasing` role description labels
 - Receipt printing uses env vars as fallback — ensure `.env` is populated on deployment
 - `python-escpos` and `pyserial` must be installed manually: `pip install python-escpos pyserial`
 - Stripe Terminal requires `STRIPE_SECRET_KEY` in `.env`
-- Backend `GET /api/products` needs `limit`, `offset`, `category_id` query params added (required for Phase 13A pagination)
+- `Inventory.jsx` and `Reports.jsx` (old analytics tabs) still show `$` for some prices — should be `KES`
+- No weekly/inventory periodic report generation yet (Phase 14 only implements SHIFT_DAILY; INVENTORY and WEEKLY_SUMMARY endpoints are stubs for future)
 
 ---
 
