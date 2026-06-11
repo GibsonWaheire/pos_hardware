@@ -1,4 +1,5 @@
 import axios from 'axios'
+import * as local from './localStore'
 
 const api = axios.create({
   baseURL: '/api',
@@ -9,177 +10,549 @@ const api = axios.create({
 api.interceptors.response.use(
   res => res,
   err => {
+    const isNet = !err.response
     const msg = err.response?.data?.error || err.message || 'Request failed'
-    return Promise.reject(new Error(msg))
+    const e2 = new Error(msg)
+    if (isNet) e2.isNetworkError = true
+    return Promise.reject(e2)
   }
 )
 
-// Products
-export const getProducts = (params) => api.get('/products', { params })
-export const getProductByBarcode = (barcode) => api.get(`/products/barcode/${barcode}`)
-export const createProduct = (data) => api.post('/products', data)
-export const updateProduct = (id, data) => api.put(`/products/${id}`, data)
-export const deleteProduct = (id) => api.delete(`/products/${id}`)
-export const getCategories = () => api.get('/categories')
-export const createCategory = (data) => api.post('/categories', data)
-export const getLowStock = () => api.get('/products/low-stock')
+const isOffline = e => e.isNetworkError
 
-// Sales
-export const createSale = (data) => api.post('/sales', data)
-export const getSales = (params) => api.get('/sales', { params })
-export const getSale = (id) => api.get(`/sales/${id}`)
-export const voidSale = (id) => api.post(`/sales/${id}/void`)
-export const getDailyTotals = (date) => api.get('/sales/daily-totals', { params: { date } })
+async function withLocal(apiFn, localFn) {
+  try { return await apiFn() }
+  catch (e) { if (isOffline(e)) return localFn(); throw e }
+}
 
-// Reports
-export const getSalesReport = (params) => api.get('/reports/sales', { params })
-export const getTopProducts = (params) => api.get('/reports/top-products', { params })
-export const getPaymentBreakdown = (params) => api.get('/reports/payment-methods', { params })
+// ── Products ─────────────────────────────────────────────────────────────────
 
-// Staff
-export const getStaff = () => api.get('/staff')
-export const verifyPin = (pin) => api.post('/staff/verify-pin', { pin })
-export const createStaff = (data) => api.post('/staff', data)
-export const updateStaff = (id, data) => api.put(`/staff/${id}`, data)
+export const getProducts = (params) => withLocal(
+  () => api.get('/products', { params }),
+  () => local.lsGetProducts(params)
+)
+export const getProductByBarcode = (barcode) => withLocal(
+  () => api.get(`/products/barcode/${barcode}`),
+  () => local.lsGetProductByBarcode(barcode)
+)
+export const createProduct = (data) => withLocal(
+  () => api.post('/products', data),
+  () => local.lsCreateProduct(data)
+)
+export const updateProduct = (id, data) => withLocal(
+  () => api.put(`/products/${id}`, data),
+  () => local.lsUpdateProduct(id, data)
+)
+export const deleteProduct = (id) => withLocal(
+  () => api.delete(`/products/${id}`),
+  () => local.lsDeleteProduct(id)
+)
+export const getCategories = () => withLocal(
+  () => api.get('/categories'),
+  () => local.lsGetCategories()
+)
+export const createCategory = (data) => withLocal(
+  () => api.post('/categories', data),
+  () => local.lsCreateCategory(data)
+)
+export const getLowStock = () => withLocal(
+  () => api.get('/products/low-stock'),
+  () => local.lsGetLowStock()
+)
 
-// Payments (Stripe Terminal)
-export const getConnectionToken = () => api.post('/payments/terminal/connection-token')
-export const createPaymentIntent = (amount, currency = 'usd') =>
-  api.post('/payments/terminal/create-intent', { amount, currency })
-export const capturePaymentIntent = (payment_intent_id) =>
-  api.post('/payments/terminal/capture', { payment_intent_id })
-export const cancelPaymentIntent = (payment_intent_id) =>
-  api.post('/payments/terminal/cancel-intent', { payment_intent_id })
+// ── Sales ─────────────────────────────────────────────────────────────────────
 
-// Suppliers
-export const getSuppliers = (params) => api.get('/suppliers', { params })
-export const getSupplier = (id) => api.get(`/suppliers/${id}`)
-export const createSupplier = (data) => api.post('/suppliers', data)
-export const updateSupplier = (id, data) => api.put(`/suppliers/${id}`, data)
-export const deleteSupplier = (id) => api.delete(`/suppliers/${id}`)
+export const createSale = (data) => withLocal(
+  () => api.post('/sales', data),
+  () => local.lsCreateSale(data)
+)
+export const getSales = (params) => withLocal(
+  () => api.get('/sales', { params }),
+  () => local.lsGetSales(params)
+)
+export const getSale = (id) => withLocal(
+  () => api.get(`/sales/${id}`),
+  () => local.lsGetSale(id)
+)
+export const voidSale = (id) => withLocal(
+  () => api.post(`/sales/${id}/void`),
+  () => local.lsStub({ voided: true })
+)
+export const getDailyTotals = (date) => withLocal(
+  () => api.get('/sales/daily-totals', { params: { date } }),
+  () => local.lsGetDailyTotals(date)
+)
 
-// Purchase Orders
-export const getPurchaseOrders = (params) => api.get('/purchase-orders', { params })
-export const getPurchaseOrder = (id) => api.get(`/purchase-orders/${id}`)
-export const createPurchaseOrder = (data) => api.post('/purchase-orders', data)
-export const markPOOrdered = (id) => api.post(`/purchase-orders/${id}/mark-ordered`)
-export const receivePO = (id, data) => api.post(`/purchase-orders/${id}/receive`, data)
-export const cancelPO = (id) => api.post(`/purchase-orders/${id}/cancel`)
+// ── Reports ───────────────────────────────────────────────────────────────────
 
-// Returns
-export const getReturns = () => api.get('/returns')
-export const getReturn = (id) => api.get(`/returns/${id}`)
-export const createReturn = (data) => api.post('/returns', data)
+export const getSalesReport = (params) => withLocal(
+  () => api.get('/reports/sales', { params }),
+  () => local.lsStub([])
+)
+export const getTopProducts = (params) => withLocal(
+  () => api.get('/reports/top-products', { params }),
+  () => local.lsStub([])
+)
+export const getPaymentBreakdown = (params) => withLocal(
+  () => api.get('/reports/payment-methods', { params }),
+  () => local.lsStub([])
+)
 
-// Shifts
-export const getShifts = (params) => api.get('/shifts', { params })
-export const getCurrentShift = () => api.get('/shifts/current')
-export const openShift = (data) => api.post('/shifts/open', data)
-export const closeShift = (id, data) => api.post(`/shifts/${id}/close`, data)
-export const getShiftSummary = (id) => api.get(`/shifts/${id}/summary`)
+// ── Staff ─────────────────────────────────────────────────────────────────────
 
-// Inventory
-export const getInventoryOverview = () => api.get('/inventory/overview')
-export const getStockLevels = () => api.get('/inventory/stock-levels')
-export const adjustStock = (data) => api.post('/inventory/adjust', data)
-export const getStockAdjustments = (params) => api.get('/inventory/adjustments', { params })
+export const getStaff = () => withLocal(
+  () => api.get('/staff'),
+  () => local.lsGetStaff()
+)
+export const verifyPin = (pin) => withLocal(
+  () => api.post('/staff/verify-pin', { pin }),
+  () => local.lsVerifyPin(pin)
+)
+export const createStaff = (data) => withLocal(
+  () => api.post('/staff', data),
+  () => local.lsStub(data)
+)
+export const updateStaff = (id, data) => withLocal(
+  () => api.put(`/staff/${id}`, data),
+  () => local.lsStub(data)
+)
 
-// Customers & Loyalty
-export const getCustomers = (params) => api.get('/customers', { params })
-export const lookupCustomer = (q) => api.get('/customers/lookup', { params: { q } })
-export const getCustomer = (id) => api.get(`/customers/${id}`)
-export const createCustomer = (data) => api.post('/customers', data)
-export const updateCustomer = (id, data) => api.put(`/customers/${id}`, data)
-export const getCustomerTransactions = (id) => api.get(`/customers/${id}/transactions`)
+// ── Payments (Stripe Terminal) ────────────────────────────────────────────────
 
-export const getLoyaltyTiers = () => api.get('/loyalty/tiers')
-export const createLoyaltyTier = (data) => api.post('/loyalty/tiers', data)
-export const updateLoyaltyTier = (id, data) => api.put(`/loyalty/tiers/${id}`, data)
-export const deleteLoyaltyTier = (id) => api.delete(`/loyalty/tiers/${id}`)
-export const earnPoints = (data) => api.post('/loyalty/earn', data)
-export const redeemPoints = (data) => api.post('/loyalty/redeem', data)
-export const adjustPoints = (data) => api.post('/loyalty/adjust', data)
-export const getLoyaltyConfig = () => api.get('/loyalty/config')
+export const getConnectionToken = () => withLocal(
+  () => api.post('/payments/terminal/connection-token'),
+  () => local.lsStub({})
+)
+export const createPaymentIntent = (amount, currency = 'usd') => withLocal(
+  () => api.post('/payments/terminal/create-intent', { amount, currency }),
+  () => local.lsStub({})
+)
+export const capturePaymentIntent = (payment_intent_id) => withLocal(
+  () => api.post('/payments/terminal/capture', { payment_intent_id }),
+  () => local.lsStub({})
+)
+export const cancelPaymentIntent = (payment_intent_id) => withLocal(
+  () => api.post('/payments/terminal/cancel-intent', { payment_intent_id }),
+  () => local.lsStub({})
+)
 
-// Terminals
-export const getTerminals = () => api.get('/terminals')
-export const registerTerminal = (data) => api.post('/terminals/register', data)
-export const terminalHeartbeat = (terminal_id) => api.post('/terminals/heartbeat', { terminal_id })
-export const getTerminalSales = (terminal_id, params) => api.get(`/terminals/${terminal_id}/sales`, { params })
-export const updateTerminal = (id, data) => api.put(`/terminals/${id}`, data)
+// ── Suppliers ─────────────────────────────────────────────────────────────────
 
-// Voids & No-sale
-export const getVoidLogs = (params) => api.get('/voids', { params })
-export const voidSaleWithPin = (data) => api.post('/voids/void-sale', data)
-export const recordNoSale = (data) => api.post('/voids/no-sale', data)
-export const getVoidStats = (params) => api.get('/voids/stats', { params })
+export const getSuppliers = (params) => withLocal(
+  () => api.get('/suppliers', { params }),
+  () => local.lsGetSuppliers()
+)
+export const getSupplier = (id) => withLocal(
+  () => api.get(`/suppliers/${id}`),
+  () => local.lsStub({})
+)
+export const createSupplier = (data) => withLocal(
+  () => api.post('/suppliers', data),
+  () => local.lsCreateSupplier(data)
+)
+export const updateSupplier = (id, data) => withLocal(
+  () => api.put(`/suppliers/${id}`, data),
+  () => local.lsUpdateSupplier(id, data)
+)
+export const deleteSupplier = (id) => withLocal(
+  () => api.delete(`/suppliers/${id}`),
+  () => local.lsStub({ deleted: true })
+)
 
-// Scale
-export const readScale = () => api.get('/scale/read')
+// ── Purchase Orders ───────────────────────────────────────────────────────────
 
-// PLU lookup
-export const getProductByPlu = (plu) => api.get(`/products/plu/${plu}`)
+export const getPurchaseOrders = (params) => withLocal(
+  () => api.get('/purchase-orders', { params }),
+  () => local.lsStub([])
+)
+export const getPurchaseOrder = (id) => withLocal(
+  () => api.get(`/purchase-orders/${id}`),
+  () => local.lsStub({})
+)
+export const createPurchaseOrder = (data) => withLocal(
+  () => api.post('/purchase-orders', data),
+  () => local.lsStub(data)
+)
+export const markPOOrdered = (id) => withLocal(
+  () => api.post(`/purchase-orders/${id}/mark-ordered`),
+  () => local.lsStub({})
+)
+export const receivePO = (id, data) => withLocal(
+  () => api.post(`/purchase-orders/${id}/receive`, data),
+  () => local.lsStub({})
+)
+export const cancelPO = (id) => withLocal(
+  () => api.post(`/purchase-orders/${id}/cancel`),
+  () => local.lsStub({})
+)
 
-// Services & Service Categories (Phase 4)
-export const getServiceCategories = () => api.get('/service-categories')
-export const createServiceCategory = (data) => api.post('/service-categories', data)
-export const updateServiceCategory = (id, data) => api.put(`/service-categories/${id}`, data)
-export const deleteServiceCategory = (id) => api.delete(`/service-categories/${id}`)
-export const getServices = (params) => api.get('/services', { params })
-export const getService = (id) => api.get(`/services/${id}`)
-export const createService = (data) => api.post('/services', data)
-export const updateService = (id, data) => api.put(`/services/${id}`, data)
-export const deleteService = (id) => api.delete(`/services/${id}`)
+// ── Returns ───────────────────────────────────────────────────────────────────
 
-// Appointments (Phase 4)
-export const getAppointments = (params) => api.get('/appointments', { params })
-export const getAppointment = (id) => api.get(`/appointments/${id}`)
-export const createAppointment = (data) => api.post('/appointments', data)
-export const updateAppointment = (id, data) => api.put(`/appointments/${id}`, data)
-export const updateAppointmentStatus = (id, status) => api.post(`/appointments/${id}/status`, { status })
-export const deleteAppointment = (id) => api.delete(`/appointments/${id}`)
-export const getClientAppointments = (clientId) => api.get(`/appointments/by-client/${clientId}`)
+export const getReturns = () => withLocal(
+  () => api.get('/returns'),
+  () => local.lsStub([])
+)
+export const getReturn = (id) => withLocal(
+  () => api.get(`/returns/${id}`),
+  () => local.lsStub({})
+)
+export const createReturn = (data) => withLocal(
+  () => api.post('/returns', data),
+  () => local.lsStub(data)
+)
 
-// Dashboard (Phase 5)
-export const getDashboard = () => api.get('/dashboard')
+// ── Shifts ────────────────────────────────────────────────────────────────────
 
-// Extended Reports (Phase 5)
-export const getReportByCashier = (params) => api.get('/reports/by-cashier', { params })
-export const getReportByCategory = (params) => api.get('/reports/by-category', { params })
-export const getInventoryReport = () => api.get('/reports/inventory')
+export const getShifts = (params) => withLocal(
+  () => api.get('/shifts', { params }),
+  () => local.lsStub([])
+)
+export const getCurrentShift = () => withLocal(
+  () => api.get('/shifts/current'),
+  () => local.lsStub(null)
+)
+export const openShift = (data) => withLocal(
+  () => api.post('/shifts/open', data),
+  () => local.lsStub(data)
+)
+export const closeShift = (id, data) => withLocal(
+  () => api.post(`/shifts/${id}/close`, data),
+  () => local.lsStub({})
+)
+export const getShiftSummary = (id) => withLocal(
+  () => api.get(`/shifts/${id}/summary`),
+  () => local.lsStub({})
+)
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+
+export const getInventoryOverview = () => withLocal(
+  () => api.get('/inventory/overview'),
+  () => local.lsStub({})
+)
+export const getStockLevels = () => withLocal(
+  () => api.get('/inventory/stock-levels'),
+  () => local.lsStub([])
+)
+export const adjustStock = (data) => withLocal(
+  () => api.post('/inventory/adjust', data),
+  () => local.lsStub({})
+)
+export const getStockAdjustments = (params) => withLocal(
+  () => api.get('/inventory/adjustments', { params }),
+  () => local.lsStub([])
+)
+
+// ── Customers & Loyalty ───────────────────────────────────────────────────────
+
+export const getCustomers = (params) => withLocal(
+  () => api.get('/customers', { params }),
+  () => local.lsGetCustomers(params)
+)
+export const lookupCustomer = (q) => withLocal(
+  () => api.get('/customers/lookup', { params: { q } }),
+  () => local.lsLookupCustomer(q)
+)
+export const getCustomer = (id) => withLocal(
+  () => api.get(`/customers/${id}`),
+  () => local.lsGetCustomer(id)
+)
+export const createCustomer = (data) => withLocal(
+  () => api.post('/customers', data),
+  () => local.lsCreateCustomer(data)
+)
+export const updateCustomer = (id, data) => withLocal(
+  () => api.put(`/customers/${id}`, data),
+  () => local.lsUpdateCustomer(id, data)
+)
+export const getCustomerTransactions = (id) => withLocal(
+  () => api.get(`/customers/${id}/transactions`),
+  () => local.lsStub([])
+)
+
+export const getLoyaltyTiers = () => withLocal(
+  () => api.get('/loyalty/tiers'),
+  () => local.lsStub([])
+)
+export const createLoyaltyTier = (data) => withLocal(
+  () => api.post('/loyalty/tiers', data),
+  () => local.lsStub(data)
+)
+export const updateLoyaltyTier = (id, data) => withLocal(
+  () => api.put(`/loyalty/tiers/${id}`, data),
+  () => local.lsStub(data)
+)
+export const deleteLoyaltyTier = (id) => withLocal(
+  () => api.delete(`/loyalty/tiers/${id}`),
+  () => local.lsStub({ deleted: true })
+)
+export const earnPoints = (data) => withLocal(
+  () => api.post('/loyalty/earn', data),
+  () => local.lsStub({})
+)
+export const redeemPoints = (data) => withLocal(
+  () => api.post('/loyalty/redeem', data),
+  () => local.lsStub({})
+)
+export const adjustPoints = (data) => withLocal(
+  () => api.post('/loyalty/adjust', data),
+  () => local.lsStub({})
+)
+export const getLoyaltyConfig = () => withLocal(
+  () => api.get('/loyalty/config'),
+  () => local.lsStub({})
+)
+
+// ── Terminals ─────────────────────────────────────────────────────────────────
+
+export const getTerminals = () => withLocal(
+  () => api.get('/terminals'),
+  () => local.lsStub([])
+)
+export const registerTerminal = (data) => withLocal(
+  () => api.post('/terminals/register', data),
+  () => local.lsStub(data)
+)
+export const terminalHeartbeat = (terminal_id) => withLocal(
+  () => api.post('/terminals/heartbeat', { terminal_id }),
+  () => local.lsStub({})
+)
+export const getTerminalSales = (terminal_id, params) => withLocal(
+  () => api.get(`/terminals/${terminal_id}/sales`, { params }),
+  () => local.lsStub([])
+)
+export const updateTerminal = (id, data) => withLocal(
+  () => api.put(`/terminals/${id}`, data),
+  () => local.lsStub(data)
+)
+
+// ── Voids & No-sale ───────────────────────────────────────────────────────────
+
+export const getVoidLogs = (params) => withLocal(
+  () => api.get('/voids', { params }),
+  () => local.lsStub([])
+)
+export const voidSaleWithPin = (data) => withLocal(
+  () => api.post('/voids/void-sale', data),
+  () => local.lsStub({})
+)
+export const recordNoSale = (data) => withLocal(
+  () => api.post('/voids/no-sale', data),
+  () => local.lsStub({})
+)
+export const getVoidStats = (params) => withLocal(
+  () => api.get('/voids/stats', { params }),
+  () => local.lsStub({})
+)
+
+// ── Scale ─────────────────────────────────────────────────────────────────────
+
+export const readScale = () => withLocal(
+  () => api.get('/scale/read'),
+  () => local.lsStub({ weight: 0 })
+)
+
+// ── PLU lookup ────────────────────────────────────────────────────────────────
+
+export const getProductByPlu = (plu) => withLocal(
+  () => api.get(`/products/plu/${plu}`),
+  () => local.lsGetProductByPlu(plu)
+)
+
+// ── Services & Service Categories ────────────────────────────────────────────
+
+export const getServiceCategories = () => withLocal(
+  () => api.get('/service-categories'),
+  () => local.lsStub([])
+)
+export const createServiceCategory = (data) => withLocal(
+  () => api.post('/service-categories', data),
+  () => local.lsStub(data)
+)
+export const updateServiceCategory = (id, data) => withLocal(
+  () => api.put(`/service-categories/${id}`, data),
+  () => local.lsStub(data)
+)
+export const deleteServiceCategory = (id) => withLocal(
+  () => api.delete(`/service-categories/${id}`),
+  () => local.lsStub({ deleted: true })
+)
+export const getServices = (params) => withLocal(
+  () => api.get('/services', { params }),
+  () => local.lsStub([])
+)
+export const getService = (id) => withLocal(
+  () => api.get(`/services/${id}`),
+  () => local.lsStub({})
+)
+export const createService = (data) => withLocal(
+  () => api.post('/services', data),
+  () => local.lsStub(data)
+)
+export const updateService = (id, data) => withLocal(
+  () => api.put(`/services/${id}`, data),
+  () => local.lsStub(data)
+)
+export const deleteService = (id) => withLocal(
+  () => api.delete(`/services/${id}`),
+  () => local.lsStub({ deleted: true })
+)
+
+// ── Appointments ──────────────────────────────────────────────────────────────
+
+export const getAppointments = (params) => withLocal(
+  () => api.get('/appointments', { params }),
+  () => local.lsStub([])
+)
+export const getAppointment = (id) => withLocal(
+  () => api.get(`/appointments/${id}`),
+  () => local.lsStub({})
+)
+export const createAppointment = (data) => withLocal(
+  () => api.post('/appointments', data),
+  () => local.lsStub(data)
+)
+export const updateAppointment = (id, data) => withLocal(
+  () => api.put(`/appointments/${id}`, data),
+  () => local.lsStub(data)
+)
+export const updateAppointmentStatus = (id, status) => withLocal(
+  () => api.post(`/appointments/${id}/status`, { status }),
+  () => local.lsStub({})
+)
+export const deleteAppointment = (id) => withLocal(
+  () => api.delete(`/appointments/${id}`),
+  () => local.lsStub({ deleted: true })
+)
+export const getClientAppointments = (clientId) => withLocal(
+  () => api.get(`/appointments/by-client/${clientId}`),
+  () => local.lsStub([])
+)
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export const getDashboard = () => withLocal(
+  () => api.get('/dashboard'),
+  () => local.lsGetDashboard()
+)
+
+// ── Extended Reports ──────────────────────────────────────────────────────────
+
+export const getReportByCashier = (params) => withLocal(
+  () => api.get('/reports/by-cashier', { params }),
+  () => local.lsStub([])
+)
+export const getReportByCategory = (params) => withLocal(
+  () => api.get('/reports/by-category', { params }),
+  () => local.lsStub([])
+)
+export const getInventoryReport = () => withLocal(
+  () => api.get('/reports/inventory'),
+  () => local.lsStub([])
+)
 export const getExportCsvUrl = (params) => {
   const q = new URLSearchParams(params).toString()
   return `/api/reports/export/csv?${q}`
 }
 
-// Store config (Phase 5)
-export const getStoreConfig = () => api.get('/stores/config')
-export const updateStoreConfig = (data) => api.put('/stores/config', data)
+// ── Store config ──────────────────────────────────────────────────────────────
 
-// Quotes / Proforma Invoices (Phase 8)
-export const getQuotes = (params) => api.get('/quotes', { params })
-export const getQuote = (id) => api.get(`/quotes/${id}`)
-export const createQuote = (data) => api.post('/quotes', data)
-export const updateQuote = (id, data) => api.put(`/quotes/${id}`, data)
-export const updateQuoteStatus = (id, status) => api.post(`/quotes/${id}/status`, { status })
-export const convertQuote = (id, data) => api.post(`/quotes/${id}/convert`, data)
-export const deleteQuote = (id) => api.delete(`/quotes/${id}`)
+export const getStoreConfig = () => withLocal(
+  () => api.get('/stores/config'),
+  () => local.lsGetStoreConfig()
+)
+export const updateStoreConfig = (data) => withLocal(
+  () => api.put('/stores/config', data),
+  () => local.lsUpdateStoreConfig(data)
+)
 
-// Customer Accounts / Deposit Accounts (Phase 7)
-export const getAccounts = (params) => api.get('/accounts', { params })
-export const getAccount = (id) => api.get(`/accounts/${id}`)
-export const createAccount = (data) => api.post('/accounts', data)
-export const updateAccount = (id, data) => api.put(`/accounts/${id}`, data)
-export const depositToAccount = (id, data) => api.post(`/accounts/${id}/deposit`, data)
-export const adjustAccount = (id, data) => api.post(`/accounts/${id}/adjust`, data)
-export const lookupAccount = (q) => api.get('/accounts/lookup', { params: { q } })
-export const getAccountByCustomer = (customerId) => api.get(`/accounts/by-customer/${customerId}`)
+// ── Quotes / Proforma Invoices ────────────────────────────────────────────────
 
-// Cloud Sync (Phase 6)
-export const getSyncStatus = () => api.get('/sync/status')
-export const runSync = () => api.post('/sync/run-sync')   // blocking — returns result
-export const getSyncLogs = (params) => api.get('/sync/logs', { params })
-export const getCloudDashboard = () => api.get('/sync/cloud-dashboard')
-export const markAllPending = () => api.post('/sync/mark-all-pending')
+export const getQuotes = (params) => withLocal(
+  () => api.get('/quotes', { params }),
+  () => local.lsGetQuotes(params)
+)
+export const getQuote = (id) => withLocal(
+  () => api.get(`/quotes/${id}`),
+  () => local.lsGetQuote(id)
+)
+export const createQuote = (data) => withLocal(
+  () => api.post('/quotes', data),
+  () => local.lsCreateQuote(data)
+)
+export const updateQuote = (id, data) => withLocal(
+  () => api.put(`/quotes/${id}`, data),
+  () => local.lsStub(data)
+)
+export const updateQuoteStatus = (id, status) => withLocal(
+  () => api.post(`/quotes/${id}/status`, { status }),
+  () => local.lsUpdateQuoteStatus(id, status)
+)
+export const convertQuote = (id, data) => withLocal(
+  () => api.post(`/quotes/${id}/convert`, data),
+  () => local.lsConvertQuote(id, data)
+)
+export const deleteQuote = (id) => withLocal(
+  () => api.delete(`/quotes/${id}`),
+  () => local.lsDeleteQuote(id)
+)
+
+// ── Customer Accounts ─────────────────────────────────────────────────────────
+
+export const getAccounts = (params) => withLocal(
+  () => api.get('/accounts', { params }),
+  () => local.lsGetAccounts()
+)
+export const getAccount = (id) => withLocal(
+  () => api.get(`/accounts/${id}`),
+  () => local.lsGetAccount(id)
+)
+export const createAccount = (data) => withLocal(
+  () => api.post('/accounts', data),
+  () => local.lsCreateAccount(data)
+)
+export const updateAccount = (id, data) => withLocal(
+  () => api.put(`/accounts/${id}`, data),
+  () => local.lsUpdateAccount(id, data)
+)
+export const depositToAccount = (id, data) => withLocal(
+  () => api.post(`/accounts/${id}/deposit`, data),
+  () => local.lsDepositToAccount(id, data)
+)
+export const adjustAccount = (id, data) => withLocal(
+  () => api.post(`/accounts/${id}/adjust`, data),
+  () => local.lsAdjustAccount(id, data)
+)
+export const lookupAccount = (q) => withLocal(
+  () => api.get('/accounts/lookup', { params: { q } }),
+  () => local.lsLookupAccount(q)
+)
+export const getAccountByCustomer = (customerId) => withLocal(
+  () => api.get(`/accounts/by-customer/${customerId}`),
+  () => local.lsStub(null)
+)
+
+// ── Cloud Sync ────────────────────────────────────────────────────────────────
+
+export const getSyncStatus = () => withLocal(
+  () => api.get('/sync/status'),
+  () => local.lsStub({ status: 'offline', last_sync: null })
+)
+export const runSync = () => withLocal(
+  () => api.post('/sync/run-sync'),
+  () => local.lsStub({ synced: 0, message: 'Offline — no sync performed' })
+)
+export const getSyncLogs = (params) => withLocal(
+  () => api.get('/sync/logs', { params }),
+  () => local.lsStub([])
+)
+export const getCloudDashboard = () => withLocal(
+  () => api.get('/sync/cloud-dashboard'),
+  () => local.lsStub({})
+)
+export const markAllPending = () => withLocal(
+  () => api.post('/sync/mark-all-pending'),
+  () => local.lsStub({})
+)
 
 export default api
