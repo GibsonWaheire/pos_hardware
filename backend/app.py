@@ -45,6 +45,7 @@ from routes.quotes import bp as quotes_bp
 from routes.auth import bp as auth_bp
 from routes.audit import bp as audit_bp
 from routes.purchaser_limits import bp as purchaser_limits_bp
+from routes.hardware import bp as hardware_bp
 
 app.register_blueprint(products_bp)
 app.register_blueprint(sales_bp)
@@ -70,6 +71,7 @@ app.register_blueprint(quotes_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(audit_bp)
 app.register_blueprint(purchaser_limits_bp)
+app.register_blueprint(hardware_bp)
 
 
 @app.route('/api/health')

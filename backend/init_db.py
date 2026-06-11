@@ -111,22 +111,27 @@ def init_db():
             db.session.commit()
             print(f"Added {added_cats} categories.")
 
-        # Seed staff with hardware store roles if none exist
-        if Staff.query.count() == 0:
-            seed_staff = [
-                Staff(name='Admin',        pin='0000', personal_pin='0000', department_pin='0000', role='admin'),
-                Staff(name='Manager',      pin='1111', personal_pin='1111', department_pin='1111', role='manager'),
-                Staff(name='Cashier 1',    pin='2222', personal_pin='1234', department_pin='2222', role='cashier'),
-                Staff(name='Cashier 2',    pin='2222', personal_pin='5678', department_pin='2222', role='cashier'),
-                Staff(name='Inventory',    pin='3333', personal_pin='3333', department_pin='3333', role='inventory'),
-                Staff(name='Purchasing',   pin='4444', personal_pin='4444', department_pin='4444', role='purchasing'),
-            ]
-            db.session.add_all(seed_staff)
+        # Seed default staff — add any that are missing (safe to re-run)
+        default_staff = [
+            dict(name='Admin',        pin='0000', personal_pin='0000', department_pin='0000', role='admin'),
+            dict(name='Manager',      pin='1111', personal_pin='1111', department_pin='1111', role='manager'),
+            dict(name='Cashier 1',    pin='2222', personal_pin='1234', department_pin='2222', role='cashier'),
+            dict(name='Cashier 2',    pin='2222', personal_pin='5678', department_pin='2222', role='cashier'),
+            dict(name='Inventory',    pin='3333', personal_pin='3333', department_pin='3333', role='inventory'),
+            dict(name='Purchasing',   pin='4444', personal_pin='4444', department_pin='4444', role='purchasing'),
+        ]
+        added_staff = 0
+        for s in default_staff:
+            if not Staff.query.filter_by(name=s['name'], role=s['role']).first():
+                db.session.add(Staff(**s))
+                added_staff += 1
+        if added_staff:
             db.session.commit()
-            print("Seeded staff:")
+            print(f"Seeded {added_staff} default staff members.")
             print("  Dept PINs: Admin=0000 Manager=1111 Cashier=2222 Inventory=3333 Purchasing=4444")
             print("  Personal PINs: Admin=0000 Manager=1111 Cashier1=1234 Cashier2=5678 Inventory=3333 Purchasing=4444")
-        else:
+
+        if Staff.query.count() > 0:
             # Migrate existing staff: copy pin → personal_pin if personal_pin not set
             from sqlalchemy import text
             db.session.execute(text(

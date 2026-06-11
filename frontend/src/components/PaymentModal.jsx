@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount } from '../api'
+import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer } from '../api'
 
 function newUUID() {
   try { return crypto.randomUUID() }
@@ -20,6 +20,8 @@ export default function PaymentModal({
   const [mpesaRef, setMpesaRef] = useState('')
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
+  const [completedSale, setCompletedSale] = useState(null)
+  const [printMsg, setPrintMsg] = useState('')
 
   // Account payment state
   const [acctQuery, setAcctQuery] = useState('')
@@ -52,6 +54,33 @@ export default function PaymentModal({
     }
   }
 
+  // ── Sale complete handler ─────────────────────────────────────────────────
+
+  function handleSaleSuccess(sale) {
+    setCompletedSale(sale)
+    // Notify parent immediately so cart clears in background
+    onComplete(sale)
+  }
+
+  async function handleReprint() {
+    if (!completedSale?.id) return
+    setPrintMsg('Printing...')
+    try {
+      await printReceipt(completedSale.id)
+      setPrintMsg('Sent to printer')
+    } catch (e) { setPrintMsg('Printer unavailable') }
+    setTimeout(() => setPrintMsg(''), 3000)
+  }
+
+  async function handleOpenDrawer() {
+    setPrintMsg('Opening drawer...')
+    try {
+      await openDrawer()
+      setPrintMsg('Drawer opened')
+    } catch (e) { setPrintMsg('Drawer unavailable') }
+    setTimeout(() => setPrintMsg(''), 3000)
+  }
+
   // ── Cash ─────────────────────────────────────────────────────────────────
 
   async function handleCashPay() {
@@ -59,7 +88,7 @@ export default function PaymentModal({
     setProcessing(true); setError('')
     try {
       const res = await createSale(buildPayload({ payment_method: 'cash', cash_tendered: cashAmount }))
-      onComplete(res.data)
+      handleSaleSuccess(res.data)
     } catch (e) { setError(e.message); setProcessing(false) }
   }
 
@@ -70,7 +99,7 @@ export default function PaymentModal({
     setProcessing(true); setError('')
     try {
       const res = await createSale(buildPayload({ payment_method: 'mpesa', mpesa_ref: mpesaRef.trim() }))
-      onComplete(res.data)
+      handleSaleSuccess(res.data)
     } catch (e) { setError(e.message); setProcessing(false) }
   }
 
@@ -93,7 +122,7 @@ export default function PaymentModal({
       await capturePaymentIntent(cardIntentId)
       const res = await createSale(buildPayload({ payment_method: 'card', stripe_payment_intent_id: cardIntentId }))
       setCardStatus('done')
-      onComplete(res.data)
+      handleSaleSuccess(res.data)
     } catch (e) { setError(e.message); setCardStatus('error'); setProcessing(false) }
   }
 
@@ -123,7 +152,7 @@ export default function PaymentModal({
       await capturePaymentIntent(cardIntentId)
       const res = await createSale(buildPayload({ payment_method: 'split', cash_tendered: splitCashAmt, card_amount: splitCardAmt, stripe_payment_intent_id: cardIntentId }))
       setCardStatus('done')
-      onComplete(res.data)
+      handleSaleSuccess(res.data)
     } catch (e) { setError(e.message); setCardStatus('error'); setProcessing(false) }
   }
 
@@ -148,7 +177,7 @@ export default function PaymentModal({
     setProcessing(true); setError('')
     try {
       const res = await createSale(buildPayload({ payment_method: 'account', account_id: selectedAcct.id }))
-      onComplete(res.data)
+      handleSaleSuccess(res.data)
     } catch (e) { setError(e.message); setProcessing(false) }
   }
 
@@ -184,6 +213,61 @@ export default function PaymentModal({
     mpesa: '📱 M-Pesa',
     account: '🏦 Account Payment',
     split: '✂️ Split Payment',
+  }
+
+  // ── Sale success screen ───────────────────────────────────────────────────
+
+  if (completedSale) {
+    const method = completedSale.payment_method || ''
+    return (
+      <div className="modal-overlay">
+        <div className="modal" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 56, marginBottom: 8 }}>✅</div>
+          <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>Sale Complete</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 4 }}>
+            {completedSale.receipt_number}
+          </div>
+          <div style={{ fontWeight: 700, fontSize: 28, color: 'var(--success)', marginBottom: 16 }}>
+            {KES(completedSale.total)}
+          </div>
+
+          {method === 'cash' && (
+            <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Cash tendered</span><span>{KES(completedSale.cash_tendered)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--success)', marginTop: 4 }}>
+                <span>Change</span><span>{KES(completedSale.change_given)}</span>
+              </div>
+            </div>
+          )}
+          {method === 'mpesa' && completedSale.mpesa_ref && (
+            <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '8px 16px', marginBottom: 16, fontSize: 13 }}>
+              M-Pesa ref: <strong>{completedSale.mpesa_ref}</strong>
+            </div>
+          )}
+
+          {printMsg && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{printMsg}</div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleReprint}>
+              🖨 Reprint
+            </button>
+            {(method === 'cash' || method === 'split') && (
+              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleOpenDrawer}>
+                💰 Open Drawer
+              </button>
+            )}
+          </div>
+
+          <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={onClose}>
+            New Sale
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

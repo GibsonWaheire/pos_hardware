@@ -632,4 +632,19 @@ export const markAllPending = () => withLocal(
   () => local.lsStub({})
 )
 
+// ── Hardware ──────────────────────────────────────────────────────────────────
+
+export const printReceipt = (saleId) => withLocal(
+  () => api.post(`/hardware/print-receipt/${saleId}`),
+  () => local.lsStub({ message: 'Offline — cannot print' })
+)
+export const openDrawer = () => withLocal(
+  () => api.post('/hardware/open-drawer'),
+  () => local.lsStub({ message: 'Offline — cannot open drawer' })
+)
+export const getHardwareStatus = () => withLocal(
+  () => api.get('/hardware/status'),
+  () => local.lsStub({ printer: { type: 'network' }, cash_drawer: { port: '/dev/ttyUSB0' } })
+)
+
 export default api
