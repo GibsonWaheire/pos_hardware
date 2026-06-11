@@ -11,15 +11,15 @@ import Loyalty from './pages/Loyalty'
 import Terminals from './pages/Terminals'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
-import Appointments from './pages/Appointments'
-import Services from './pages/Services'
 import Dashboard from './pages/Dashboard'
 import CloudSync from './pages/CloudSync'
 import Accounts from './pages/Accounts'
+import Quotes from './pages/Quotes'
 
 const NAV = [
   { to: '/',               label: 'Checkout',     icon: '🛒', end: true },
   { to: '/dashboard',      label: 'Dashboard',    icon: '📊' },
+  { to: '/quotes',         label: 'Quotes',       icon: '📄' },
   { to: '/products',       label: 'Products',     icon: '📦' },
   { to: '/inventory',      label: 'Inventory',    icon: '🗂️' },
   { to: '/suppliers',      label: 'Suppliers',    icon: '🚚' },
@@ -64,11 +64,10 @@ export default function App() {
             <Route path="/terminals"       element={<Terminals />} />
             <Route path="/reports"         element={<Reports />} />
             <Route path="/settings"        element={<Settings />} />
-            <Route path="/appointments"    element={<Appointments />} />
-            <Route path="/services"        element={<Services />} />
             <Route path="/dashboard"       element={<Dashboard />} />
             <Route path="/cloud-sync"      element={<CloudSync />} />
             <Route path="/accounts"        element={<Accounts />} />
+            <Route path="/quotes"          element={<Quotes />} />
           </Routes>
         </main>
       </div>

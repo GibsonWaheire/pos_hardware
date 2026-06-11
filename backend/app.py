@@ -41,6 +41,7 @@ from routes.dashboard import bp as dashboard_bp
 from routes.stores import bp as stores_bp
 from routes.sync import bp as sync_bp
 from routes.accounts import bp as accounts_bp
+from routes.quotes import bp as quotes_bp
 
 app.register_blueprint(products_bp)
 app.register_blueprint(sales_bp)
@@ -62,6 +63,7 @@ app.register_blueprint(dashboard_bp)
 app.register_blueprint(stores_bp)
 app.register_blueprint(sync_bp)
 app.register_blueprint(accounts_bp)
+app.register_blueprint(quotes_bp)
 
 
 @app.route('/api/health')

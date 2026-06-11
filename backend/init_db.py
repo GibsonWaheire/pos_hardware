@@ -23,7 +23,7 @@ def init_db():
         db.create_all()
         print("Tables created.")
 
-        # Phase 7 column migrations (safe to run on existing DBs)
+        # Phase 7 + 8 column migrations (safe to run on existing DBs)
         conn = db.engine.raw_connection()
         try:
             _add_column_if_missing(conn, 'sales', 'mpesa_ref', 'VARCHAR(50)')

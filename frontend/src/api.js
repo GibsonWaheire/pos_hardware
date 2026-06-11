@@ -156,6 +156,15 @@ export const getExportCsvUrl = (params) => {
 export const getStoreConfig = () => api.get('/stores/config')
 export const updateStoreConfig = (data) => api.put('/stores/config', data)
 
+// Quotes / Proforma Invoices (Phase 8)
+export const getQuotes = (params) => api.get('/quotes', { params })
+export const getQuote = (id) => api.get(`/quotes/${id}`)
+export const createQuote = (data) => api.post('/quotes', data)
+export const updateQuote = (id, data) => api.put(`/quotes/${id}`, data)
+export const updateQuoteStatus = (id, status) => api.post(`/quotes/${id}/status`, { status })
+export const convertQuote = (id, data) => api.post(`/quotes/${id}/convert`, data)
+export const deleteQuote = (id) => api.delete(`/quotes/${id}`)
+
 // Customer Accounts / Deposit Accounts (Phase 7)
 export const getAccounts = (params) => api.get('/accounts', { params })
 export const getAccount = (id) => api.get(`/accounts/${id}`)

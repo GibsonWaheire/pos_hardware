@@ -741,3 +741,92 @@ class AppointmentService(db.Model):
         }
 
 
+# ── Phase 8 Models ─────────────────────────────────────────────────────────────
+
+class Quote(db.Model):
+    """
+    Proforma invoice / quotation for a hardware store customer.
+    Can be converted to a sale in one click.
+    """
+    __tablename__ = 'quotes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    quote_number = db.Column(db.String(30), unique=True, index=True)  # QUO-YYYYMMDD-XXXX
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
+    customer_name = db.Column(db.String(100))
+    customer_phone = db.Column(db.String(30))
+    account_id = db.Column(db.Integer, db.ForeignKey('customer_accounts.id'), nullable=True)
+
+    status = db.Column(db.String(20), default='draft')
+    # draft | sent | accepted | converted | expired
+
+    subtotal = db.Column(db.Float, default=0.0)
+    tax_amount = db.Column(db.Float, default=0.0)
+    discount_total = db.Column(db.Float, default=0.0)
+    total = db.Column(db.Float, default=0.0)
+
+    notes = db.Column(db.Text)
+    valid_until = db.Column(db.DateTime, nullable=True)
+    cashier_name = db.Column(db.String(100))
+
+    # Filled when converted to a sale
+    sale_id = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=True)
+    converted_at = db.Column(db.DateTime, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    items = db.relationship('QuoteItem', backref='quote', lazy=True, cascade='all, delete-orphan')
+
+    def to_dict(self, include_items=True):
+        d = {
+            'id': self.id,
+            'quote_number': self.quote_number,
+            'customer_id': self.customer_id,
+            'customer_name': self.customer_name,
+            'customer_phone': self.customer_phone,
+            'account_id': self.account_id,
+            'status': self.status,
+            'subtotal': round(self.subtotal, 2),
+            'tax_amount': round(self.tax_amount, 2),
+            'discount_total': round(self.discount_total, 2),
+            'total': round(self.total, 2),
+            'notes': self.notes,
+            'cashier_name': self.cashier_name,
+            'valid_until': self.valid_until.isoformat() if self.valid_until else None,
+            'sale_id': self.sale_id,
+            'converted_at': self.converted_at.isoformat() if self.converted_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+        if include_items:
+            d['items'] = [i.to_dict() for i in self.items]
+        return d
+
+
+class QuoteItem(db.Model):
+    __tablename__ = 'quote_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    quote_id = db.Column(db.Integer, db.ForeignKey('quotes.id'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)
+    product_name = db.Column(db.String(200), nullable=False)
+    unit_price = db.Column(db.Float, nullable=False)
+    qty = db.Column(db.Integer, nullable=False, default=1)
+    discount = db.Column(db.Float, default=0.0)
+    tax_rate = db.Column(db.Float, default=0.0)
+    line_total = db.Column(db.Float, nullable=False)
+    notes = db.Column(db.String(200))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'product_name': self.product_name,
+            'unit_price': self.unit_price,
+            'qty': self.qty,
+            'discount': self.discount,
+            'tax_rate': self.tax_rate,
+            'line_total': round(self.line_total, 2),
+            'notes': self.notes,
+        }
+
+
