@@ -95,32 +95,34 @@ function AppInner() {
         {/* Spacer */}
         <div style={{ flex: 1 }} />
 
-        {/* Theme toggle */}
-        <button
-          onClick={toggleTheme}
-          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          style={themeBtn}
-        >
-          {theme === 'dark' ? '☀️' : '🌙'}
-        </button>
-
-        {/* User badge + logout */}
-        <div style={userBadge}>
-          <div style={{ ...roleDot, background: ROLE_COLOUR[user.role] || '#888' }} />
-          <span style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.3 }}>
-            {user.name}
-          </span>
-          <span style={{ fontSize: 9, color: ROLE_COLOUR[user.role] || '#888', textTransform: 'uppercase', letterSpacing: 1 }}>
-            {user.role}
-          </span>
-          <button onClick={handleLogout} style={logoutBtn}>
-            Log out
-          </button>
+        {/* Role dot at bottom of sidebar */}
+        <div style={{ padding: '12px 0 4px', borderTop: '1px solid var(--border)', width: '100%', display: 'flex', justifyContent: 'center' }}>
+          <div style={{ ...roleDot, background: ROLE_COLOUR[user.role] || '#888' }} title={user.role} />
         </div>
       </nav>
 
-      <main className="main-content">
-        <Routes>
+      <div style={mainWrap}>
+        {/* Top header bar */}
+        <header style={topBar}>
+          <div style={topBarLeft}>
+            <div style={{ ...roleDot, width: 10, height: 10, background: ROLE_COLOUR[user.role] || '#888' }} />
+            <span style={{ fontWeight: 600, fontSize: 14 }}>{user.name}</span>
+            <span style={{ fontSize: 12, color: ROLE_COLOUR[user.role] || '#888', textTransform: 'capitalize', background: (ROLE_COLOUR[user.role] || '#888') + '22', padding: '2px 8px', borderRadius: 10 }}>
+              {user.role}
+            </span>
+          </div>
+          <div style={topBarRight}>
+            <button onClick={toggleTheme} style={topBarBtn} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
+            <button onClick={handleLogout} style={logoutBtn}>
+              Log out
+            </button>
+          </div>
+        </header>
+
+        <main className="main-content">
+          <Routes>
           <Route path="/"                element={<RoleGuard roles={['cashier','manager','admin']}><POS /></RoleGuard>} />
           <Route path="/dashboard"       element={<RoleGuard roles={['manager','admin']}><Dashboard /></RoleGuard>} />
           <Route path="/quotes"          element={<RoleGuard roles={['cashier','manager','admin']}><Quotes /></RoleGuard>} />
@@ -140,7 +142,8 @@ function AppInner() {
           {/* Catch-all: redirect to role home */}
           <Route path="*" element={<RoleHome />} />
         </Routes>
-      </main>
+        </main>
+      </div>
     </div>
   )
 }
@@ -174,27 +177,35 @@ export default function App() {
 
 // ── Inline styles ─────────────────────────────────────────────────────────────
 
-const themeBtn = {
-  background: 'none', border: 'none', cursor: 'pointer',
-  fontSize: 18, padding: '8px 0', color: 'var(--text-muted)',
+const mainWrap = {
+  display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden',
 }
-const userBadge = {
-  display: 'flex', flexDirection: 'column', alignItems: 'center',
-  gap: 4, padding: '8px 4px', borderTop: '1px solid var(--border)', width: '100%',
+const topBar = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  padding: '0 20px', height: 48, flexShrink: 0,
+  background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+}
+const topBarLeft = {
+  display: 'flex', alignItems: 'center', gap: 10,
+}
+const topBarRight = {
+  display: 'flex', alignItems: 'center', gap: 10,
+}
+const topBarBtn = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  fontSize: 16, color: 'var(--text-muted)', padding: '4px',
 }
 const roleDot = {
-  width: 8, height: 8, borderRadius: '50%',
+  width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
 }
 const logoutBtn = {
-  marginTop: 4,
-  width: '100%',
-  padding: '6px 0',
-  background: 'var(--surface2)',
-  border: '1px solid var(--border)',
+  padding: '6px 14px',
+  background: 'transparent',
+  border: '1px solid var(--danger)',
   borderRadius: 6,
   color: 'var(--danger)',
-  fontSize: 11,
+  fontSize: 12,
   fontWeight: 600,
   cursor: 'pointer',
-  letterSpacing: 0.5,
+  letterSpacing: 0.3,
 }
