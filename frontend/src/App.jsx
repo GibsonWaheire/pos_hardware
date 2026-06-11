@@ -25,13 +25,13 @@ import Login from './pages/Login'
 const NAV = [
   { to: '/',                label: 'Checkout',  icon: '🛒', end: true,  roles: ['cashier','manager','admin'] },
   { to: '/dashboard',       label: 'Dashboard', icon: '📊',             roles: ['manager','admin'] },
-  { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['cashier','manager','admin'] },
+  { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['manager','admin'] },
   { to: '/products',        label: 'Products',  icon: '📦',             roles: ['inventory','manager','admin'] },
   { to: '/inventory',       label: 'Inventory', icon: '🗂️',            roles: ['inventory','purchasing','manager','admin'] },
-  { to: '/suppliers',       label: 'Suppliers', icon: '🚚',             roles: ['purchasing','manager','admin'] },
-  { to: '/purchase-orders', label: 'Orders',    icon: '📋',             roles: ['purchasing','manager','admin'] },
+  { to: '/suppliers',       label: 'Suppliers', icon: '🚚',             roles: ['supplier','purchasing','manager','admin'] },
+  { to: '/purchase-orders', label: 'Orders',    icon: '📋',             roles: ['supplier','purchasing','manager','admin'] },
   { to: '/returns',         label: 'Returns',   icon: '↩️',             roles: ['manager','admin'] },
-  { to: '/shifts',          label: 'Shifts',    icon: '⏱️',             roles: ['cashier','manager','admin'] },
+  { to: '/shifts',          label: 'Shifts',    icon: '⏱️',             roles: ['manager','admin'] },
   { to: '/customers',       label: 'Customers', icon: '👤',             roles: ['cashier','manager','admin'] },
   { to: '/accounts',        label: 'Accounts',  icon: '🏦',             roles: ['manager','admin'] },
   { to: '/loyalty',         label: 'Loyalty',   icon: '⭐',             roles: ['manager','admin'] },
@@ -44,7 +44,8 @@ const NAV = [
 const HOME_BY_ROLE = {
   cashier:    '/',
   inventory:  '/products',
-  purchasing: '/suppliers',
+  purchasing: '/purchase-orders',
+  supplier:   '/purchase-orders',
   manager:    '/dashboard',
   admin:      '/dashboard',
 }
@@ -53,6 +54,7 @@ const ROLE_COLOUR = {
   cashier:    '#4f6ef7',
   inventory:  '#22c55e',
   purchasing: '#f59e0b',
+  supplier:   '#06b6d4',
   manager:    '#a855f7',
   admin:      '#ef4444',
 }

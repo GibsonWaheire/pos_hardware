@@ -1,4 +1,6 @@
-export default function Cart({ items, onUpdateQty, onRemove }) {
+export default function Cart({ items, onUpdateQty, onRemove, onRemoveRequest }) {
+  // Use onRemoveRequest if provided (triggers manager auth), else fall back to onRemove
+  const handleRemove = onRemoveRequest || onRemove
   if (items.length === 0) {
     return (
       <div className="cart-items">
@@ -21,8 +23,8 @@ export default function Cart({ items, onUpdateQty, onRemove }) {
                 {item.product_name}
               </div>
               <div className="cart-item-sub">
-                ${item.unit_price.toFixed(2)} ea
-                {item.discount > 0 && <span style={{ color: 'var(--warning)' }}> · -${item.discount.toFixed(2)} disc</span>}
+                KES {item.unit_price.toFixed(2)} ea
+                {item.discount > 0 && <span style={{ color: 'var(--warning)' }}> · -KES {item.discount.toFixed(2)} disc</span>}
                 {item.tax_rate > 0 && <span> · {(item.tax_rate * 100).toFixed(0)}% tax</span>}
                 {item.item_type === 'service' && <span style={{ color: 'var(--accent)' }}> · service</span>}
               </div>
@@ -34,10 +36,10 @@ export default function Cart({ items, onUpdateQty, onRemove }) {
               <button className="qty-btn" onClick={() => onUpdateQty(itemId, +1)}>+</button>
             </div>
 
-            <div className="cart-item-total">${item.line_total.toFixed(2)}</div>
+            <div className="cart-item-total">KES {item.line_total.toFixed(2)}</div>
 
             <button
-              onClick={() => onRemove(itemId)}
+              onClick={() => handleRemove(itemId)}
               style={{
                 background: 'none', border: 'none', color: 'var(--text-muted)',
                 cursor: 'pointer', fontSize: 16, padding: '0 4px',

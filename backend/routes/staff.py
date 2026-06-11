@@ -20,7 +20,9 @@ def create_staff():
     member = Staff(
         name=data['name'],
         pin=data.get('pin'),
+        personal_pin=data.get('personal_pin'),
         role=data.get('role', 'cashier'),
+        supplier_id=data.get('supplier_id'),
     )
     db.session.add(member)
     db.session.commit()
@@ -35,10 +37,14 @@ def update_staff(staff_id):
         member.name = data['name']
     if 'pin' in data:
         member.pin = data['pin']
+    if 'personal_pin' in data and data['personal_pin']:
+        member.personal_pin = data['personal_pin']
     if 'role' in data:
         member.role = data['role']
     if 'is_active' in data:
         member.is_active = bool(data['is_active'])
+    if 'supplier_id' in data:
+        member.supplier_id = data['supplier_id']
     db.session.commit()
     return jsonify(member.to_dict())
 

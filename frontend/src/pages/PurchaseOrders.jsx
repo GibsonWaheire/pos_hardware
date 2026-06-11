@@ -1,21 +1,33 @@
 import { useState, useEffect } from 'react'
-import { getPurchaseOrders, createPurchaseOrder, markPOOrdered, receivePO, cancelPO, getSuppliers, getProducts } from '../api'
+import { useAuth } from '../context/AuthContext'
+import {
+  getPurchaseOrders, createPurchaseOrder, markPOOrdered, receivePO, cancelPO,
+  getPendingPOs, approvePO, rejectPO, confirmPO, markPODispatched,
+  getSuppliers, getProducts,
+} from '../api'
 
 const STATUS_BADGE = {
-  draft: 'badge-blue',
-  ordered: 'badge-yellow',
-  partial: 'badge-yellow',
-  received: 'badge-green',
-  cancelled: 'badge-red',
+  draft:            'badge-blue',
+  pending_approval: 'badge-orange',
+  ordered:          'badge-yellow',
+  partial:          'badge-yellow',
+  received:         'badge-green',
+  cancelled:        'badge-red',
+  rejected:         'badge-red',
 }
 
 export default function PurchaseOrders() {
+  const { user } = useAuth()
+  const role = user?.role || ''
+
   const [pos, setPOs] = useState([])
+  const [pendingPos, setPendingPOs] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [products, setProducts] = useState([])
-  const [modal, setModal] = useState(null)  // null | 'create' | { mode: 'receive', po }
+  const [modal, setModal] = useState(null)  // null | 'create' | { mode: 'receive', po } | { mode: 'reject', po }
   const [createForm, setCreateForm] = useState({ supplier_id: '', notes: '', items: [] })
-  const [receiveData, setReceiveData] = useState({})  // { po_item_id: qty }
+  const [receiveData, setReceiveData] = useState({})
+  const [rejectNote, setRejectNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -23,10 +35,13 @@ export default function PurchaseOrders() {
 
   async function load() {
     try {
-      const [p, s, pr] = await Promise.all([getPurchaseOrders(), getSuppliers(), getProducts()])
-      setPOs(p.data)
-      setSuppliers(s.data)
-      setProducts(pr.data)
+      const calls = [getPurchaseOrders(), getSuppliers(), getProducts()]
+      if (role === 'manager' || role === 'admin') calls.push(getPendingPOs())
+      const results = await Promise.all(calls)
+      setPOs(results[0].data)
+      setSuppliers(results[1].data)
+      setProducts(results[2].data)
+      if (results[3]) setPendingPOs(results[3].data)
     } catch (e) { console.error(e) }
   }
 
@@ -40,7 +55,6 @@ export default function PurchaseOrders() {
     setCreateForm(f => {
       const items = [...f.items]
       items[idx] = { ...items[idx], [field]: value }
-      // Auto-fill product name when product_id changes
       if (field === 'product_id' && value) {
         const p = products.find(p => p.id === parseInt(value))
         if (p) items[idx].product_name = p.name
@@ -57,7 +71,7 @@ export default function PurchaseOrders() {
     if (!createForm.items.length) { setError('Add at least one item'); return }
     setSaving(true); setError('')
     try {
-      await createPurchaseOrder({
+      const res = await createPurchaseOrder({
         supplier_id: createForm.supplier_id ? parseInt(createForm.supplier_id) : null,
         notes: createForm.notes,
         items: createForm.items.map(i => ({
@@ -69,11 +83,14 @@ export default function PurchaseOrders() {
       })
       setModal(null)
       setCreateForm({ supplier_id: '', notes: '', items: [] })
+      if (res.data.status === 'pending_approval') {
+        alert('PO created and sent for manager approval (exceeds your spending limit).')
+      }
       load()
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
-  // ── Receive items ────────────────────────────────────────────────────────
+  // ── Receive ──────────────────────────────────────────────────────────────
 
   function openReceive(po) {
     const init = {}
@@ -96,6 +113,23 @@ export default function PurchaseOrders() {
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
+  // ── Approve / Reject ─────────────────────────────────────────────────────
+
+  async function handleApprove(po) {
+    try { await approvePO(po.id); load() } catch (e) { alert(e.message) }
+  }
+
+  async function handleReject() {
+    setSaving(true); setError('')
+    try {
+      await rejectPO(modal.po.id, { notes: rejectNote })
+      setModal(null); setRejectNote('')
+      load()
+    } catch (e) { setError(e.message) } finally { setSaving(false) }
+  }
+
+  // ── Other actions ────────────────────────────────────────────────────────
+
   async function handleMarkOrdered(po) {
     try { await markPOOrdered(po.id); load() } catch (e) { alert(e.message) }
   }
@@ -105,44 +139,122 @@ export default function PurchaseOrders() {
     try { await cancelPO(po.id); load() } catch (e) { alert(e.message) }
   }
 
-  const createTotal = createForm.items.reduce((s, i) => s + (parseFloat(i.qty_ordered) || 0) * (parseFloat(i.unit_cost) || 0), 0)
+  async function handleConfirm(po) {
+    try { await confirmPO(po.id); load() } catch (e) { alert(e.message) }
+  }
+
+  async function handleDispatch(po) {
+    try { await markPODispatched(po.id); load() } catch (e) { alert(e.message) }
+  }
+
+  const createTotal = createForm.items.reduce(
+    (s, i) => s + (parseFloat(i.qty_ordered) || 0) * (parseFloat(i.unit_cost) || 0), 0
+  )
+
+  const canCreate = role !== 'supplier'
+
+  // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <div className="page-header">
         <span className="page-title">Purchase Orders</span>
-        <button className="btn btn-primary" onClick={() => { setCreateForm({ supplier_id: '', notes: '', items: [] }); setError(''); setModal('create') }}>
-          + New PO
-        </button>
+        {canCreate && (
+          <button className="btn btn-primary"
+            onClick={() => { setCreateForm({ supplier_id: '', notes: '', items: [] }); setError(''); setModal('create') }}>
+            + New PO
+          </button>
+        )}
       </div>
 
       <div className="page-body" style={{ flex: 1, overflow: 'auto' }}>
+
+        {/* ── Pending Approvals section (manager/admin) ── */}
+        {(role === 'manager' || role === 'admin') && pendingPos.length > 0 && (
+          <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid #f59e0b' }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12, color: '#f59e0b' }}>
+              Pending Approvals ({pendingPos.length})
+            </div>
+            <table className="table">
+              <thead>
+                <tr><th>PO Number</th><th>By</th><th>Supplier</th><th>Total</th><th>Created</th><th></th></tr>
+              </thead>
+              <tbody>
+                {pendingPos.map(po => (
+                  <tr key={po.id}>
+                    <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{po.po_number}</td>
+                    <td>{po.created_by_name || po.created_by || '—'}</td>
+                    <td>{po.supplier_name || '—'}</td>
+                    <td>KES {po.total_cost.toFixed(2)}</td>
+                    <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{new Date(po.created_at).toLocaleDateString()}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-success btn-sm" onClick={() => handleApprove(po)}>Approve</button>
+                        <button className="btn btn-danger btn-sm"
+                          onClick={() => { setRejectNote(''); setError(''); setModal({ mode: 'reject', po }) }}>
+                          Reject
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ── All POs table ── */}
         <div className="card" style={{ padding: 0 }}>
           <table className="table">
             <thead>
-              <tr><th>PO Number</th><th>Supplier</th><th>Status</th><th>Items</th><th>Total Cost</th><th>Created</th><th></th></tr>
+              <tr>
+                <th>PO Number</th>
+                <th>Supplier</th>
+                <th>Status</th>
+                {(role === 'manager' || role === 'admin') && <th>Created By</th>}
+                <th>Items</th>
+                <th>Total</th>
+                <th>Date</th>
+                <th></th>
+              </tr>
             </thead>
             <tbody>
               {pos.length === 0 ? (
-                <tr><td colSpan={7} className="empty-state">No purchase orders yet</td></tr>
+                <tr><td colSpan={8} className="empty-state">No purchase orders yet</td></tr>
               ) : pos.map(po => (
                 <tr key={po.id}>
                   <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{po.po_number}</td>
                   <td>{po.supplier_name || '—'}</td>
-                  <td><span className={`badge ${STATUS_BADGE[po.status] || 'badge-blue'}`}>{po.status}</span></td>
+                  <td>
+                    <span className={`badge ${STATUS_BADGE[po.status] || 'badge-blue'}`}>
+                      {po.status === 'pending_approval' ? 'pending approval' : po.status}
+                    </span>
+                  </td>
+                  {(role === 'manager' || role === 'admin') && (
+                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{po.created_by_name || po.created_by || '—'}</td>
+                  )}
                   <td style={{ color: 'var(--text-muted)' }}>{po.items.length} line{po.items.length !== 1 ? 's' : ''}</td>
-                  <td>${po.total_cost.toFixed(2)}</td>
+                  <td>KES {po.total_cost.toFixed(2)}</td>
                   <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{new Date(po.created_at).toLocaleDateString()}</td>
                   <td>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {po.status === 'draft' && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {/* Purchaser / Manager / Admin actions */}
+                      {po.status === 'draft' && role !== 'supplier' && (
                         <button className="btn btn-primary btn-sm" onClick={() => handleMarkOrdered(po)}>Mark Ordered</button>
                       )}
-                      {['ordered', 'partial', 'draft'].includes(po.status) && (
+                      {['ordered', 'partial', 'draft'].includes(po.status) && role !== 'supplier' && (
                         <button className="btn btn-success btn-sm" onClick={() => openReceive(po)}>Receive</button>
                       )}
-                      {['draft', 'ordered'].includes(po.status) && (
+                      {['draft', 'ordered', 'pending_approval'].includes(po.status) && role !== 'supplier' && (
                         <button className="btn btn-danger btn-sm" onClick={() => handleCancel(po)}>Cancel</button>
+                      )}
+
+                      {/* Supplier actions */}
+                      {role === 'supplier' && po.status === 'ordered' && (
+                        <>
+                          <button className="btn btn-primary btn-sm" onClick={() => handleConfirm(po)}>Confirm</button>
+                          <button className="btn btn-success btn-sm" onClick={() => handleDispatch(po)}>Dispatched</button>
+                        </>
                       )}
                     </div>
                   </td>
@@ -175,7 +287,6 @@ export default function PurchaseOrders() {
               </div>
             </div>
 
-            {/* Line items */}
             <div style={{ fontWeight: 600, marginBottom: 8 }}>Items</div>
             {createForm.items.length === 0 && (
               <div className="empty-state" style={{ padding: '16px 0' }}>No items — click "Add Item"</div>
@@ -211,7 +322,7 @@ export default function PurchaseOrders() {
 
             {createForm.items.length > 0 && (
               <div style={{ textAlign: 'right', fontWeight: 700, fontSize: 16, marginBottom: 12 }}>
-                Total: ${createTotal.toFixed(2)}
+                Total: KES {createTotal.toFixed(2)}
               </div>
             )}
 
@@ -246,7 +357,7 @@ export default function PurchaseOrders() {
                     </div>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
-                    ${item.unit_cost.toFixed(2)}/ea
+                    KES {item.unit_cost.toFixed(2)}/ea
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
                     Rem: {remaining}
@@ -266,6 +377,31 @@ export default function PurchaseOrders() {
               <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
               <button className="btn btn-success" onClick={handleReceive} disabled={saving}>
                 {saving ? 'Receiving...' : 'Confirm Receipt'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject PO modal */}
+      {modal?.mode === 'reject' && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
+          <div className="modal" style={{ width: 440 }}>
+            <div className="modal-title">Reject PO — {modal.po.po_number}</div>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 12 }}>
+              Total: KES {modal.po.total_cost.toFixed(2)} · Requested by: {modal.po.created_by_name || modal.po.created_by || '—'}
+            </p>
+            <div className="form-group">
+              <label className="label">Reason (optional)</label>
+              <input className="input" value={rejectNote}
+                onChange={e => setRejectNote(e.target.value)}
+                placeholder="Why is this PO being rejected?" />
+            </div>
+            {error && <p className="error-msg">{error}</p>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={handleReject} disabled={saving}>
+                {saving ? 'Rejecting...' : 'Reject PO'}
               </button>
             </div>
           </div>

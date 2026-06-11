@@ -25,6 +25,7 @@ const K = {
   staff:       'pos_hw_staff',
   suppliers:   'pos_hw_suppliers',
   purchaseOrders: 'pos_hw_pos',
+  shifts:      'pos_hw_shifts',
   seeded:      'pos_hw_seeded',
 }
 
@@ -51,36 +52,120 @@ function seed() {
   if (localStorage.getItem(K.seeded)) return
 
   save(K.categories, [
-    { id: 1, name: 'Building Materials', tax_class: 'standard' },
-    { id: 2, name: 'Plumbing',           tax_class: 'standard' },
-    { id: 3, name: 'Electrical',         tax_class: 'standard' },
-    { id: 4, name: 'Paint & Finishes',   tax_class: 'standard' },
-    { id: 5, name: 'Hand Tools',         tax_class: 'standard' },
-    { id: 6, name: 'Fasteners',          tax_class: 'standard' },
-    { id: 7, name: 'Timber & Wood',      tax_class: 'standard' },
+    { id: 1, name: 'Cement & Aggregates',   tax_class: 'standard' },
+    { id: 2, name: 'Steel & Reinforcement', tax_class: 'standard' },
+    { id: 3, name: 'Roofing',              tax_class: 'standard' },
+    { id: 4, name: 'Timber & Wood',        tax_class: 'standard' },
+    { id: 5, name: 'Paint & Finishes',     tax_class: 'standard' },
+    { id: 6, name: 'Plumbing',             tax_class: 'standard' },
+    { id: 7, name: 'Electrical',           tax_class: 'standard' },
+    { id: 8, name: 'Fasteners & Fixings',  tax_class: 'standard' },
+    { id: 9, name: 'Hardware & Tools',     tax_class: 'standard' },
   ])
 
+  // Helper for offline product seed — price=0 means client must set
+  function prod(id, name, plu, catId, catName, wb, unit, stock, threshold) {
+    return { id, name, barcode: null, plu_code: plu, price: 0, tax_rate: 0.16,
+             stock_qty: stock, low_stock_threshold: threshold, category_id: catId,
+             category_name: catName, is_active: true, is_weight_based: wb,
+             weight_unit: unit, age_restricted: false, age_restriction_type: null, min_age: 0 }
+  }
+  const CA='Cement & Aggregates', ST='Steel & Reinforcement', RO='Roofing'
+  const TW='Timber & Wood', PA='Paint & Finishes', PL='Plumbing'
+  const EL='Electrical', FA='Fasteners & Fixings', HT='Hardware & Tools'
   save(K.products, [
-    { id:1,  name:'Portland Cement 50kg',       barcode:'6001234000001', plu_code:null,  price:850,   tax_rate:0.16, stock_qty:200,  low_stock_threshold:20,  category_id:1, category_name:'Building Materials', is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:2,  name:'River Sand',                 barcode:null,            plu_code:'S01', price:2500,  tax_rate:0.16, stock_qty:50,   low_stock_threshold:5,   category_id:1, category_name:'Building Materials', is_active:true, is_weight_based:true,  weight_unit:'ton', age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:3,  name:'Ballast / Hardcore',         barcode:null,            plu_code:'S02', price:2200,  tax_rate:0.16, stock_qty:40,   low_stock_threshold:5,   category_id:1, category_name:'Building Materials', is_active:true, is_weight_based:true,  weight_unit:'ton', age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:4,  name:'Steel Bar Y12 (6m)',         barcode:'6001234000004', plu_code:null,  price:1250,  tax_rate:0.16, stock_qty:300,  low_stock_threshold:30,  category_id:1, category_name:'Building Materials', is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:5,  name:'Steel Bar Y16 (6m)',         barcode:'6001234000005', plu_code:null,  price:2200,  tax_rate:0.16, stock_qty:150,  low_stock_threshold:20,  category_id:1, category_name:'Building Materials', is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:6,  name:'Roofing Sheet 32G (3m)',     barcode:'6001234000006', plu_code:null,  price:850,   tax_rate:0.16, stock_qty:500,  low_stock_threshold:50,  category_id:1, category_name:'Building Materials', is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:7,  name:'Red Brick',                  barcode:'6001234000007', plu_code:'B01', price:25,    tax_rate:0.16, stock_qty:10000,low_stock_threshold:500, category_id:1, category_name:'Building Materials', is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:8,  name:'PVC Pipe ½" (3m)',           barcode:'6001234000008', plu_code:null,  price:320,   tax_rate:0.16, stock_qty:80,   low_stock_threshold:10,  category_id:2, category_name:'Plumbing',           is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:9,  name:'PVC Pipe 1" (3m)',           barcode:'6001234000009', plu_code:null,  price:480,   tax_rate:0.16, stock_qty:60,   low_stock_threshold:10,  category_id:2, category_name:'Plumbing',           is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:10, name:'Ball Valve ½"',              barcode:'6001234000010', plu_code:null,  price:180,   tax_rate:0.16, stock_qty:40,   low_stock_threshold:5,   category_id:2, category_name:'Plumbing',           is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:11, name:'Dulux Weathershield 4L',     barcode:'6001234000011', plu_code:null,  price:2400,  tax_rate:0.16, stock_qty:30,   low_stock_threshold:5,   category_id:4, category_name:'Paint & Finishes',   is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:12, name:'Crown Paint Silk 4L',        barcode:'6001234000012', plu_code:null,  price:1800,  tax_rate:0.16, stock_qty:25,   low_stock_threshold:5,   category_id:4, category_name:'Paint & Finishes',   is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:13, name:'Wire Nails 4"',              barcode:'6001234000013', plu_code:'N01', price:120,   tax_rate:0.16, stock_qty:100,  low_stock_threshold:10,  category_id:6, category_name:'Fasteners',          is_active:true, is_weight_based:true,  weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:14, name:'Roofing Nails',              barcode:'6001234000014', plu_code:'N02', price:140,   tax_rate:0.16, stock_qty:80,   low_stock_threshold:10,  category_id:6, category_name:'Fasteners',          is_active:true, is_weight_based:true,  weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:15, name:'Claw Hammer',                barcode:'6001234000015', plu_code:null,  price:450,   tax_rate:0.16, stock_qty:20,   low_stock_threshold:3,   category_id:5, category_name:'Hand Tools',         is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:16, name:'Tape Measure 5m',            barcode:'6001234000016', plu_code:null,  price:250,   tax_rate:0.16, stock_qty:15,   low_stock_threshold:3,   category_id:5, category_name:'Hand Tools',         is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:17, name:'Timber 2×4 (12ft)',          barcode:'6001234000017', plu_code:null,  price:650,   tax_rate:0.16, stock_qty:80,   low_stock_threshold:10,  category_id:7, category_name:'Timber & Wood',      is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:18, name:'Plywood 18mm (4×8)',         barcode:'6001234000018', plu_code:null,  price:3200,  tax_rate:0.16, stock_qty:30,   low_stock_threshold:5,   category_id:7, category_name:'Timber & Wood',      is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:19, name:'Electrical Wire 1.5mm (100m)',barcode:'6001234000019',plu_code:null,  price:3500,  tax_rate:0.16, stock_qty:15,   low_stock_threshold:3,   category_id:3, category_name:'Electrical',         is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
-    { id:20, name:'Single Switch (surface)',     barcode:'6001234000020', plu_code:null,  price:120,   tax_rate:0.16, stock_qty:50,   low_stock_threshold:5,   category_id:3, category_name:'Electrical',         is_active:true, is_weight_based:false, weight_unit:'kg',  age_restricted:false, age_restriction_type:null, min_age:0 },
+    prod(1,  'Bamburi Cement 50kg',       'C01', 1, CA,  false,'pce', 0, 20),
+    prod(2,  'Savannah Cement 50kg',      'C02', 1, CA,  false,'pce', 0, 20),
+    prod(3,  'Mombasa Cement 50kg',       'C03', 1, CA,  false,'pce', 0, 20),
+    prod(4,  'River Sand',                'S01', 1, CA,  true, 'tonne',0, 5),
+    prod(5,  'Ballast / Hardcore',        'S02', 1, CA,  true, 'tonne',0, 5),
+    prod(6,  'Crushed Stone',             'S03', 1, CA,  true, 'tonne',0, 5),
+    prod(7,  'Steel Bar Y8 (6m)',         'R01', 2, ST,  false,'pce', 0, 20),
+    prod(8,  'Steel Bar Y10 (6m)',        'R02', 2, ST,  false,'pce', 0, 20),
+    prod(9,  'Steel Bar Y12 (6m)',        'R03', 2, ST,  false,'pce', 0, 20),
+    prod(10, 'Steel Bar Y16 (6m)',        'R04', 2, ST,  false,'pce', 0, 20),
+    prod(11, 'Steel Bar Y20 (6m)',        'R05', 2, ST,  false,'pce', 0, 10),
+    prod(12, 'Round Bar R6 (6m)',         'R06', 2, ST,  false,'pce', 0, 10),
+    prod(13, 'Binding Wire',              'R07', 2, ST,  true, 'kg',  0,  5),
+    prod(14, 'BRC Mesh A142',             'R08', 2, ST,  false,'pce', 0, 10),
+    prod(15, 'BRC Mesh A193',             'R09', 2, ST,  false,'pce', 0, 10),
+    prod(16, 'Mabati G28 2m',             'M01', 3, RO,  false,'pce', 0, 20),
+    prod(17, 'Mabati G28 2.5m',           'M02', 3, RO,  false,'pce', 0, 20),
+    prod(18, 'Mabati G28 3m',             'M03', 3, RO,  false,'pce', 0, 20),
+    prod(19, 'Mabati G30 2m',             'M04', 3, RO,  false,'pce', 0, 20),
+    prod(20, 'Mabati G30 2.5m',           'M05', 3, RO,  false,'pce', 0, 20),
+    prod(21, 'Mabati G30 3m',             'M06', 3, RO,  false,'pce', 0, 20),
+    prod(22, 'Mabati G32 2m',             'M07', 3, RO,  false,'pce', 0, 10),
+    prod(23, 'Mabati G32 3m',             'M08', 3, RO,  false,'pce', 0, 10),
+    prod(24, 'Ridge Cap',                 'M09', 3, RO,  false,'pce', 0,  5),
+    prod(25, 'Roofing Nails',             'M10', 3, RO,  true, 'kg',  0,  5),
+    prod(26, 'Screw Cap Nails',           'M11', 3, RO,  true, 'kg',  0,  5),
+    prod(27, 'Timber 2x2 (per ft)',       'T01', 4, TW,  false,'ft',  0, 50),
+    prod(28, 'Timber 2x4 (per ft)',       'T02', 4, TW,  false,'ft',  0, 50),
+    prod(29, 'Timber 2x6 (per ft)',       'T03', 4, TW,  false,'ft',  0, 30),
+    prod(30, 'Timber 3x2 (per ft)',       'T04', 4, TW,  false,'ft',  0, 30),
+    prod(31, 'Plywood 18mm 4x8',          'T05', 4, TW,  false,'pce', 0,  5),
+    prod(32, 'Plywood 12mm 4x8',          'T06', 4, TW,  false,'pce', 0,  5),
+    prod(33, 'Blockboard 18mm 4x8',       'T07', 4, TW,  false,'pce', 0,  5),
+    prod(34, 'MDF 18mm 4x8',              'T08', 4, TW,  false,'pce', 0,  5),
+    prod(35, 'Crown Emulsion 1L',         'P01', 5, PA,  false,'pce', 0,  5),
+    prod(36, 'Crown Emulsion 4L',         'P02', 5, PA,  false,'pce', 0,  5),
+    prod(37, 'Crown Emulsion 20L',        'P03', 5, PA,  false,'pce', 0,  3),
+    prod(38, 'Crown Gloss 1L',            'P04', 5, PA,  false,'pce', 0,  5),
+    prod(39, 'Crown Gloss 4L',            'P05', 5, PA,  false,'pce', 0,  5),
+    prod(40, 'Crown Gloss 20L',           'P06', 5, PA,  false,'pce', 0,  3),
+    prod(41, 'Sadolin Superdec 1L',       'P07', 5, PA,  false,'pce', 0,  5),
+    prod(42, 'Sadolin Superdec 4L',       'P08', 5, PA,  false,'pce', 0,  5),
+    prod(43, 'Basco Emulsion 4L',         'P09', 5, PA,  false,'pce', 0,  5),
+    prod(44, 'Basco Gloss 4L',            'P10', 5, PA,  false,'pce', 0,  5),
+    prod(45, 'Undercoat 4L',              'P11', 5, PA,  false,'pce', 0,  5),
+    prod(46, 'Paint Thinner 1L',          'P12', 5, PA,  false,'pce', 0,  5),
+    prod(47, 'PPR Pipe 1/2" (4m)',        'W01', 6, PL,  false,'pce', 0, 10),
+    prod(48, 'PPR Pipe 3/4" (4m)',        'W02', 6, PL,  false,'pce', 0, 10),
+    prod(49, 'PPR Pipe 1" (4m)',          'W03', 6, PL,  false,'pce', 0, 10),
+    prod(50, 'PVC Waste Pipe 2" (3m)',    'W04', 6, PL,  false,'pce', 0,  5),
+    prod(51, 'PVC Waste Pipe 3" (3m)',    'W05', 6, PL,  false,'pce', 0,  5),
+    prod(52, 'PVC Waste Pipe 4" (3m)',    'W06', 6, PL,  false,'pce', 0,  5),
+    prod(53, 'PPR Elbow 1/2"',           'W07', 6, PL,  false,'pce', 0,  5),
+    prod(54, 'PPR Elbow 3/4"',           'W08', 6, PL,  false,'pce', 0,  5),
+    prod(55, 'PPR Tee 1/2"',             'W09', 6, PL,  false,'pce', 0,  5),
+    prod(56, 'Ball Valve 1/2"',          'W10', 6, PL,  false,'pce', 0,  5),
+    prod(57, 'Ball Valve 3/4"',          'W11', 6, PL,  false,'pce', 0,  5),
+    prod(58, 'Gate Valve 1/2"',          'W12', 6, PL,  false,'pce', 0,  5),
+    prod(59, 'Pillar Tap',               'W13', 6, PL,  false,'pce', 0,  5),
+    prod(60, 'Water Tank Float Valve',   'W14', 6, PL,  false,'pce', 0,  5),
+    prod(61, 'Cable 1.5mm T&E (per m)',  'E01', 7, EL,  false,'m',   0, 50),
+    prod(62, 'Cable 2.5mm T&E (per m)',  'E02', 7, EL,  false,'m',   0, 50),
+    prod(63, 'Cable 4.0mm T&E (per m)',  'E03', 7, EL,  false,'m',   0, 30),
+    prod(64, 'Cable 6.0mm T&E (per m)',  'E04', 7, EL,  false,'m',   0, 20),
+    prod(65, 'Single Socket 13A',        'E05', 7, EL,  false,'pce', 0,  5),
+    prod(66, 'Double Socket 13A',        'E06', 7, EL,  false,'pce', 0,  5),
+    prod(67, 'Single Switch',            'E07', 7, EL,  false,'pce', 0,  5),
+    prod(68, '2-Gang Switch',            'E08', 7, EL,  false,'pce', 0,  5),
+    prod(69, 'MCB 20A',                  'E09', 7, EL,  false,'pce', 0,  5),
+    prod(70, 'MCB 32A',                  'E10', 7, EL,  false,'pce', 0,  5),
+    prod(71, 'LED Bulb 9W',              'E11', 7, EL,  false,'pce', 0,  5),
+    prod(72, 'LED Bulb 18W',             'E12', 7, EL,  false,'pce', 0,  5),
+    prod(73, 'Conduit 20mm (per m)',      'E13', 7, EL,  false,'m',   0, 10),
+    prod(74, 'Wire Nails 2"',            'N01', 8, FA,  true, 'kg',  0,  5),
+    prod(75, 'Wire Nails 3"',            'N02', 8, FA,  true, 'kg',  0,  5),
+    prod(76, 'Wire Nails 4"',            'N03', 8, FA,  true, 'kg',  0,  5),
+    prod(77, 'Wire Nails 6"',            'N04', 8, FA,  true, 'kg',  0,  5),
+    prod(78, 'Bolts & Nuts 1/2" (per kg)','N05',8, FA,  true, 'kg',  0,  5),
+    prod(79, 'Steel Hinge 4" (pair)',     'N06', 8, FA,  false,'pce', 0,  5),
+    prod(80, 'Padlock 50mm',             'N07', 8, FA,  false,'pce', 0,  5),
+    prod(81, 'Padlock 70mm',             'N08', 8, FA,  false,'pce', 0,  5),
+    prod(82, 'Claw Hammer',              'H01', 9, HT,  false,'pce', 0,  3),
+    prod(83, 'Tape Measure 5m',          'H02', 9, HT,  false,'pce', 0,  3),
+    prod(84, 'Tape Measure 8m',          'H03', 9, HT,  false,'pce', 0,  3),
+    prod(85, 'Spirit Level 600mm',       'H04', 9, HT,  false,'pce', 0,  3),
+    prod(86, 'Masonry Trowel',           'H05', 9, HT,  false,'pce', 0,  3),
+    prod(87, 'Hand Saw',                 'H06', 9, HT,  false,'pce', 0,  3),
+    prod(88, 'Wheelbarrow',              'H07', 9, HT,  false,'pce', 0,  2),
+    prod(89, 'Shovel',                   'H08', 9, HT,  false,'pce', 0,  3),
+    prod(90, 'Paint Brush 2"',           'H09', 9, HT,  false,'pce', 0,  5),
+    prod(91, 'Paint Brush 4"',           'H10', 9, HT,  false,'pce', 0,  5),
+    prod(92, 'Paint Roller Set',         'H11', 9, HT,  false,'pce', 0,  3),
   ])
 
   save(K.staff, [
@@ -102,6 +187,7 @@ function seed() {
   save(K.quoteItems,     [])
   save(K.suppliers,      [])
   save(K.purchaseOrders, [])
+  save(K.shifts,         [])
 
   localStorage.setItem(K.seeded, '1')
   console.info('[localStore] Seeded demo hardware store data')
@@ -814,6 +900,84 @@ export function lsGetAuditLogs({ user_role, action, entity_type, date_from, date
   if (date_from)   items = items.filter(l => l.created_at >= date_from)
   if (date_to)     items = items.filter(l => l.created_at <= date_to + 'T23:59:59')
   return ok(items.slice(0, limit))
+}
+
+// ── Shifts (offline) ─────────────────────────────────────────────────────────
+
+export function lsGetShifts() {
+  return ok(ls(K.shifts).slice().reverse())
+}
+
+export function lsGetCurrentShift() {
+  try {
+    const user = JSON.parse(localStorage.getItem(LS_SESSION))
+    if (!user) return ok({ shift: null })
+    const shift = ls(K.shifts).find(s => s.cashier_id === user.id && s.status === 'open') || null
+    return ok({ shift })
+  } catch {
+    return ok({ shift: null })
+  }
+}
+
+export function lsOpenShift(data) {
+  const shifts = ls(K.shifts)
+  const shift = {
+    id: nextId(shifts),
+    cashier_id:     data.cashier_id || null,
+    cashier_name:   data.cashier_name || '',
+    opening_float:  parseFloat(data.opening_float || 0),
+    status:         'open',
+    opened_at:      now(),
+    closed_at:      null,
+    closing_float:  null,
+    notes:          null,
+  }
+  save(K.shifts, [...shifts, shift])
+  return ok({ shift })
+}
+
+export function lsCloseShift(id, data) {
+  const shifts = ls(K.shifts)
+  const updated = shifts.map(s => s.id !== id ? s : {
+    ...s, status: 'closed', closed_at: now(),
+    closing_float: parseFloat(data.closing_float || 0),
+    notes: data.notes || null,
+  })
+  save(K.shifts, updated)
+  return ok({ shift: updated.find(s => s.id === id) })
+}
+
+// ── Manager authorization (offline) ──────────────────────────────────────────
+
+export function lsAuthorize(data) {
+  const { card_code, pin } = data
+  const allStaff = ls(K.staff)
+  let member = null
+  let method = null
+
+  if (card_code) {
+    member = allStaff.find(s => s.auth_card_code === card_code && s.is_active)
+    method = 'card'
+  }
+  if (!member && pin) {
+    const p = String(pin)
+    member = allStaff.find(s =>
+      s.is_active &&
+      ['manager', 'admin'].includes(s.role) &&
+      (s.personal_pin === p || s.pin === p)
+    )
+    method = 'pin'
+  }
+
+  if (!member) throw new Error('Invalid card or PIN')
+  if (!['manager', 'admin'].includes(member.role)) throw new Error('Manager or admin authorization required')
+
+  return ok({
+    token: `offline-${Date.now()}`,
+    authorizer: { id: member.id, name: member.name, role: member.role },
+    expires_in: 30,
+    auth_method: method,
+  })
 }
 
 // ── Stub responses for rarely-used endpoints ─────────────────────────────────

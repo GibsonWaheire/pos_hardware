@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from app import app
 from db import db
-from models import Category, Product, Staff
+from models import Category, Product, Staff, PurchaserLimit  # noqa: F401 — ensure all models registered
 
 
 def _add_column_if_missing(conn, table, column, definition):
@@ -26,9 +26,27 @@ def init_db():
         # Column migrations (safe to run on existing DBs)
         conn = db.engine.raw_connection()
         try:
-            # Staff — two-step auth
+            # Staff — two-step auth + card
             _add_column_if_missing(conn, 'staff', 'personal_pin',   'VARCHAR(10)')
             _add_column_if_missing(conn, 'staff', 'department_pin', 'VARCHAR(10)')
+            _add_column_if_missing(conn, 'staff', 'auth_card_code', 'VARCHAR(100)')
+            # AuditLog — authorization fields
+            _add_column_if_missing(conn, 'audit_logs', 'authorized_by_id',   'INTEGER')
+            _add_column_if_missing(conn, 'audit_logs', 'authorized_by_name', 'VARCHAR(100)')
+            _add_column_if_missing(conn, 'audit_logs', 'authorized_by_role', 'VARCHAR(20)')
+            _add_column_if_missing(conn, 'audit_logs', 'auth_method',        'VARCHAR(20)')
+            # Shifts — opened_by + auth_method
+            _add_column_if_missing(conn, 'shifts', 'opened_by_id',   'INTEGER')
+            _add_column_if_missing(conn, 'shifts', 'opened_by_name', 'VARCHAR(100)')
+            _add_column_if_missing(conn, 'shifts', 'auth_method',    'VARCHAR(20)')
+            # Staff — supplier link (Phase 9 RBAC)
+            _add_column_if_missing(conn, 'staff', 'supplier_id', 'INTEGER')
+            # PurchaseOrder — creator + approval tracking (Phase 9 RBAC)
+            _add_column_if_missing(conn, 'purchase_orders', 'created_by_id',   'INTEGER')
+            _add_column_if_missing(conn, 'purchase_orders', 'created_by_name', 'VARCHAR(100)')
+            _add_column_if_missing(conn, 'purchase_orders', 'approved_by_id',   'INTEGER')
+            _add_column_if_missing(conn, 'purchase_orders', 'approved_by_name', 'VARCHAR(100)')
+            _add_column_if_missing(conn, 'purchase_orders', 'approved_at',      'DATETIME')
             # Products
             _add_column_if_missing(conn, 'products', 'plu_code',              'VARCHAR(20)')
             _add_column_if_missing(conn, 'products', 'is_weight_based',       'BOOLEAN DEFAULT 0')
@@ -78,20 +96,20 @@ def init_db():
         finally:
             conn.close()
 
-        # Seed default categories if none exist
-        if Category.query.count() == 0:
-            defaults = [
-                Category(name='Building Materials', tax_class='standard'),
-                Category(name='Plumbing',           tax_class='standard'),
-                Category(name='Electrical',         tax_class='standard'),
-                Category(name='Paint & Finishes',   tax_class='standard'),
-                Category(name='Hand Tools',         tax_class='standard'),
-                Category(name='Fasteners',          tax_class='standard'),
-                Category(name='Timber & Wood',      tax_class='standard'),
-            ]
-            db.session.add_all(defaults)
+        # Seed categories — add any missing ones from the full set
+        CAT_NAMES = [
+            'Cement & Aggregates', 'Steel & Reinforcement', 'Roofing',
+            'Timber & Wood', 'Paint & Finishes', 'Plumbing', 'Electrical',
+            'Fasteners & Fixings', 'Hardware & Tools',
+        ]
+        added_cats = 0
+        for name in CAT_NAMES:
+            if not Category.query.filter_by(name=name).first():
+                db.session.add(Category(name=name, tax_class='standard'))
+                added_cats += 1
+        if added_cats:
             db.session.commit()
-            print(f"Seeded {len(defaults)} hardware categories.")
+            print(f"Added {added_cats} categories.")
 
         # Seed staff with hardware store roles if none exist
         if Staff.query.count() == 0:
@@ -116,17 +134,153 @@ def init_db():
             ))
             db.session.commit()
 
-        # Seed sample products for development
-        if Product.query.count() == 0:
-            cat = Category.query.filter_by(name='General').first()
-            samples = [
-                Product(name='Sample Item A', barcode='1234567890123', price=9.99, tax_rate=0.16, stock_qty=50, category_id=cat.id if cat else None),
-                Product(name='Sample Item B', barcode='9876543210987', price=4.50, tax_rate=0.16, stock_qty=100, category_id=cat.id if cat else None),
-                Product(name='Sample Item C', barcode='5555555555555', price=19.99, tax_rate=0.16, stock_qty=25, category_id=cat.id if cat else None),
+        # Seed Kenyan hardware catalog
+        # Replaces placeholder "Sample Item" records; skips if real products exist
+        total_prods  = Product.query.count()
+        sample_prods = Product.query.filter(Product.name.like('Sample Item%')).count()
+        if total_prods == 0 or total_prods == sample_prods:
+            # Remove placeholder items
+            if sample_prods:
+                Product.query.filter(Product.name.like('Sample Item%')).delete()
+                db.session.flush()
+
+            # Build category id lookup
+            cid = {c.name: c.id for c in Category.query.all()}
+
+            def c(name): return cid.get(name)
+
+            def p(name, plu, cat_name, wb=False, unit='pce', threshold=5):
+                return Product(
+                    name=name, plu_code=plu, price=0, tax_rate=0.16,
+                    is_weight_based=wb, weight_unit=unit,
+                    stock_qty=0, low_stock_threshold=threshold,
+                    category_id=c(cat_name), is_active=True,
+                )
+
+            CA = 'Cement & Aggregates'
+            ST = 'Steel & Reinforcement'
+            RO = 'Roofing'
+            TW = 'Timber & Wood'
+            PA = 'Paint & Finishes'
+            PL = 'Plumbing'
+            EL = 'Electrical'
+            FA = 'Fasteners & Fixings'
+            HT = 'Hardware & Tools'
+
+            catalog = [
+                # ── Cement & Aggregates ──────────────────────────────────────
+                p('Bamburi Cement 50kg',        'C01', CA, threshold=20),
+                p('Savannah Cement 50kg',        'C02', CA, threshold=20),
+                p('Mombasa Cement 50kg',         'C03', CA, threshold=20),
+                p('River Sand',                  'S01', CA, wb=True, unit='tonne', threshold=5),
+                p('Ballast / Hardcore',          'S02', CA, wb=True, unit='tonne', threshold=5),
+                p('Crushed Stone',               'S03', CA, wb=True, unit='tonne', threshold=5),
+
+                # ── Steel & Reinforcement ────────────────────────────────────
+                p('Steel Bar Y8 (6m)',           'R01', ST, threshold=20),
+                p('Steel Bar Y10 (6m)',          'R02', ST, threshold=20),
+                p('Steel Bar Y12 (6m)',          'R03', ST, threshold=20),
+                p('Steel Bar Y16 (6m)',          'R04', ST, threshold=20),
+                p('Steel Bar Y20 (6m)',          'R05', ST, threshold=10),
+                p('Round Bar R6 (6m)',           'R06', ST, threshold=10),
+                p('Binding Wire',                'R07', ST, wb=True, unit='kg'),
+                p('BRC Mesh A142',               'R08', ST, threshold=10),
+                p('BRC Mesh A193',               'R09', ST, threshold=10),
+
+                # ── Roofing ──────────────────────────────────────────────────
+                p('Mabati G28 2m',               'M01', RO, threshold=20),
+                p('Mabati G28 2.5m',             'M02', RO, threshold=20),
+                p('Mabati G28 3m',               'M03', RO, threshold=20),
+                p('Mabati G30 2m',               'M04', RO, threshold=20),
+                p('Mabati G30 2.5m',             'M05', RO, threshold=20),
+                p('Mabati G30 3m',               'M06', RO, threshold=20),
+                p('Mabati G32 2m',               'M07', RO, threshold=10),
+                p('Mabati G32 3m',               'M08', RO, threshold=10),
+                p('Ridge Cap',                   'M09', RO),
+                p('Roofing Nails',               'M10', RO, wb=True, unit='kg'),
+                p('Screw Cap Nails',             'M11', RO, wb=True, unit='kg'),
+
+                # ── Timber & Wood ────────────────────────────────────────────
+                p('Timber 2x2 (per ft)',         'T01', TW, threshold=50),
+                p('Timber 2x4 (per ft)',         'T02', TW, threshold=50),
+                p('Timber 2x6 (per ft)',         'T03', TW, threshold=30),
+                p('Timber 3x2 (per ft)',         'T04', TW, threshold=30),
+                p('Plywood 18mm 4x8',            'T05', TW),
+                p('Plywood 12mm 4x8',            'T06', TW),
+                p('Blockboard 18mm 4x8',         'T07', TW),
+                p('MDF 18mm 4x8',                'T08', TW),
+
+                # ── Paint & Finishes ─────────────────────────────────────────
+                p('Crown Emulsion 1L',           'P01', PA),
+                p('Crown Emulsion 4L',           'P02', PA),
+                p('Crown Emulsion 20L',          'P03', PA),
+                p('Crown Gloss 1L',              'P04', PA),
+                p('Crown Gloss 4L',              'P05', PA),
+                p('Crown Gloss 20L',             'P06', PA),
+                p('Sadolin Superdec 1L',         'P07', PA),
+                p('Sadolin Superdec 4L',         'P08', PA),
+                p('Basco Emulsion 4L',           'P09', PA),
+                p('Basco Gloss 4L',              'P10', PA),
+                p('Undercoat 4L',                'P11', PA),
+                p('Paint Thinner 1L',            'P12', PA),
+
+                # ── Plumbing ─────────────────────────────────────────────────
+                p('PPR Pipe 1/2" (4m)',          'W01', PL, threshold=10),
+                p('PPR Pipe 3/4" (4m)',          'W02', PL, threshold=10),
+                p('PPR Pipe 1" (4m)',            'W03', PL, threshold=10),
+                p('PVC Waste Pipe 2" (3m)',      'W04', PL),
+                p('PVC Waste Pipe 3" (3m)',      'W05', PL),
+                p('PVC Waste Pipe 4" (3m)',      'W06', PL),
+                p('PPR Elbow 1/2"',             'W07', PL),
+                p('PPR Elbow 3/4"',             'W08', PL),
+                p('PPR Tee 1/2"',               'W09', PL),
+                p('Ball Valve 1/2"',            'W10', PL),
+                p('Ball Valve 3/4"',            'W11', PL),
+                p('Gate Valve 1/2"',            'W12', PL),
+                p('Pillar Tap',                  'W13', PL),
+                p('Water Tank Float Valve',      'W14', PL),
+
+                # ── Electrical ───────────────────────────────────────────────
+                p('Cable 1.5mm T&E (per m)',     'E01', EL),
+                p('Cable 2.5mm T&E (per m)',     'E02', EL),
+                p('Cable 4.0mm T&E (per m)',     'E03', EL),
+                p('Cable 6.0mm T&E (per m)',     'E04', EL),
+                p('Single Socket 13A',           'E05', EL),
+                p('Double Socket 13A',           'E06', EL),
+                p('Single Switch',               'E07', EL),
+                p('2-Gang Switch',               'E08', EL),
+                p('MCB 20A',                     'E09', EL),
+                p('MCB 32A',                     'E10', EL),
+                p('LED Bulb 9W',                 'E11', EL),
+                p('LED Bulb 18W',                'E12', EL),
+                p('Conduit 20mm (per m)',         'E13', EL),
+
+                # ── Fasteners & Fixings ──────────────────────────────────────
+                p('Wire Nails 2"',               'N01', FA, wb=True, unit='kg'),
+                p('Wire Nails 3"',               'N02', FA, wb=True, unit='kg'),
+                p('Wire Nails 4"',               'N03', FA, wb=True, unit='kg'),
+                p('Wire Nails 6"',               'N04', FA, wb=True, unit='kg'),
+                p('Bolts & Nuts 1/2" (per kg)',  'N05', FA, wb=True, unit='kg'),
+                p('Steel Hinge 4" (pair)',        'N06', FA),
+                p('Padlock 50mm',                'N07', FA),
+                p('Padlock 70mm',                'N08', FA),
+
+                # ── Hardware & Tools ─────────────────────────────────────────
+                p('Claw Hammer',                 'H01', HT),
+                p('Tape Measure 5m',             'H02', HT),
+                p('Tape Measure 8m',             'H03', HT),
+                p('Spirit Level 600mm',          'H04', HT),
+                p('Masonry Trowel',              'H05', HT),
+                p('Hand Saw',                    'H06', HT),
+                p('Wheelbarrow',                 'H07', HT),
+                p('Shovel',                      'H08', HT),
+                p('Paint Brush 2"',              'H09', HT),
+                p('Paint Brush 4"',              'H10', HT),
+                p('Paint Roller Set',            'H11', HT),
             ]
-            db.session.add_all(samples)
+            db.session.add_all(catalog)
             db.session.commit()
-            print(f"Seeded {len(samples)} sample products.")
+            print(f"Seeded {len(catalog)} Kenyan hardware products (prices set to 0 — edit in Products).")
 
         print("Database initialization complete.")
 

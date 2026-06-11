@@ -1,6 +1,7 @@
-from flask import Blueprint, jsonify, request
+import json
+from flask import Blueprint, jsonify, request, session
 from db import db
-from models import PurchaseOrder, PurchaseOrderItem, Product, StockAdjustment
+from models import PurchaseOrder, PurchaseOrderItem, Product, StockAdjustment, Staff, PurchaserLimit
 from datetime import datetime, date
 
 bp = Blueprint('purchase_orders', __name__, url_prefix='/api/purchase-orders')
@@ -17,26 +18,71 @@ def _generate_po_number():
     return f'{prefix}{seq:03d}'
 
 
+def _session_role():
+    return session.get('role', ''), session.get('staff_id'), session.get('staff_name', '')
+
+
+def _require_manager():
+    role, _, _ = _session_role()
+    if role not in ('manager', 'admin'):
+        return jsonify({'error': 'Manager or admin required'}), 403
+    return None
+
+
 @bp.route('', methods=['GET'])
 def list_pos():
+    role, staff_id, _ = _session_role()
     status = request.args.get('status')
     supplier_id = request.args.get('supplier_id')
+
     query = PurchaseOrder.query
+
+    # Purchaser sees only their own POs
+    if role == 'purchasing':
+        query = query.filter_by(created_by_id=staff_id)
+
+    # Supplier role sees only POs for their linked supplier
+    elif role == 'supplier':
+        member = Staff.query.get(staff_id) if staff_id else None
+        if not member or not member.supplier_id:
+            return jsonify([])
+        query = query.filter_by(supplier_id=member.supplier_id)
+
     if status:
         query = query.filter_by(status=status)
     if supplier_id:
         query = query.filter_by(supplier_id=int(supplier_id))
+
     pos = query.order_by(PurchaseOrder.created_at.desc()).all()
     return jsonify([po.to_dict() for po in pos])
 
 
 @bp.route('/<int:po_id>', methods=['GET'])
 def get_po(po_id):
-    return jsonify(PurchaseOrder.query.get_or_404(po_id).to_dict())
+    role, staff_id, _ = _session_role()
+    po = PurchaseOrder.query.get_or_404(po_id)
+
+    # Purchaser can only see their own
+    if role == 'purchasing' and po.created_by_id != staff_id:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    # Supplier can only see POs for their supplier
+    if role == 'supplier':
+        member = Staff.query.get(staff_id) if staff_id else None
+        if not member or po.supplier_id != member.supplier_id:
+            return jsonify({'error': 'Forbidden'}), 403
+
+    return jsonify(po.to_dict())
 
 
 @bp.route('', methods=['POST'])
 def create_po():
+    role, staff_id, staff_name = _session_role()
+
+    # Supplier role cannot create POs
+    if role == 'supplier':
+        return jsonify({'error': 'Suppliers cannot create purchase orders'}), 403
+
     data = request.json or {}
     items_data = data.get('items', [])
     if not items_data:
@@ -73,14 +119,56 @@ def create_po():
         if s:
             supplier_name = s.name
 
+    # ── Purchaser limit checks ────────────────────────────────────────────────
+    po_status = 'draft'
+
+    if role == 'purchasing' and staff_id:
+        limit = PurchaserLimit.query.filter_by(staff_id=staff_id).first()
+        if limit:
+            # Check supplier restriction
+            if limit.allowed_supplier_ids and data.get('supplier_id'):
+                allowed = json.loads(limit.allowed_supplier_ids)
+                if data['supplier_id'] not in allowed:
+                    return jsonify({'error': 'This supplier is not in your allowed list'}), 403
+
+            # Check category restriction
+            if limit.allowed_category_ids:
+                allowed_cats = json.loads(limit.allowed_category_ids)
+                for item in items_data:
+                    if item.get('product_id'):
+                        prod = Product.query.get(item['product_id'])
+                        if prod and prod.category_id and prod.category_id not in allowed_cats:
+                            return jsonify({'error': f'Product category not in your allowed list'}), 403
+
+            # Check single-PO value limit
+            if limit.max_po_value is not None and total_cost > limit.max_po_value:
+                po_status = 'pending_approval'
+
+            # Check daily total limit (skip if already flagged)
+            if po_status == 'draft' and limit.max_daily_total is not None:
+                today_start = datetime.combine(date.today(), datetime.min.time())
+                today_total = (
+                    db.session.query(db.func.sum(PurchaseOrder.total_cost))
+                    .filter(
+                        PurchaseOrder.created_by_id == staff_id,
+                        PurchaseOrder.created_at >= today_start,
+                        PurchaseOrder.status.notin_(['cancelled', 'rejected']),
+                    )
+                    .scalar() or 0.0
+                )
+                if today_total + total_cost > limit.max_daily_total:
+                    po_status = 'pending_approval'
+
     po = PurchaseOrder(
         po_number=_generate_po_number(),
         supplier_id=data.get('supplier_id'),
         supplier_name=supplier_name,
-        status='draft',
+        status=po_status,
         notes=data.get('notes', ''),
         total_cost=round(total_cost, 2),
-        created_by=data.get('created_by', ''),
+        created_by=staff_name,
+        created_by_id=staff_id,
+        created_by_name=staff_name,
     )
     po.items = po_items
     db.session.add(po)
@@ -90,9 +178,13 @@ def create_po():
 
 @bp.route('/<int:po_id>/mark-ordered', methods=['POST'])
 def mark_ordered(po_id):
+    role, _, _ = _session_role()
     po = PurchaseOrder.query.get_or_404(po_id)
-    if po.status != 'draft':
+    if po.status not in ('draft',):
         return jsonify({'error': f'Cannot mark as ordered from status: {po.status}'}), 400
+    # Supplier role cannot change order status
+    if role == 'supplier':
+        return jsonify({'error': 'Forbidden'}), 403
     po.status = 'ordered'
     po.ordered_at = datetime.utcnow()
     db.session.commit()
@@ -103,15 +195,25 @@ def mark_ordered(po_id):
 def receive_po(po_id):
     """
     Receive items. Body: { items: [{ po_item_id, qty_received }], received_by: str }
-    Updates stock and creates audit trail entries.
+    Updates stock and creates stock adjustment entries.
     """
+    role, staff_id, staff_name = _session_role()
+
+    # Supplier cannot receive — only acknowledge dispatch
+    if role == 'supplier':
+        return jsonify({'error': 'Forbidden'}), 403
+
     po = PurchaseOrder.query.get_or_404(po_id)
     if po.status not in ('ordered', 'partial', 'draft'):
         return jsonify({'error': f'Cannot receive from status: {po.status}'}), 400
 
+    # Purchaser can only receive their own POs
+    if role == 'purchasing' and po.created_by_id != staff_id:
+        return jsonify({'error': 'Forbidden'}), 403
+
     data = request.json or {}
     receive_data = {item['po_item_id']: int(item['qty_received']) for item in data.get('items', [])}
-    received_by = data.get('received_by', '')
+    received_by = data.get('received_by', staff_name)
 
     if not receive_data:
         return jsonify({'error': 'items list is required'}), 400
@@ -122,7 +224,6 @@ def receive_po(po_id):
             continue
         po_item.qty_received += qty
 
-        # Update product stock
         if po_item.product_id:
             product = Product.query.get(po_item.product_id)
             if product:
@@ -140,7 +241,6 @@ def receive_po(po_id):
                 )
                 db.session.add(adj)
 
-    # Determine new PO status
     all_received = all(i.qty_received >= i.qty_ordered for i in po.items)
     any_received = any(i.qty_received > 0 for i in po.items)
     if all_received:
@@ -155,9 +255,111 @@ def receive_po(po_id):
 
 @bp.route('/<int:po_id>/cancel', methods=['POST'])
 def cancel_po(po_id):
+    role, staff_id, _ = _session_role()
     po = PurchaseOrder.query.get_or_404(po_id)
     if po.status == 'received':
         return jsonify({'error': 'Cannot cancel a fully received PO'}), 400
+    if role == 'supplier':
+        return jsonify({'error': 'Forbidden'}), 403
+    # Purchaser can only cancel their own
+    if role == 'purchasing' and po.created_by_id != staff_id:
+        return jsonify({'error': 'Forbidden'}), 403
     po.status = 'cancelled'
+    db.session.commit()
+    return jsonify(po.to_dict())
+
+
+# ── Approval workflow (manager/admin only) ────────────────────────────────────
+
+@bp.route('/pending-approvals', methods=['GET'])
+def pending_approvals():
+    err = _require_manager()
+    if err:
+        return err
+    pos = (PurchaseOrder.query
+           .filter_by(status='pending_approval')
+           .order_by(PurchaseOrder.created_at.asc())
+           .all())
+    return jsonify([po.to_dict() for po in pos])
+
+
+@bp.route('/<int:po_id>/approve', methods=['POST'])
+def approve_po(po_id):
+    err = _require_manager()
+    if err:
+        return err
+    _, staff_id, staff_name = _session_role()
+    po = PurchaseOrder.query.get_or_404(po_id)
+    if po.status != 'pending_approval':
+        return jsonify({'error': f'PO is not pending approval (status: {po.status})'}), 400
+    po.status = 'draft'
+    po.approved_by_id = staff_id
+    po.approved_by_name = staff_name
+    po.approved_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify(po.to_dict())
+
+
+@bp.route('/<int:po_id>/reject', methods=['POST'])
+def reject_po(po_id):
+    err = _require_manager()
+    if err:
+        return err
+    _, staff_id, staff_name = _session_role()
+    po = PurchaseOrder.query.get_or_404(po_id)
+    if po.status != 'pending_approval':
+        return jsonify({'error': f'PO is not pending approval (status: {po.status})'}), 400
+    data = request.json or {}
+    po.status = 'rejected'
+    po.approved_by_id = staff_id
+    po.approved_by_name = staff_name
+    po.approved_at = datetime.utcnow()
+    if data.get('notes'):
+        po.notes = (po.notes or '') + f'\nRejected by {staff_name}: {data["notes"]}'
+    db.session.commit()
+    return jsonify(po.to_dict())
+
+
+# ── Supplier confirmation / dispatch ─────────────────────────────────────────
+
+@bp.route('/<int:po_id>/confirm', methods=['POST'])
+def supplier_confirm(po_id):
+    """Supplier acknowledges/confirms a PO (read-only action, logs acknowledgement)."""
+    role, staff_id, _ = _session_role()
+    po = PurchaseOrder.query.get_or_404(po_id)
+
+    if role == 'supplier':
+        member = Staff.query.get(staff_id)
+        if not member or po.supplier_id != member.supplier_id:
+            return jsonify({'error': 'Forbidden'}), 403
+    elif role not in ('manager', 'admin', 'purchasing'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    if po.status != 'ordered':
+        return jsonify({'error': f'Can only confirm ordered POs (status: {po.status})'}), 400
+
+    # We just note the confirmation in the notes — no status change
+    po.notes = (po.notes or '') + f'\nConfirmed by supplier on {datetime.utcnow().strftime("%Y-%m-%d %H:%M")}'
+    db.session.commit()
+    return jsonify(po.to_dict())
+
+
+@bp.route('/<int:po_id>/mark-dispatched', methods=['POST'])
+def supplier_mark_dispatched(po_id):
+    """Supplier marks the order as dispatched (triggers 'ordered' → still 'ordered' with dispatch note)."""
+    role, staff_id, _ = _session_role()
+    po = PurchaseOrder.query.get_or_404(po_id)
+
+    if role == 'supplier':
+        member = Staff.query.get(staff_id)
+        if not member or po.supplier_id != member.supplier_id:
+            return jsonify({'error': 'Forbidden'}), 403
+    elif role not in ('manager', 'admin'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    if po.status != 'ordered':
+        return jsonify({'error': f'Can only mark dispatched on ordered POs (status: {po.status})'}), 400
+
+    po.notes = (po.notes or '') + f'\nDispatched by supplier on {datetime.utcnow().strftime("%Y-%m-%d %H:%M")}'
     db.session.commit()
     return jsonify(po.to_dict())

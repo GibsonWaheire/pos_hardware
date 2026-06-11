@@ -1,10 +1,15 @@
 """
-auth_utils.py — session helpers and audit logging used by all routes.
+auth_utils.py — session helpers, audit logging, and manager authorization.
 """
 import json
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from flask import session
 from db import db
+
+# ── In-memory token store (single process) ────────────────────────────────────
+# { token_str: { 'authorizer': {...}, 'expires_at': datetime, 'used': bool } }
+_auth_tokens = {}
 
 
 # ── Current user ──────────────────────────────────────────────────────────────
@@ -21,44 +26,82 @@ def get_current_user():
     }
 
 
+# ── Manager authorization (card or PIN) ───────────────────────────────────────
+
+def issue_auth_token(authorizer: dict, ttl_seconds: int = 30) -> str:
+    """
+    Create a short-lived single-use authorization token.
+    authorizer = { id, name, role }
+    Returns the token string.
+    """
+    _cleanup_expired_tokens()
+    token = str(uuid.uuid4())
+    _auth_tokens[token] = {
+        'authorizer': authorizer,
+        'expires_at': datetime.utcnow() + timedelta(seconds=ttl_seconds),
+        'used': False,
+    }
+    return token
+
+
+def consume_auth_token(token: str):
+    """
+    Validate and consume a token. Returns authorizer dict or None.
+    Token is marked used immediately — cannot be replayed.
+    """
+    _cleanup_expired_tokens()
+    entry = _auth_tokens.get(token)
+    if not entry:
+        return None
+    if entry['used']:
+        return None
+    if datetime.utcnow() > entry['expires_at']:
+        del _auth_tokens[token]
+        return None
+    entry['used'] = True
+    return entry['authorizer']
+
+
+def _cleanup_expired_tokens():
+    now = datetime.utcnow()
+    expired = [k for k, v in _auth_tokens.items() if now > v['expires_at']]
+    for k in expired:
+        del _auth_tokens[k]
+
+
 # ── Audit logging ─────────────────────────────────────────────────────────────
 
-def log_action(user, action, entity_type, entity_id=None, entity_name=None, details=None):
+def log_action(user, action, entity_type, entity_id=None, entity_name=None,
+               details=None, authorizer=None, auth_method=None):
     """
     Write a row to audit_logs.
-
-    user     — dict with id/name/role (from get_current_user())
-               or None for system actions
-    action   — 'create' | 'update' | 'delete' | 'login' | 'logout' |
-               'void' | 'deposit' | 'adjust' | 'receive_po'
-    details  — dict of before/after or any relevant metadata
+    user/authorizer — dict with id/name/role, or None.
     """
     try:
         from models import AuditLog
         entry = AuditLog(
-            user_id     = user['id']   if user else None,
-            user_name   = user['name'] if user else 'System',
-            user_role   = user['role'] if user else 'system',
-            action      = action,
-            entity_type = entity_type,
-            entity_id   = entity_id,
-            entity_name = entity_name,
-            details     = json.dumps(details) if details else None,
-            created_at  = datetime.utcnow(),
+            user_id            = user['id']          if user       else None,
+            user_name          = user['name']         if user       else 'System',
+            user_role          = user['role']         if user       else 'system',
+            action             = action,
+            entity_type        = entity_type,
+            entity_id          = entity_id,
+            entity_name        = entity_name,
+            details            = json.dumps(details) if details    else None,
+            authorized_by_id   = authorizer['id']    if authorizer else None,
+            authorized_by_name = authorizer['name']  if authorizer else None,
+            authorized_by_role = authorizer['role']  if authorizer else None,
+            auth_method        = auth_method,
+            created_at         = datetime.utcnow(),
         )
         db.session.add(entry)
-        # flush only — caller commits with their own transaction
         db.session.flush()
     except Exception as e:
-        # Never let audit logging break a business operation
         print(f'[audit] log_action failed: {e}')
 
 
 def stamp(obj, user, is_create=False):
-    """
-    Stamp created_by_* or updated_by_* on a model instance.
-    Call before db.session.commit().
-    """
+    """Stamp created_by_* or updated_by_* on a model instance."""
     if not user:
         return
     if is_create:

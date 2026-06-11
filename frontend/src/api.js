@@ -185,6 +185,45 @@ export const cancelPO = (id) => withLocal(
   () => api.post(`/purchase-orders/${id}/cancel`),
   () => local.lsStub({})
 )
+export const getPendingPOs = () => withLocal(
+  () => api.get('/purchase-orders/pending-approvals'),
+  () => local.lsStub([])
+)
+export const approvePO = (id) => withLocal(
+  () => api.post(`/purchase-orders/${id}/approve`),
+  () => local.lsStub({})
+)
+export const rejectPO = (id, data) => withLocal(
+  () => api.post(`/purchase-orders/${id}/reject`, data),
+  () => local.lsStub({})
+)
+export const confirmPO = (id) => withLocal(
+  () => api.post(`/purchase-orders/${id}/confirm`),
+  () => local.lsStub({})
+)
+export const markPODispatched = (id) => withLocal(
+  () => api.post(`/purchase-orders/${id}/mark-dispatched`),
+  () => local.lsStub({})
+)
+
+// ── Purchaser Limits ──────────────────────────────────────────────────────────
+
+export const getPurchaserLimits = () => withLocal(
+  () => api.get('/purchaser-limits'),
+  () => local.lsStub([])
+)
+export const getPurchaserLimit = (staffId) => withLocal(
+  () => api.get(`/purchaser-limits/${staffId}`),
+  () => local.lsStub(null)
+)
+export const setPurchaserLimit = (staffId, data) => withLocal(
+  () => api.put(`/purchaser-limits/${staffId}`, data),
+  () => local.lsStub(data)
+)
+export const deletePurchaserLimit = (staffId) => withLocal(
+  () => api.delete(`/purchaser-limits/${staffId}`),
+  () => local.lsStub({})
+)
 
 // ── Returns ───────────────────────────────────────────────────────────────────
 
@@ -205,19 +244,15 @@ export const createReturn = (data) => withLocal(
 
 export const getShifts = (params) => withLocal(
   () => api.get('/shifts', { params }),
-  () => local.lsStub([])
-)
-export const getCurrentShift = () => withLocal(
-  () => api.get('/shifts/current'),
-  () => local.lsStub(null)
+  () => local.lsGetShifts()
 )
 export const openShift = (data) => withLocal(
   () => api.post('/shifts/open', data),
-  () => local.lsStub(data)
+  () => local.lsOpenShift(data)
 )
 export const closeShift = (id, data) => withLocal(
   () => api.post(`/shifts/${id}/close`, data),
-  () => local.lsStub({})
+  () => local.lsCloseShift(id, data)
 )
 export const getShiftSummary = (id) => withLocal(
   () => api.get(`/shifts/${id}/summary`),
@@ -556,6 +591,22 @@ export const getMe = () => withLocal(
 export const logout = () => withLocal(
   () => api.post('/auth/logout'),
   () => local.lsLogout()
+)
+export const authorizeAction = (data) => withLocal(
+  () => api.post('/auth/authorize', data),
+  () => local.lsAuthorize(data)
+)
+export const getCurrentShift = () => withLocal(
+  () => api.get('/auth/current-shift'),
+  () => local.lsGetCurrentShift()
+)
+export const generateAuthCard = (staffId) => withLocal(
+  () => api.post(`/auth/generate-card/${staffId}`),
+  () => local.lsStub({ auth_card_code: `MGR-OFFLINE-${staffId}` })
+)
+export const revokeAuthCard = (staffId) => withLocal(
+  () => api.post(`/auth/revoke-card/${staffId}`),
+  () => local.lsStub({})
 )
 
 // ── Cloud Sync ────────────────────────────────────────────────────────────────

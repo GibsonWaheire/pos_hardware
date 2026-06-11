@@ -79,7 +79,9 @@ class Staff(db.Model):
     pin = db.Column(db.String(10))             # legacy — kept for backwards compat
     personal_pin = db.Column(db.String(10))    # unique per individual (Step 2 login)
     department_pin = db.Column(db.String(10))  # shared by all staff in the same role (Step 1)
-    role = db.Column(db.String(20), default='cashier')  # admin/cashier/manager/inventory/purchasing
+    auth_card_code = db.Column(db.String(100), unique=True, nullable=True)  # manager auth card
+    role = db.Column(db.String(20), default='cashier')  # admin/cashier/manager/inventory/purchasing/supplier
+    supplier_id = db.Column(db.Integer, db.ForeignKey('suppliers.id'), nullable=True)  # for supplier-role staff
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -89,8 +91,10 @@ class Staff(db.Model):
     def to_dict(self):
         return {
             'id': self.id, 'name': self.name, 'role': self.role,
+            'supplier_id': self.supplier_id,
             'is_active': self.is_active,
             'has_personal_pin': bool(self.personal_pin or self.pin),
+            'has_auth_card': bool(self.auth_card_code),
         }
 
 
@@ -106,9 +110,13 @@ class AuditLog(db.Model):
     action      = db.Column(db.String(50))   # create/update/delete/login/logout/void/deposit/receive_po
     entity_type = db.Column(db.String(50))   # product/sale/purchase_order/stock_adjustment/quote/account/staff
     entity_id   = db.Column(db.Integer, nullable=True)
-    entity_name = db.Column(db.String(200))  # human-readable label
-    details     = db.Column(db.Text)         # JSON string of before/after values
-    created_at  = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    entity_name        = db.Column(db.String(200))
+    details            = db.Column(db.Text)         # JSON string of before/after values
+    authorized_by_id   = db.Column(db.Integer, nullable=True)
+    authorized_by_name = db.Column(db.String(100))
+    authorized_by_role = db.Column(db.String(20))
+    auth_method        = db.Column(db.String(20))   # card | pin | manager_login | self
+    created_at         = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     def to_dict(self):
         import json
@@ -118,6 +126,10 @@ class AuditLog(db.Model):
             'entity_type': self.entity_type, 'entity_id': self.entity_id,
             'entity_name': self.entity_name,
             'details': json.loads(self.details) if self.details else None,
+            'authorized_by_id': self.authorized_by_id,
+            'authorized_by_name': self.authorized_by_name,
+            'authorized_by_role': self.authorized_by_role,
+            'auth_method': self.auth_method,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -280,9 +292,15 @@ class PurchaseOrder(db.Model):
     supplier_id = db.Column(db.Integer, db.ForeignKey('suppliers.id'), nullable=True)
     supplier_name = db.Column(db.String(200))
     status = db.Column(db.String(20), default='draft')
+    # status: draft | pending_approval | ordered | partial | received | cancelled | rejected
     notes = db.Column(db.Text)
     total_cost = db.Column(db.Float, default=0.0)
-    created_by = db.Column(db.String(100))
+    created_by = db.Column(db.String(100))     # legacy plain string, kept for compat
+    created_by_id   = db.Column(db.Integer, nullable=True)
+    created_by_name = db.Column(db.String(100))
+    approved_by_id   = db.Column(db.Integer, nullable=True)
+    approved_by_name = db.Column(db.String(100))
+    approved_at      = db.Column(db.DateTime)
     ordered_at = db.Column(db.DateTime)
     received_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -295,6 +313,9 @@ class PurchaseOrder(db.Model):
             'id': self.id, 'po_number': self.po_number, 'supplier_id': self.supplier_id,
             'supplier_name': self.supplier_name, 'status': self.status, 'notes': self.notes,
             'total_cost': self.total_cost, 'created_by': self.created_by,
+            'created_by_id': self.created_by_id, 'created_by_name': self.created_by_name,
+            'approved_by_id': self.approved_by_id, 'approved_by_name': self.approved_by_name,
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None,
             'ordered_at': self.ordered_at.isoformat() if self.ordered_at else None,
             'received_at': self.received_at.isoformat() if self.received_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -377,16 +398,20 @@ class Shift(db.Model):
     __tablename__ = 'shifts'
 
     id = db.Column(db.Integer, primary_key=True)
-    cashier_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=True)
-    cashier_name = db.Column(db.String(100))
-    status = db.Column(db.String(20), default='open')
-    opening_float = db.Column(db.Float, default=0.0)
-    closing_float = db.Column(db.Float)
-    expected_cash = db.Column(db.Float)
-    variance = db.Column(db.Float)
-    opened_at = db.Column(db.DateTime, default=datetime.utcnow)
-    closed_at = db.Column(db.DateTime)
-    notes = db.Column(db.Text)
+    cashier_id     = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=True)
+    cashier_name   = db.Column(db.String(100))
+    status         = db.Column(db.String(20), default='open')  # open | pending_reconciliation | reconciled | voided
+    opening_float  = db.Column(db.Float, default=0.0)
+    closing_float  = db.Column(db.Float)
+    expected_cash  = db.Column(db.Float)
+    variance       = db.Column(db.Float)
+    opened_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    closed_at      = db.Column(db.DateTime)
+    notes          = db.Column(db.Text)
+    # Authorization fields
+    opened_by_id   = db.Column(db.Integer, nullable=True)
+    opened_by_name = db.Column(db.String(100))
+    auth_method    = db.Column(db.String(20))   # card | pin | manager_login
 
     sales = db.relationship('Sale', backref='shift', lazy=True)
 
@@ -399,6 +424,8 @@ class Shift(db.Model):
             'opened_at': self.opened_at.isoformat() if self.opened_at else None,
             'closed_at': self.closed_at.isoformat() if self.closed_at else None,
             'notes': self.notes,
+            'opened_by_id': self.opened_by_id, 'opened_by_name': self.opened_by_name,
+            'auth_method': self.auth_method,
         }
 
 
@@ -874,4 +901,39 @@ class QuoteItem(db.Model):
             'notes': self.notes,
         }
 
+
+# ── Phase 9 Models ─────────────────────────────────────────────────────────────
+
+class PurchaserLimit(db.Model):
+    """
+    Per-purchaser spending limits set by manager/admin.
+    When a PO exceeds these limits it is saved with status='pending_approval'
+    and lands in the manager approval queue — no card scan at the counter.
+    """
+    __tablename__ = 'purchaser_limits'
+
+    id = db.Column(db.Integer, primary_key=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), unique=True, nullable=False)
+    staff_name = db.Column(db.String(100))
+    max_po_value = db.Column(db.Float, nullable=True)      # max single PO total (None = unlimited)
+    max_daily_total = db.Column(db.Float, nullable=True)   # max sum of POs in one calendar day
+    allowed_supplier_ids = db.Column(db.Text, nullable=True)   # JSON list of ints; None = all
+    allowed_category_ids = db.Column(db.Text, nullable=True)   # JSON list of ints; None = all
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    staff = db.relationship('Staff', backref=db.backref('purchaser_limit', uselist=False), lazy=True)
+
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'staff_id': self.staff_id,
+            'staff_name': self.staff_name,
+            'max_po_value': self.max_po_value,
+            'max_daily_total': self.max_daily_total,
+            'allowed_supplier_ids': json.loads(self.allowed_supplier_ids) if self.allowed_supplier_ids else None,
+            'allowed_category_ids': json.loads(self.allowed_category_ids) if self.allowed_category_ids else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
 

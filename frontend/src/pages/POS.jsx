@@ -1,10 +1,76 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getProducts, getDailyTotals, getProductByBarcode, getProductByPlu, lookupCustomer, readScale } from '../api'
+import { getProducts, getDailyTotals, getProductByBarcode, getProductByPlu, lookupCustomer, readScale, getCurrentShift, openShift } from '../api'
+import { useAuth } from '../context/AuthContext'
 import Cart from '../components/Cart'
 import BarcodeInput from '../components/BarcodeInput'
 import PaymentModal from '../components/PaymentModal'
+import ManagerAuthModal from '../components/ManagerAuthModal'
 
 export default function POS() {
+  const { user } = useAuth()
+
+  // ── Shift gate (cashier only) ─────────────────────────────────────────────
+  // Use sessionStorage so gate never re-appears after navigating away and back
+  const SHIFT_KEY = user ? `pos_hw_shift_${user.id}` : null
+
+  const [shiftStatus, setShiftStatus]   = useState('checking') // 'checking' | 'open' | 'none'
+  const [gateStep, setGateStep]         = useState('auth')     // 'auth' | 'scanning' | 'float'
+  const [gateAuth, setGateAuth]         = useState(null)       // authorizer result
+  const [gateFloat, setGateFloat]       = useState('')
+  const [gateBusy, setGateBusy]         = useState(false)
+  const [gateError, setGateError]       = useState('')
+
+  useEffect(() => {
+    if (!user) return
+    if (user.role !== 'cashier') { setShiftStatus('open'); return }
+    // Fast path: shift already confirmed open this browser session
+    if (SHIFT_KEY && sessionStorage.getItem(SHIFT_KEY)) { setShiftStatus('open'); return }
+    checkShift()
+  }, [user])
+
+  async function checkShift() {
+    try {
+      const res = await getCurrentShift()
+      if (res.data.shift) {
+        if (SHIFT_KEY) sessionStorage.setItem(SHIFT_KEY, '1')
+        setShiftStatus('open')
+      } else {
+        setShiftStatus('none')
+      }
+    } catch {
+      // If API errors (e.g. session expired), show gate but don't block forever
+      setShiftStatus('none')
+    }
+  }
+
+  function onManagerAuthorized(authResult) {
+    setGateAuth(authResult)
+    setGateError('')
+  }
+
+  async function handleOpenShift() {
+    if (gateFloat === '') { setGateError('Enter opening float amount (0 if no float)'); return }
+    setGateBusy(true); setGateError('')
+    try {
+      await openShift({
+        cashier_id:    user.id,
+        cashier_name:  user.name,
+        opening_float: parseFloat(gateFloat) || 0,
+      })
+    } catch (e) {
+      // If a shift is already open, treat it as success — don't trap the user
+      if (!e.message?.toLowerCase().includes('already')) {
+        setGateError(e.message)
+        setGateBusy(false)
+        return
+      }
+    }
+    if (SHIFT_KEY) sessionStorage.setItem(SHIFT_KEY, '1')
+    setShiftStatus('open')
+    setGateBusy(false)
+  }
+
+  // ── Main state ────────────────────────────────────────────────────────────
   const [products, setProducts] = useState([])
   const [cartItems, setCartItems] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -31,12 +97,18 @@ export default function POS() {
   const [redeemPoints, setRedeemPoints] = useState('')
   const [ageVerified, setAgeVerified] = useState(false)
 
+  // Load products and totals only once the shift gate is cleared
   useEffect(() => {
+    if (shiftStatus !== 'open') return
     loadProducts()
     loadDailyTotals()
-  }, [])
+  }, [shiftStatus])
 
-  useEffect(() => { loadProducts(searchQuery) }, [searchQuery])
+  // Re-filter when search changes (only after shift is open)
+  useEffect(() => {
+    if (shiftStatus !== 'open') return
+    loadProducts(searchQuery)
+  }, [searchQuery])
 
   async function loadProducts(q = '') {
     setLoading(true)
@@ -120,8 +192,16 @@ export default function POS() {
   }, [])
 
   const removeItem = useCallback((id) => {
-    setCartItems(prev => prev.filter(i => i.product_id !== id))
+    setCartItems(prev => prev.filter(i => (i._key || i.product_id) !== id))
   }, [])
+
+  // Manager auth gate for cart removal
+  const [removeAuthTarget, setRemoveAuthTarget] = useState(null) // { id, name, total }
+
+  const requestRemoveItem = useCallback((id) => {
+    const item = cartItems.find(i => (i._key || i.product_id) === id)
+    setRemoveAuthTarget({ id, name: item?.product_name || 'item', total: item?.line_total || 0 })
+  }, [cartItems])
 
   const clearCart = useCallback(() => {
     setCartItems([])
@@ -155,6 +235,66 @@ export default function POS() {
 
   const hasAgeRestricted = cartItems.some(i => products.find(p => p.id === i.product_id)?.age_restricted)
   const checkoutDisabled = cartItems.length === 0 || (hasAgeRestricted && !ageVerified)
+
+  // ── Shift gate ─────────────────────────────────────────────────────────────
+  if (shiftStatus === 'checking') {
+    return <div style={gateWrap}><div style={{ color: 'var(--text-muted)' }}>Checking shift…</div></div>
+  }
+
+  if (shiftStatus === 'none') {
+    return (
+      <div style={gateWrap}>
+        <div style={gateCard}>
+          <div style={{ fontSize: 48, textAlign: 'center' }}>🔒</div>
+          <h2 style={{ margin: '8px 0 4px', textAlign: 'center' }}>No Shift Open</h2>
+          <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: 13, margin: '0 0 24px' }}>
+            A manager must authorize before you can process sales.
+          </p>
+
+          {gateStep === 'auth' && (
+            <button style={gateBtn} onClick={() => setGateStep('scanning')}>
+              Authorize with Manager Card / PIN
+            </button>
+          )}
+
+          {gateStep === 'float' && (
+            <div>
+              <div style={{ marginBottom: 8, fontSize: 13, color: 'var(--success,#22c55e)' }}>
+                Authorized by <strong>{gateAuth?.authorizer?.name}</strong>
+              </div>
+              <label style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>Opening Float (KES)</label>
+              <input
+                type="number"
+                min="0"
+                value={gateFloat}
+                onChange={e => setGateFloat(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleOpenShift()}
+                placeholder="0"
+                style={{ ...gateInput, marginBottom: 12 }}
+                autoFocus
+              />
+              {gateError && <div style={gateErr}>{gateError}</div>}
+              <button style={gateBtn} onClick={handleOpenShift} disabled={gateBusy}>
+                {gateBusy ? 'Opening…' : 'Open Shift'}
+              </button>
+              <button style={gateLinkBtn} onClick={() => { setGateStep('auth'); setGateAuth(null); setGateError('') }}>
+                Re-authorize
+              </button>
+            </div>
+          )}
+        </div>
+
+        {gateStep === 'scanning' && (
+          <ManagerAuthModal
+            title="Open Shift"
+            description="Manager authorization required to open this cashier's shift"
+            onAuthorize={result => { onManagerAuthorized(result); setGateStep('float') }}
+            onCancel={() => setGateStep('auth')}
+          />
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="pos-layout">
@@ -289,7 +429,7 @@ export default function POS() {
           )}
         </div>
 
-        <Cart items={cartItems} onUpdateQty={updateQty} onRemove={removeItem} />
+        <Cart items={cartItems} onUpdateQty={updateQty} onRemove={removeItem} onRemoveRequest={requestRemoveItem} />
 
         <div className="cart-totals">
           <div className="totals-row"><span>Subtotal</span><span>KES {cartSubtotal.toFixed(2)}</span></div>
@@ -388,6 +528,16 @@ export default function POS() {
         </div>
       )}
 
+      {/* ── Manager auth: remove item ─── */}
+      {removeAuthTarget && (
+        <ManagerAuthModal
+          title="Remove Item from Cart"
+          description={`${removeAuthTarget.name} — KES ${removeAuthTarget.total.toFixed(2)}`}
+          onAuthorize={() => { removeItem(removeAuthTarget.id); setRemoveAuthTarget(null) }}
+          onCancel={() => setRemoveAuthTarget(null)}
+        />
+      )}
+
       {/* ── Payment modal ─── */}
       {paymentOpen && (
         <PaymentModal
@@ -406,4 +556,33 @@ export default function POS() {
       )}
     </div>
   )
+}
+
+// ── Shift gate styles ──────────────────────────────────────────────────────────
+
+const gateWrap = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  height: '100%', background: 'var(--bg)',
+}
+const gateCard = {
+  background: 'var(--surface)', borderRadius: 16, padding: '40px 36px',
+  width: 360, boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+}
+const gateInput = {
+  width: '100%', padding: '10px 14px', borderRadius: 8, fontSize: 16,
+  border: '2px solid var(--border)', background: 'var(--surface2)',
+  color: 'var(--text)', boxSizing: 'border-box', outline: 'none',
+}
+const gateBtn = {
+  width: '100%', padding: '12px', borderRadius: 8, border: 'none',
+  background: 'var(--primary,#4f6ef7)', color: '#fff', fontSize: 15,
+  fontWeight: 700, cursor: 'pointer', marginBottom: 8,
+}
+const gateErr = {
+  padding: '8px 12px', borderRadius: 6, background: '#ef444420',
+  color: '#ef4444', fontSize: 13, marginBottom: 10,
+}
+const gateLinkBtn = {
+  display: 'block', width: '100%', padding: '8px', background: 'none',
+  border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13,
 }
