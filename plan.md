@@ -277,6 +277,109 @@ const HOME = {
 
 ---
 
+## Phase 9B — Two-Step Auth, User Signatures & Audit Trail
+
+### Problem Statement
+
+Current single-PIN login identifies a department but not a specific person. If Cashier Sarah and Cashier John share PIN 2222, there is no way to know who processed which sale, which product was added by whom, or which stock adjustment was made by which inventory clerk.
+
+Needed:
+1. **Two-step login** — Step 1 unlocks the department. Step 2 identifies the individual.
+2. **User signature** — Every create/update action permanently records who did it.
+3. **Audit log** — A searchable, exportable history of all significant actions.
+
+---
+
+### Two-Step Login Flow
+
+```
+[ App opens ]
+      |
+      v
+[ Step 1: Department code screen ]
+  Cashier dept  → 2222
+  Inventory     → 3333
+  Purchasing    → 4444
+  Manager       → 1111
+  Admin         → 0000
+      |
+      v
+[ Step 2: Personal PIN screen ]
+  "Cashier Department — enter your personal PIN"
+  Each person has their own unique 4-digit personal_pin
+      |
+      v
+[ Logged in as Sarah · Cashier ]
+```
+
+**Staff model — two new fields:**
+- `department_pin` — shared code for the whole department (e.g., 2222 for all cashiers). Configurable in Settings.
+- `personal_pin` — unique per individual. Replaces the old single `pin`.
+
+**Department PIN is role-scoped.** All staff with `role='cashier'` share the same department PIN. Their personal PINs are what distinguish them from each other.
+
+---
+
+### User Signature — Fields on Key Tables
+
+Every mutation stamps the current user permanently on the record.
+
+| Table | Signature fields added |
+|---|---|
+| `products` | `created_by_id`, `created_by_name`, `created_by_role`, `updated_by_id`, `updated_by_name`, `updated_at` |
+| `stock_adjustments` | `created_by_id`, `created_by_name`, `created_by_role` |
+| `purchase_orders` | `created_by_id`, `created_by_name`, `created_by_role` |
+| `sales` | `cashier_role` (cashier_id/name already exist) |
+| `quotes` | `created_by_id`, `created_by_name`, `created_by_role` |
+| `account_transactions` | `created_by_id`, `created_by_name`, `created_by_role` |
+
+**How it appears in the UI:**
+- Product: "Added by Jane · Inventory  on 10 Jun 2026 · Last edited by John · Manager"
+- Purchase order: "Created by Mike · Purchasing"
+- Sale receipt: "Served by Sarah · Cashier"
+- Stock adjustment: "By Jane · Inventory — received from supplier"
+
+---
+
+### Audit Log Table
+
+```
+audit_logs
+  id, user_id, user_name, user_role
+  action        (create | update | delete | login | logout | void | deposit | receive_po)
+  entity_type   (product | sale | purchase_order | stock_adjustment | quote | account | staff)
+  entity_id, entity_name
+  details       (JSON — before/after values for updates)
+  created_at
+```
+
+**Events logged:** product CRUD, price changes, stock adjustments, PO create/receive, sale complete, sale void, account deposit/adjust, quote create/convert, staff create/edit, login, logout.
+
+---
+
+### Audit Report
+
+New tab in Reports page:
+- Filter by date range, user, action type, entity type
+- Table: timestamp | user | role | action | entity | details
+- Export CSV
+
+---
+
+### Implementation Order
+
+1. Backend: Add `department_pin` + `personal_pin` to Staff model + migration
+2. Backend: Update `/api/auth/login` for two-step flow
+3. Backend: Create `AuditLog` model + `log_action()` helper
+4. Backend: Add signature fields to Product, PurchaseOrder, StockAdjustment, Quote
+5. Backend: Stamp all mutation routes with current user + call log_action()
+6. Frontend: Update Login.jsx for two-step UI
+7. Frontend: Show signatures on product cards, PO details, stock adjustments
+8. Frontend: Add Audit Log tab to Reports page
+9. localStore: Update lsLogin for two-step, add lsGetAuditLog
+
+---
+
 ## Phase 10 — Barcode Scanner + Receipt Printer (Backlog)
 
 - USB HID barcode scanner (keyboard wedge — already works with the barcode input field)

@@ -26,6 +26,9 @@ def init_db():
         # Column migrations (safe to run on existing DBs)
         conn = db.engine.raw_connection()
         try:
+            # Staff — two-step auth
+            _add_column_if_missing(conn, 'staff', 'personal_pin',   'VARCHAR(10)')
+            _add_column_if_missing(conn, 'staff', 'department_pin', 'VARCHAR(10)')
             # Products
             _add_column_if_missing(conn, 'products', 'plu_code',              'VARCHAR(20)')
             _add_column_if_missing(conn, 'products', 'is_weight_based',       'BOOLEAN DEFAULT 0')
@@ -33,6 +36,14 @@ def init_db():
             _add_column_if_missing(conn, 'products', 'age_restricted',        'BOOLEAN DEFAULT 0')
             _add_column_if_missing(conn, 'products', 'age_restriction_type',  'VARCHAR(20)')
             _add_column_if_missing(conn, 'products', 'min_age',               'INTEGER DEFAULT 18')
+            # Product signature fields
+            _add_column_if_missing(conn, 'products', 'created_by_id',   'INTEGER')
+            _add_column_if_missing(conn, 'products', 'created_by_name', 'VARCHAR(100)')
+            _add_column_if_missing(conn, 'products', 'created_by_role', 'VARCHAR(20)')
+            _add_column_if_missing(conn, 'products', 'updated_by_id',   'INTEGER')
+            _add_column_if_missing(conn, 'products', 'updated_by_name', 'VARCHAR(100)')
+            _add_column_if_missing(conn, 'products', 'updated_by_role', 'VARCHAR(20)')
+            _add_column_if_missing(conn, 'products', 'updated_at',      'DATETIME')
             try:
                 conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS ix_products_plu_code ON products (plu_code) WHERE plu_code IS NOT NULL')
             except Exception:
@@ -85,15 +96,25 @@ def init_db():
         # Seed staff with hardware store roles if none exist
         if Staff.query.count() == 0:
             seed_staff = [
-                Staff(name='Admin',        pin='0000', role='admin'),
-                Staff(name='Manager',      pin='1111', role='manager'),
-                Staff(name='Cashier 1',    pin='2222', role='cashier'),
-                Staff(name='Inventory',    pin='3333', role='inventory'),
-                Staff(name='Purchasing',   pin='4444', role='purchasing'),
+                Staff(name='Admin',        pin='0000', personal_pin='0000', department_pin='0000', role='admin'),
+                Staff(name='Manager',      pin='1111', personal_pin='1111', department_pin='1111', role='manager'),
+                Staff(name='Cashier 1',    pin='2222', personal_pin='1234', department_pin='2222', role='cashier'),
+                Staff(name='Cashier 2',    pin='2222', personal_pin='5678', department_pin='2222', role='cashier'),
+                Staff(name='Inventory',    pin='3333', personal_pin='3333', department_pin='3333', role='inventory'),
+                Staff(name='Purchasing',   pin='4444', personal_pin='4444', department_pin='4444', role='purchasing'),
             ]
             db.session.add_all(seed_staff)
             db.session.commit()
-            print("Seeded staff: Admin(0000) Manager(1111) Cashier(2222) Inventory(3333) Purchasing(4444)")
+            print("Seeded staff:")
+            print("  Dept PINs: Admin=0000 Manager=1111 Cashier=2222 Inventory=3333 Purchasing=4444")
+            print("  Personal PINs: Admin=0000 Manager=1111 Cashier1=1234 Cashier2=5678 Inventory=3333 Purchasing=4444")
+        else:
+            # Migrate existing staff: copy pin → personal_pin if personal_pin not set
+            from sqlalchemy import text
+            db.session.execute(text(
+                "UPDATE staff SET personal_pin = pin WHERE personal_pin IS NULL AND pin IS NOT NULL"
+            ))
+            db.session.commit()
 
         # Seed sample products for development
         if Product.query.count() == 0:

@@ -30,8 +30,8 @@ export function AuthProvider({ children }) {
       .finally(() => setChecking(false))
   }, [])
 
-  async function login(pin, staffId) {
-    const res = await apiLogin(pin, staffId)
+  async function login(pin, staffId, role) {
+    const res = await apiLogin(pin, staffId, role)
     const staff = res.data.staff
     setUser(staff)
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(staff))

@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from db import db
 from models import Product, Category
+from auth_utils import get_current_user, log_action, stamp
 
 bp = Blueprint('products', __name__, url_prefix='/api')
 
@@ -119,7 +120,12 @@ def create_product():
         low_stock_threshold=int(data.get('low_stock_threshold', 5)),
         category_id=data.get('category_id'),
     )
+    user = get_current_user()
+    stamp(product, user, is_create=True)
     db.session.add(product)
+    db.session.flush()
+    log_action(user, 'create', 'product', product.id, product.name,
+               {'name': product.name, 'price': product.price, 'stock_qty': product.stock_qty})
     db.session.commit()
     return jsonify(product.to_dict()), 201
 
@@ -170,6 +176,10 @@ def update_product(product_id):
     if 'is_active' in data:
         product.is_active = bool(data['is_active'])
 
+    user = get_current_user()
+    stamp(product, user, is_create=False)
+    log_action(user, 'update', 'product', product.id, product.name,
+               {k: data[k] for k in data if k in ('name','price','stock_qty','is_active','tax_rate','barcode','plu_code')})
     db.session.commit()
     return jsonify(product.to_dict())
 
@@ -177,7 +187,10 @@ def update_product(product_id):
 @bp.route('/products/<int:product_id>', methods=['DELETE'])
 def delete_product(product_id):
     product = Product.query.get_or_404(product_id)
-    product.is_active = False   # soft delete — preserve sale history
+    product.is_active = False
+    user = get_current_user()
+    stamp(product, user, is_create=False)
+    log_action(user, 'delete', 'product', product.id, product.name)
     db.session.commit()
     return jsonify({'message': 'Product deactivated'})
 

@@ -38,6 +38,14 @@ class Product(db.Model):
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Signature fields
+    created_by_id   = db.Column(db.Integer, nullable=True)
+    created_by_name = db.Column(db.String(100))
+    created_by_role = db.Column(db.String(20))
+    updated_by_id   = db.Column(db.Integer, nullable=True)
+    updated_by_name = db.Column(db.String(100))
+    updated_by_role = db.Column(db.String(20))
+    updated_at      = db.Column(db.DateTime)
 
     sale_items = db.relationship('SaleItem', backref='product', lazy=True)
     stock_adjustments = db.relationship('StockAdjustment', backref='product', lazy=True)
@@ -54,6 +62,12 @@ class Product(db.Model):
             'category_id': self.category_id,
             'category_name': self.category_obj.name if self.category_obj else None,
             'is_active': self.is_active,
+            'created_by_id': self.created_by_id, 'created_by_name': self.created_by_name,
+            'created_by_role': self.created_by_role,
+            'updated_by_id': self.updated_by_id, 'updated_by_name': self.updated_by_name,
+            'updated_by_role': self.updated_by_role,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 
@@ -62,8 +76,10 @@ class Staff(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    pin = db.Column(db.String(10))
-    role = db.Column(db.String(20), default='cashier')  # admin / cashier / manager / stylist
+    pin = db.Column(db.String(10))             # legacy — kept for backwards compat
+    personal_pin = db.Column(db.String(10))    # unique per individual (Step 2 login)
+    department_pin = db.Column(db.String(10))  # shared by all staff in the same role (Step 1)
+    role = db.Column(db.String(20), default='cashier')  # admin/cashier/manager/inventory/purchasing
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -74,6 +90,35 @@ class Staff(db.Model):
         return {
             'id': self.id, 'name': self.name, 'role': self.role,
             'is_active': self.is_active,
+            'has_personal_pin': bool(self.personal_pin or self.pin),
+        }
+
+
+# ── Audit Log ─────────────────────────────────────────────────────────────────
+
+class AuditLog(db.Model):
+    __tablename__ = 'audit_logs'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    user_id     = db.Column(db.Integer, nullable=True)
+    user_name   = db.Column(db.String(100))
+    user_role   = db.Column(db.String(20))
+    action      = db.Column(db.String(50))   # create/update/delete/login/logout/void/deposit/receive_po
+    entity_type = db.Column(db.String(50))   # product/sale/purchase_order/stock_adjustment/quote/account/staff
+    entity_id   = db.Column(db.Integer, nullable=True)
+    entity_name = db.Column(db.String(200))  # human-readable label
+    details     = db.Column(db.Text)         # JSON string of before/after values
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id, 'user_id': self.user_id, 'user_name': self.user_name,
+            'user_role': self.user_role, 'action': self.action,
+            'entity_type': self.entity_type, 'entity_id': self.entity_id,
+            'entity_name': self.entity_name,
+            'details': json.loads(self.details) if self.details else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 

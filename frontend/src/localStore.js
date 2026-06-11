@@ -9,10 +9,13 @@
  * Call localStore.reset() in the console to wipe and re-seed.
  */
 
+const DEPT_PINS = { '0000':'admin','1111':'manager','2222':'cashier','3333':'inventory','4444':'purchasing' }
+
 const K = {
   products:    'pos_hw_products',
   categories:  'pos_hw_categories',
   sales:       'pos_hw_sales',
+  auditLogs:   'pos_hw_audit_logs',
   saleItems:   'pos_hw_sale_items',
   customers:   'pos_hw_customers',
   accounts:    'pos_hw_accounts',
@@ -81,11 +84,16 @@ function seed() {
   ])
 
   save(K.staff, [
-    { id:1, name:'Admin',     pin:'0000', role:'admin',    is_active:true },
-    { id:2, name:'Cashier 1', pin:'1234', role:'cashier',  is_active:true },
+    { id:1, name:'Admin',       pin:'0000', personal_pin:'0000', department_pin:'0000', role:'admin',      is_active:true },
+    { id:2, name:'Manager',     pin:'1111', personal_pin:'1111', department_pin:'1111', role:'manager',    is_active:true },
+    { id:3, name:'Cashier 1',   pin:'2222', personal_pin:'1234', department_pin:'2222', role:'cashier',    is_active:true },
+    { id:4, name:'Cashier 2',   pin:'2222', personal_pin:'5678', department_pin:'2222', role:'cashier',    is_active:true },
+    { id:5, name:'Inventory',   pin:'3333', personal_pin:'3333', department_pin:'3333', role:'inventory',  is_active:true },
+    { id:6, name:'Purchasing',  pin:'4444', personal_pin:'4444', department_pin:'4444', role:'purchasing', is_active:true },
   ])
 
   save(K.sales,          [])
+  save(K.auditLogs,      [])
   save(K.saleItems,      [])
   save(K.customers,      [])
   save(K.accounts,       [])
@@ -744,12 +752,20 @@ export function lsUpdateStoreConfig(data) {
 
 const LS_SESSION = 'pos_hw_session'
 
-export function lsLogin(pin, staffId) {
-  let staff = ls(K.staff).find(s => s.pin === pin && s.is_active)
-  if (staffId) staff = ls(K.staff).find(s => s.id === Number(staffId) && s.pin === pin && s.is_active)
-  if (!staff) throw new Error('Invalid PIN')
-  localStorage.setItem(LS_SESSION, JSON.stringify(staff))
-  return ok({ staff })
+export function lsLogin(pin, staffId, role) {
+  const allStaff = ls(K.staff)
+  let found = null
+  if (staffId) {
+    found = allStaff.find(s => s.id === Number(staffId) && (s.personal_pin === pin || s.pin === pin) && s.is_active)
+  } else if (role) {
+    found = allStaff.find(s => s.role === role && (s.personal_pin === pin || s.pin === pin) && s.is_active)
+  } else {
+    found = allStaff.find(s => (s.personal_pin === pin || s.pin === pin) && s.is_active)
+  }
+  if (!found) throw new Error('Invalid PIN')
+  localStorage.setItem(LS_SESSION, JSON.stringify(found))
+  lsLogAudit(found, 'login', 'staff', found.id, found.name)
+  return ok({ staff: found })
 }
 
 export function lsGetMe() {
@@ -763,8 +779,41 @@ export function lsGetMe() {
 }
 
 export function lsLogout() {
+  try {
+    const user = JSON.parse(localStorage.getItem(LS_SESSION))
+    if (user) lsLogAudit(user, 'logout', 'staff', user.id, user.name)
+  } catch {}
   localStorage.removeItem(LS_SESSION)
   return ok({ message: 'Logged out' })
+}
+
+// ── Audit Log (offline) ───────────────────────────────────────────────────────
+
+function lsLogAudit(user, action, entityType, entityId, entityName, details) {
+  try {
+    const logs = ls(K.auditLogs)
+    logs.push({
+      id: nextId(logs),
+      user_id:     user?.id   || null,
+      user_name:   user?.name || 'Unknown',
+      user_role:   user?.role || 'unknown',
+      action, entity_type: entityType, entity_id: entityId,
+      entity_name: entityName,
+      details: details || null,
+      created_at: now(),
+    })
+    save(K.auditLogs, logs)
+  } catch {}
+}
+
+export function lsGetAuditLogs({ user_role, action, entity_type, date_from, date_to, limit = 200 } = {}) {
+  let items = ls(K.auditLogs).slice().reverse()
+  if (user_role)   items = items.filter(l => l.user_role === user_role)
+  if (action)      items = items.filter(l => l.action === action)
+  if (entity_type) items = items.filter(l => l.entity_type === entity_type)
+  if (date_from)   items = items.filter(l => l.created_at >= date_from)
+  if (date_to)     items = items.filter(l => l.created_at <= date_to + 'T23:59:59')
+  return ok(items.slice(0, limit))
 }
 
 // ── Stub responses for rarely-used endpoints ─────────────────────────────────

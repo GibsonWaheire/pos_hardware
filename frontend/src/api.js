@@ -532,11 +532,22 @@ export const getAccountByCustomer = (customerId) => withLocal(
   () => local.lsStub(null)
 )
 
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+
+export const getAuditLogs = (params) => withLocal(
+  () => api.get('/audit', { params }),
+  () => local.lsGetAuditLogs(params)
+)
+export const getAuditUsers = () => withLocal(
+  () => api.get('/audit/users'),
+  () => local.lsStub([])
+)
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-export const login = (pin, staffId) => withLocal(
-  () => api.post('/auth/login', { pin, staff_id: staffId }),
-  () => local.lsLogin(pin, staffId)
+export const login = (pin, staffId, role) => withLocal(
+  () => api.post('/auth/login', { personal_pin: pin, staff_id: staffId, role }),
+  () => local.lsLogin(pin, staffId, role)
 )
 export const getMe = () => withLocal(
   () => api.get('/auth/me'),
