@@ -84,4 +84,40 @@ export const getStockLevels = () => api.get('/inventory/stock-levels')
 export const adjustStock = (data) => api.post('/inventory/adjust', data)
 export const getStockAdjustments = (params) => api.get('/inventory/adjustments', { params })
 
+// Customers & Loyalty
+export const getCustomers = (params) => api.get('/customers', { params })
+export const lookupCustomer = (q) => api.get('/customers/lookup', { params: { q } })
+export const getCustomer = (id) => api.get(`/customers/${id}`)
+export const createCustomer = (data) => api.post('/customers', data)
+export const updateCustomer = (id, data) => api.put(`/customers/${id}`, data)
+export const getCustomerTransactions = (id) => api.get(`/customers/${id}/transactions`)
+
+export const getLoyaltyTiers = () => api.get('/loyalty/tiers')
+export const createLoyaltyTier = (data) => api.post('/loyalty/tiers', data)
+export const updateLoyaltyTier = (id, data) => api.put(`/loyalty/tiers/${id}`, data)
+export const deleteLoyaltyTier = (id) => api.delete(`/loyalty/tiers/${id}`)
+export const earnPoints = (data) => api.post('/loyalty/earn', data)
+export const redeemPoints = (data) => api.post('/loyalty/redeem', data)
+export const adjustPoints = (data) => api.post('/loyalty/adjust', data)
+export const getLoyaltyConfig = () => api.get('/loyalty/config')
+
+// Terminals
+export const getTerminals = () => api.get('/terminals')
+export const registerTerminal = (data) => api.post('/terminals/register', data)
+export const terminalHeartbeat = (terminal_id) => api.post('/terminals/heartbeat', { terminal_id })
+export const getTerminalSales = (terminal_id, params) => api.get(`/terminals/${terminal_id}/sales`, { params })
+export const updateTerminal = (id, data) => api.put(`/terminals/${id}`, data)
+
+// Voids & No-sale
+export const getVoidLogs = (params) => api.get('/voids', { params })
+export const voidSaleWithPin = (data) => api.post('/voids/void-sale', data)
+export const recordNoSale = (data) => api.post('/voids/no-sale', data)
+export const getVoidStats = (params) => api.get('/voids/stats', { params })
+
+// Scale
+export const readScale = () => api.get('/scale/read')
+
+// PLU lookup
+export const getProductByPlu = (plu) => api.get(`/products/plu/${plu}`)
+
 export default api

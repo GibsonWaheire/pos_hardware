@@ -31,6 +31,10 @@ from routes.purchase_orders import bp as purchase_orders_bp
 from routes.returns import bp as returns_bp
 from routes.shifts import bp as shifts_bp
 from routes.inventory import bp as inventory_bp
+from routes.customers import bp as customers_bp
+from routes.loyalty import bp as loyalty_bp
+from routes.terminals import bp as terminals_bp
+from routes.voids import bp as voids_bp
 
 app.register_blueprint(products_bp)
 app.register_blueprint(sales_bp)
@@ -42,6 +46,10 @@ app.register_blueprint(purchase_orders_bp)
 app.register_blueprint(returns_bp)
 app.register_blueprint(shifts_bp)
 app.register_blueprint(inventory_bp)
+app.register_blueprint(customers_bp)
+app.register_blueprint(loyalty_bp)
+app.register_blueprint(terminals_bp)
+app.register_blueprint(voids_bp)
 
 
 @app.route('/api/health')
