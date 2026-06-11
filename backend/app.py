@@ -26,12 +26,22 @@ from routes.sales import bp as sales_bp
 from routes.payments import bp as payments_bp
 from routes.staff import bp as staff_bp
 from routes.reports import bp as reports_bp
+from routes.suppliers import bp as suppliers_bp
+from routes.purchase_orders import bp as purchase_orders_bp
+from routes.returns import bp as returns_bp
+from routes.shifts import bp as shifts_bp
+from routes.inventory import bp as inventory_bp
 
 app.register_blueprint(products_bp)
 app.register_blueprint(sales_bp)
 app.register_blueprint(payments_bp)
 app.register_blueprint(staff_bp)
 app.register_blueprint(reports_bp)
+app.register_blueprint(suppliers_bp)
+app.register_blueprint(purchase_orders_bp)
+app.register_blueprint(returns_bp)
+app.register_blueprint(shifts_bp)
+app.register_blueprint(inventory_bp)
 
 
 @app.route('/api/health')

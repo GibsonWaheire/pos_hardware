@@ -1,8 +1,25 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 import POS from './pages/POS'
 import Products from './pages/Products'
+import Inventory from './pages/Inventory'
+import Suppliers from './pages/Suppliers'
+import PurchaseOrders from './pages/PurchaseOrders'
+import ReturnsPage from './pages/ReturnsPage'
+import Shifts from './pages/Shifts'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
+
+const NAV = [
+  { to: '/', label: 'Checkout', icon: '🛒', end: true },
+  { to: '/products', label: 'Products', icon: '📦' },
+  { to: '/inventory', label: 'Inventory', icon: '🗂️' },
+  { to: '/suppliers', label: 'Suppliers', icon: '🚚' },
+  { to: '/purchase-orders', label: 'Orders', icon: '📋' },
+  { to: '/returns', label: 'Returns', icon: '↩️' },
+  { to: '/shifts', label: 'Shifts', icon: '⏱️' },
+  { to: '/reports', label: 'Reports', icon: '📊' },
+  { to: '/settings', label: 'Settings', icon: '⚙️' },
+]
 
 export default function App() {
   return (
@@ -10,27 +27,24 @@ export default function App() {
       <div className="app-layout">
         <nav className="sidebar">
           <div className="sidebar-logo">POS</div>
-          <NavLink to="/" end className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            <span className="nav-icon">🛒</span>
-            <span>Checkout</span>
-          </NavLink>
-          <NavLink to="/products" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            <span className="nav-icon">📦</span>
-            <span>Products</span>
-          </NavLink>
-          <NavLink to="/reports" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            <span className="nav-icon">📊</span>
-            <span>Reports</span>
-          </NavLink>
-          <NavLink to="/settings" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            <span className="nav-icon">⚙️</span>
-            <span>Settings</span>
-          </NavLink>
+          {NAV.map(({ to, label, icon, end }) => (
+            <NavLink key={to} to={to} end={!!end}
+              className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+              <span className="nav-icon">{icon}</span>
+              <span>{label}</span>
+            </NavLink>
+          ))}
         </nav>
+
         <main className="main-content">
           <Routes>
             <Route path="/" element={<POS />} />
             <Route path="/products" element={<Products />} />
+            <Route path="/inventory" element={<Inventory />} />
+            <Route path="/suppliers" element={<Suppliers />} />
+            <Route path="/purchase-orders" element={<PurchaseOrders />} />
+            <Route path="/returns" element={<ReturnsPage />} />
+            <Route path="/shifts" element={<Shifts />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>

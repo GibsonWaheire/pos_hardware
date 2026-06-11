@@ -51,4 +51,37 @@ export const capturePaymentIntent = (payment_intent_id) =>
 export const cancelPaymentIntent = (payment_intent_id) =>
   api.post('/payments/terminal/cancel-intent', { payment_intent_id })
 
+// Suppliers
+export const getSuppliers = (params) => api.get('/suppliers', { params })
+export const getSupplier = (id) => api.get(`/suppliers/${id}`)
+export const createSupplier = (data) => api.post('/suppliers', data)
+export const updateSupplier = (id, data) => api.put(`/suppliers/${id}`, data)
+export const deleteSupplier = (id) => api.delete(`/suppliers/${id}`)
+
+// Purchase Orders
+export const getPurchaseOrders = (params) => api.get('/purchase-orders', { params })
+export const getPurchaseOrder = (id) => api.get(`/purchase-orders/${id}`)
+export const createPurchaseOrder = (data) => api.post('/purchase-orders', data)
+export const markPOOrdered = (id) => api.post(`/purchase-orders/${id}/mark-ordered`)
+export const receivePO = (id, data) => api.post(`/purchase-orders/${id}/receive`, data)
+export const cancelPO = (id) => api.post(`/purchase-orders/${id}/cancel`)
+
+// Returns
+export const getReturns = () => api.get('/returns')
+export const getReturn = (id) => api.get(`/returns/${id}`)
+export const createReturn = (data) => api.post('/returns', data)
+
+// Shifts
+export const getShifts = (params) => api.get('/shifts', { params })
+export const getCurrentShift = () => api.get('/shifts/current')
+export const openShift = (data) => api.post('/shifts/open', data)
+export const closeShift = (id, data) => api.post(`/shifts/${id}/close`, data)
+export const getShiftSummary = (id) => api.get(`/shifts/${id}/summary`)
+
+// Inventory
+export const getInventoryOverview = () => api.get('/inventory/overview')
+export const getStockLevels = () => api.get('/inventory/stock-levels')
+export const adjustStock = (data) => api.post('/inventory/adjust', data)
+export const getStockAdjustments = (params) => api.get('/inventory/adjustments', { params })
+
 export default api
