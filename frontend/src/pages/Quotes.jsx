@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { getQuotes, getQuote, createQuote, updateQuote, updateQuoteStatus, convertQuote, deleteQuote, getProducts } from '../api'
+import { getQuotes, getQuote, createQuote, updateQuote, updateQuoteStatus, convertQuote, deleteQuote, getProducts, getStoreConfig } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
+import { printDoc, A4_CSS } from '../utils/print'
 
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-KE') : '—'
 
@@ -181,57 +182,104 @@ function QuoteDetail({ quote, onClose, onStatusChange, onConvert }) {
   const { currency, fmt: KES } = useCurrency()
   const printRef = useRef()
 
-  function handlePrint() {
-    const win = window.open('', '_blank')
-    win.document.write(`
-      <html><head><title>${quote.quote_number}</title>
-      <style>
-        body { font-family: sans-serif; padding: 32px; color: #000; }
-        h2 { margin: 0 0 4px; }
-        .sub { color: #666; font-size: 13px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th { background: #f5f5f5; padding: 8px; text-align: left; font-size: 12px; }
-        td { padding: 8px; border-bottom: 1px solid #eee; font-size: 13px; }
-        .totals { margin-top: 16px; text-align: right; }
-        .totals div { padding: 2px 0; font-size: 13px; }
-        .grand { font-size: 18px; font-weight: bold; margin-top: 8px; }
-        .footer { margin-top: 32px; font-size: 12px; color: #666; }
-      </style></head><body>
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div><h2>Proforma Invoice</h2><div class="sub">${quote.quote_number}</div></div>
-        <div style="text-align:right">
-          <div style="font-size:12px;color:#666">Date: ${new Date(quote.created_at).toLocaleDateString('en-KE')}</div>
-          ${quote.valid_until ? `<div style="font-size:12px;color:#666">Valid until: ${new Date(quote.valid_until).toLocaleDateString('en-KE')}</div>` : ''}
-          <div style="font-size:13px;font-weight:bold;margin-top:4px;text-transform:capitalize">${quote.status}</div>
+  async function handlePrint() {
+    let store = {}
+    try { const r = await getStoreConfig(); store = r.data || {} } catch {}
+    const storeSub = [store.phone, store.email].filter(Boolean).join(' &nbsp;|&nbsp; ')
+    printDoc(quote.quote_number, `<!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>${quote.quote_number}</title><style>${A4_CSS}</style></head><body>
+      <div class="letterhead">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div class="store-name">${store.name || 'Store'}</div>
+            <div class="store-sub">${store.address ? store.address + '<br>' : ''}${storeSub}${store.tax_number ? ' &nbsp;|&nbsp; PIN: ' + store.tax_number : ''}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:9pt;color:#777;margin-bottom:2pt">Document No.</div>
+            <div style="font-size:15pt;font-weight:700">${quote.quote_number}</div>
+          </div>
         </div>
       </div>
-      ${quote.customer_name ? `<div style="margin-top:16px"><strong>Bill To:</strong><br>${quote.customer_name}${quote.customer_phone ? `<br>${quote.customer_phone}` : ''}</div>` : ''}
+      <div class="doc-title"><h2>Proforma Invoice</h2><div class="doc-num">This is not a tax invoice</div></div>
+      <div class="info-grid">
+        <div class="info-box">
+          <div class="label">Quote Details</div>
+          <div class="value">
+            <div>Date: ${new Date(quote.created_at).toLocaleDateString('en-KE')}</div>
+            ${quote.valid_until ? `<div>Valid until: ${new Date(quote.valid_until).toLocaleDateString('en-KE')}</div>` : ''}
+            <div>Status: <strong style="text-transform:capitalize">${quote.status}</strong></div>
+            ${quote.cashier_name ? `<div>Prepared by: ${quote.cashier_name}</div>` : ''}
+          </div>
+        </div>
+        <div class="info-box">
+          <div class="label">Bill To</div>
+          <div class="value">
+            ${quote.customer_name ? `<div style="font-weight:700">${quote.customer_name}</div>` : '<div style="color:#aaa">Walk-in Customer</div>'}
+            ${quote.customer_phone ? `<div>${quote.customer_phone}</div>` : ''}
+          </div>
+        </div>
+      </div>
       <table>
-        <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Discount</th><th>Tax</th><th>Line Total</th></tr></thead>
+        <thead><tr>
+          <th style="width:24pt">#</th><th>Description</th>
+          <th class="right" style="width:36pt">Qty</th>
+          <th class="right" style="width:72pt">Unit Price</th>
+          <th class="right" style="width:58pt">Discount</th>
+          <th class="right" style="width:36pt">Tax</th>
+          <th class="right" style="width:72pt">Total</th>
+        </tr></thead>
         <tbody>
         ${(quote.items || []).map((item, i) => `
           <tr>
-            <td>${i + 1}</td>
-            <td>${item.product_name}${item.notes ? `<br><small style="color:#666">${item.notes}</small>` : ''}</td>
-            <td>${item.qty}</td>
-            <td>${KES(item.unit_price)}</td>
-            <td>${item.discount > 0 ? KES(item.discount) : '—'}</td>
-            <td>${item.tax_rate > 0 ? `${(item.tax_rate * 100).toFixed(0)}%` : '—'}</td>
-            <td>${KES(item.line_total)}</td>
+            <td style="color:#777">${i + 1}</td>
+            <td><div style="font-weight:600">${item.product_name}</div>${item.notes ? `<div style="font-size:8.5pt;color:#666;margin-top:2pt">${item.notes}</div>` : ''}</td>
+            <td class="right">${item.qty}</td>
+            <td class="right">${KES(item.unit_price)}</td>
+            <td class="right" style="color:#777">${item.discount > 0 ? KES(item.discount) : '—'}</td>
+            <td class="right" style="color:#777">${item.tax_rate > 0 ? `${(item.tax_rate * 100).toFixed(0)}%` : '—'}</td>
+            <td class="right" style="font-weight:600">${KES(item.line_total)}</td>
           </tr>`).join('')}
         </tbody>
       </table>
       <div class="totals">
-        <div>Subtotal: ${KES(quote.subtotal)}</div>
-        ${quote.discount_total > 0 ? `<div>Discounts: -${KES(quote.discount_total)}</div>` : ''}
-        ${quote.tax_amount > 0 ? `<div>VAT/Tax: ${KES(quote.tax_amount)}</div>` : ''}
-        <div class="grand">TOTAL: ${KES(quote.total)}</div>
+        <div class="row"><span>Subtotal</span><span>${KES(quote.subtotal)}</span></div>
+        ${quote.discount_total > 0 ? `<div class="row"><span>Discounts</span><span style="color:#dc2626">− ${KES(quote.discount_total)}</span></div>` : ''}
+        ${quote.tax_amount > 0 ? `<div class="row"><span>VAT / Tax</span><span>${KES(quote.tax_amount)}</span></div>` : ''}
+        <div class="row grand"><span>TOTAL</span><span>${KES(quote.total)}</span></div>
       </div>
-      ${quote.notes ? `<div class="footer">Notes: ${quote.notes}</div>` : ''}
-      <div class="footer" style="margin-top:16px">This is a proforma invoice. Prices are valid until ${quote.valid_until ? new Date(quote.valid_until).toLocaleDateString('en-KE') : 'further notice'}.</div>
-      </body></html>`)
-    win.document.close()
-    win.print()
+      ${quote.notes ? `<div style="border:0.5pt solid #ddd;border-radius:3pt;padding:8pt 10pt;margin-bottom:12pt;font-size:9.5pt"><strong>Notes:</strong> ${quote.notes}</div>` : ''}
+      <div style="font-size:9pt;color:#666;margin-bottom:14pt">
+        This is a proforma invoice. Prices are valid until ${quote.valid_until ? new Date(quote.valid_until).toLocaleDateString('en-KE') : 'further notice'}.
+        All prices are in ${currency}.
+      </div>
+      <div class="sig-section">
+        <div class="sig-title">Authorisation &amp; Acceptance</div>
+        <div class="sig-grid" style="grid-template-columns:1fr 1fr 1fr">
+          <div class="sig-box">
+            <div class="line"></div>
+            <div class="name">Prepared by</div>
+            <div class="role">${quote.cashier_name || '________________'}</div>
+            <div class="role">Date: ________________</div>
+          </div>
+          <div class="sig-box">
+            <div class="line"></div>
+            <div class="name">Customer Signature</div>
+            <div class="role">${quote.customer_name || '________________'}</div>
+            <div class="role">Date: ________________</div>
+          </div>
+          <div class="sig-box">
+            <div class="line"></div>
+            <div class="name">Authorized by</div>
+            <div class="role">Manager / Director</div>
+            <div class="role">Date: ________________</div>
+          </div>
+        </div>
+      </div>
+      <div class="doc-footer">
+        ${store.name || ''} &nbsp;|&nbsp; ${storeSub}${store.tax_number ? ' &nbsp;|&nbsp; PIN: ' + store.tax_number : ''}
+        <br>Generated by POS System &mdash; ${new Date().toLocaleString('en-KE')}
+      </div>
+    </body></html>`)
   }
 
   const canConvert = !['converted', 'expired'].includes(quote.status)

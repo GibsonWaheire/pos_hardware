@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { useCurrency } from '../context/CurrencyContext'
 import {
   getPurchaseOrders, createPurchaseOrder, markPOOrdered, receivePO, cancelPO,
   getPendingPOs, approvePO, rejectPO, confirmPO, markPODispatched,
-  getSuppliers, getProducts,
+  getSuppliers, getProducts, getStoreConfig,
 } from '../api'
+import { printDoc, A4_CSS } from '../utils/print'
 
 const STATUS_BADGE = {
   draft:            'badge-blue',
@@ -19,6 +21,7 @@ const STATUS_BADGE = {
 export default function PurchaseOrders() {
   const { user } = useAuth()
   const role = user?.role || ''
+  const { currency, fmt } = useCurrency()
 
   const [pos, setPOs] = useState([])
   const [pendingPos, setPendingPOs] = useState([])
@@ -147,6 +150,100 @@ export default function PurchaseOrders() {
     try { await markPODispatched(po.id); load() } catch (e) { alert(e.message) }
   }
 
+  // ── Print PO ─────────────────────────────────────────────────────────────
+
+  async function printPO(po) {
+    let store = {}
+    try { const r = await getStoreConfig(); store = r.data || {} } catch {}
+    const storeSub = [store.phone, store.email].filter(Boolean).join(' &nbsp;|&nbsp; ')
+    const stampColor = po.status === 'received' ? '#16a34a' : '#dc2626'
+    const showStamp = ['received', 'cancelled', 'rejected'].includes(po.status)
+    const watermark = ['cancelled', 'rejected'].includes(po.status) ? `<div class="watermark" style="color:#dc2626">${po.status.toUpperCase()}</div>` : ''
+    printDoc(po.po_number, `<!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>${po.po_number}</title><style>${A4_CSS}</style></head><body>
+      ${watermark}
+      <div class="letterhead">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div class="store-name">${store.name || 'Store'}</div>
+            <div class="store-sub">${store.address ? store.address + '<br>' : ''}${storeSub}${store.tax_number ? ' &nbsp;|&nbsp; PIN: ' + store.tax_number : ''}</div>
+          </div>
+          ${showStamp ? `<div class="stamp" style="color:${stampColor}">${po.status.toUpperCase()}</div>` : ''}
+        </div>
+      </div>
+      <div class="doc-title"><h2>Purchase Order</h2><div class="doc-num">${po.po_number}</div></div>
+      <div class="info-grid">
+        <div class="info-box">
+          <div class="label">Order Details</div>
+          <div class="value">
+            <div>PO Number: <strong>${po.po_number}</strong></div>
+            <div>Date: ${new Date(po.created_at).toLocaleDateString('en-KE')}</div>
+            <div>Status: <strong style="text-transform:capitalize">${po.status.replace(/_/g, ' ')}</strong></div>
+            <div>Prepared by: ${po.created_by_name || '—'}</div>
+            ${po.notes ? `<div>Notes: ${po.notes}</div>` : ''}
+          </div>
+        </div>
+        <div class="info-box">
+          <div class="label">Supplier</div>
+          <div class="value">
+            <div style="font-weight:700">${po.supplier_name || 'No supplier specified'}</div>
+          </div>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th style="width:24pt">#</th>
+          <th>Product / Description</th>
+          <th class="right" style="width:60pt">Qty Ordered</th>
+          <th class="right" style="width:60pt">Qty Received</th>
+          <th class="right" style="width:80pt">Unit Cost (${currency})</th>
+          <th class="right" style="width:80pt">Line Total (${currency})</th>
+        </tr></thead>
+        <tbody>
+        ${(po.items || []).map((item, i) => `
+          <tr>
+            <td style="color:#777">${i + 1}</td>
+            <td style="font-weight:600">${item.product_name}</td>
+            <td class="right">${item.qty_ordered}</td>
+            <td class="right" style="color:${(item.qty_received || 0) >= item.qty_ordered ? '#16a34a' : '#777'}">${item.qty_received || 0}</td>
+            <td class="right">${fmt(item.unit_cost)}</td>
+            <td class="right" style="font-weight:600">${fmt(item.qty_ordered * item.unit_cost)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="totals">
+        <div class="row grand"><span>ORDER TOTAL</span><span>${fmt(po.total_cost)}</span></div>
+      </div>
+      <div class="sig-section">
+        <div class="sig-title">Approval &amp; Receipt Confirmation</div>
+        <div class="sig-grid" style="grid-template-columns:1fr 1fr 1fr">
+          <div class="sig-box">
+            <div class="line"></div>
+            <div class="name">Prepared by</div>
+            <div class="role">${po.created_by_name || '________________'}</div>
+            <div class="role">Date: ________________</div>
+          </div>
+          <div class="sig-box">
+            <div class="line"></div>
+            <div class="name">Approved by</div>
+            <div class="role">Manager / Authorized Signatory</div>
+            <div class="role">Date: ________________</div>
+          </div>
+          <div class="sig-box">
+            <div class="line"></div>
+            <div class="name">Received by</div>
+            <div class="role">Inventory / Store Keeper</div>
+            <div class="role">Date: ________________</div>
+          </div>
+        </div>
+      </div>
+      <div class="doc-footer">
+        ${store.name || ''} &nbsp;|&nbsp; ${storeSub}${store.tax_number ? ' &nbsp;|&nbsp; PIN: ' + store.tax_number : ''}
+        <br>Generated by POS System &mdash; ${new Date().toLocaleString('en-KE')}
+      </div>
+    </body></html>`)
+  }
+
   const createTotal = createForm.items.reduce(
     (s, i) => s + (parseFloat(i.qty_ordered) || 0) * (parseFloat(i.unit_cost) || 0), 0
   )
@@ -185,7 +282,7 @@ export default function PurchaseOrders() {
                     <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{po.po_number}</td>
                     <td>{po.created_by_name || po.created_by || '—'}</td>
                     <td>{po.supplier_name || '—'}</td>
-                    <td>KES {po.total_cost.toFixed(2)}</td>
+                    <td>{fmt(po.total_cost)}</td>
                     <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{new Date(po.created_at).toLocaleDateString()}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -234,7 +331,7 @@ export default function PurchaseOrders() {
                     <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{po.created_by_name || po.created_by || '—'}</td>
                   )}
                   <td style={{ color: 'var(--text-muted)' }}>{po.items.length} line{po.items.length !== 1 ? 's' : ''}</td>
-                  <td>KES {po.total_cost.toFixed(2)}</td>
+                  <td>{fmt(po.total_cost)}</td>
                   <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{new Date(po.created_at).toLocaleDateString()}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -248,6 +345,7 @@ export default function PurchaseOrders() {
                       {['draft', 'ordered', 'pending_approval'].includes(po.status) && role !== 'supplier' && (
                         <button className="btn btn-danger btn-sm" onClick={() => handleCancel(po)}>Cancel</button>
                       )}
+                      <button className="btn btn-ghost btn-sm" onClick={() => printPO(po)} title="Print PO">🖨 Print</button>
 
                       {/* Supplier actions */}
                       {role === 'supplier' && po.status === 'ordered' && (
@@ -322,7 +420,7 @@ export default function PurchaseOrders() {
 
             {createForm.items.length > 0 && (
               <div style={{ textAlign: 'right', fontWeight: 700, fontSize: 16, marginBottom: 12 }}>
-                Total: KES {createTotal.toFixed(2)}
+                Total: {fmt(createTotal)}
               </div>
             )}
 
@@ -357,7 +455,7 @@ export default function PurchaseOrders() {
                     </div>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
-                    KES {item.unit_cost.toFixed(2)}/ea
+                    {fmt(item.unit_cost)}/ea
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
                     Rem: {remaining}
@@ -389,7 +487,7 @@ export default function PurchaseOrders() {
           <div className="modal" style={{ width: 440 }}>
             <div className="modal-title">Reject PO — {modal.po.po_number}</div>
             <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 12 }}>
-              Total: KES {modal.po.total_cost.toFixed(2)} · Requested by: {modal.po.created_by_name || modal.po.created_by || '—'}
+              Total: {fmt(modal.po.total_cost)} · Requested by: {modal.po.created_by_name || modal.po.created_by || '—'}
             </p>
             <div className="form-group">
               <label className="label">Reason (optional)</label>

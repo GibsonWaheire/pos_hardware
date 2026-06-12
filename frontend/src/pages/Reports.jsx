@@ -5,15 +5,16 @@ import {
   getExportCsvUrl, getShiftReports, printShiftReport, fileShiftReport,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
+import { useCurrency } from '../context/CurrencyContext'
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
 function daysAgo(n) {
   const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split('T')[0]
 }
-function fmt(n) { return `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleString('en-KE') : '—' }
 
 function InlineBar({ value, max, color = 'var(--accent)' }) {
+  const { fmt } = useCurrency()
   const pct = max > 0 ? Math.max((value / max) * 100, value > 0 ? 2 : 0) : 0
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -27,6 +28,7 @@ function InlineBar({ value, max, color = 'var(--accent)' }) {
 
 export default function Reports() {
   const { user } = useAuth()
+  const { fmt } = useCurrency()
   const [tab, setTab] = useState('sales')
   const [dateFrom, setDateFrom] = useState(daysAgo(30))
   const [dateTo, setDateTo] = useState(todayStr())
@@ -504,16 +506,13 @@ export default function Reports() {
 // ── Print page component ───────────────────────────────────────────────────────
 
 function PrintPage({ report }) {
+  const { fmt: kes } = useCurrency()
   const c       = report.content || {}
   const store   = c.store   || {}
   const shift   = c.shift   || {}
   const summary = c.summary || {}
   const overrides = c.overrides || {}
   const isReprint = report.print_count > 1
-
-  function kes(n) {
-    return 'KES ' + Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  }
 
   return (
     <div className="print-page">
