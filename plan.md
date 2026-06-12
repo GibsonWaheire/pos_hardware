@@ -87,6 +87,7 @@ Every feature gating decision must follow this table.
 | 17 | Inventory operations & GRN system — StockMovement unified log, GoodsReceivedNote (auto on PO receive), DamageReport workflow (raise→approve→write-off), physical count sheet print, movement report print | ✅ |
 | 18 | Role-gated reports with per-department A4 printouts — purchasing tab, inventory tab hides prices from inventory role, Print Report button per tab | ✅ |
 | 19 | Tax Invoice & B2B Documents — KRA-compliant INV-YYYY-NNNN invoices, credit notes (CN-YYYY-NNNN) auto-generated on returns, invoice history on customer detail, Print Invoice on POS completion screen | ✅ |
+| 20 | Returns & Refunds Workflow — manager approval gate for refunds above threshold, invoice/receipt lookup, Approve/Reject UI, Returns Report tab in Reports with A4 printout | ✅ |
 
 ---
 
@@ -228,7 +229,34 @@ Every feature gating decision must follow this table.
 
 ---
 
-### Phase 20 — Returns & Refunds Workflow
+### Phase 20 — Returns & Refunds Workflow ✅ COMPLETE
+
+**Implemented:**
+
+#### 20A — Returns from Invoice/Sale + Approval Threshold
+- `Return` model updated: added `approved_by_id/name`, `approved_at`, status expanded to `pending_approval | completed | rejected`
+- `Store` model: new `returns_approval_threshold` field (default KES 5,000) — configurable via PUT /api/stores/config
+- `create_return()`: if total > threshold and caller is not manager/admin → status = `pending_approval`; manager/admin callers skip approval
+- `POST /api/returns/<id>/approve` — manager sets status = `completed`
+- `POST /api/returns/<id>/reject` — manager sets status = `rejected`
+- `GET /api/returns/pending` — manager shortcut; `GET /api/returns?status=X` filter
+- `ReturnsPage.jsx`:
+  - Status filter tabs (All / Pending / Completed / Rejected)
+  - Pending approvals banner with quick "Review" link
+  - Lookup by receipt number **or invoice number** (INV- prefix auto-detected)
+  - Approve / Reject buttons on pending rows
+  - "CN" button on every row to print the credit note
+  - Post-submit alert when a return is sent for approval
+  - Customer name shown in lookup confirmation
+
+#### 20B — Returns Report
+- `GET /api/reports/returns?date_from=&date_to=` — summary: total returns, total refunded, by_method, by_reason, by_status, top_products, full transactions list
+- Reports.jsx: new "Returns" tab (manager/admin) with stat cards, by-method table, top returned products, full transaction table
+- "Print Report" button → `printReturnsReport()` — A4 with store letterhead, summary stats, breakdown tables, manager signature
+
+---
+
+### Phase 20 — Returns & Refunds Workflow (original spec)
 
 **Goal:** Proper controlled returns with documentation.
 

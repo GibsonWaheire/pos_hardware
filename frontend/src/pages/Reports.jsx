@@ -2,13 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import {
   getSalesReport, getTopProducts, getPaymentBreakdown,
   getReportByCashier, getReportByCategory, getInventoryReport,
-  getPurchasingReport,
+  getPurchasingReport, getReturnsReport,
   getExportCsvUrl, getShiftReports, printShiftReport, fileShiftReport,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
 import {
-  printSalesReport, printCashierReport, printInventoryReport, printPurchasingReport,
+  printSalesReport, printCashierReport, printInventoryReport, printPurchasingReport, printReturnsReport,
 } from '../utils/print'
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
@@ -46,6 +46,7 @@ export default function Reports() {
   const [categoryData, setCategoryData] = useState([])
   const [inventoryData, setInventoryData] = useState(null)
   const [purchasingData, setPurchasingData] = useState(null)
+  const [returnsData, setReturnsData] = useState(null)
 
   // Shift reports tab
   const [shiftReports, setShiftReports] = useState([])
@@ -85,6 +86,8 @@ export default function Reports() {
         const r = await getInventoryReport(); setInventoryData(r.data)
       } else if (tab === 'purchasing') {
         const r = await getPurchasingReport(params); setPurchasingData(r.data)
+      } else if (tab === 'returns') {
+        const r = await getReturnsReport(params); setReturnsData(r.data)
       } else if (tab === 'shift-reports') {
         await loadShiftReports()
       }
@@ -141,6 +144,7 @@ export default function Reports() {
     { key: 'category',      label: 'By Category',   roles: ['manager', 'admin'] },
     { key: 'inventory',     label: 'Inventory',     roles: ['inventory', 'manager', 'admin'] },
     { key: 'purchasing',    label: 'Purchasing',    roles: ['purchasing', 'manager', 'admin'] },
+    { key: 'returns',       label: 'Returns',       roles: ['manager', 'admin'] },
     { key: 'shift-reports', label: 'Shift Reports', roles: ['manager', 'admin'] },
   ]
   const TABS = ALL_TABS.filter(t => t.roles.includes(user?.role))
@@ -163,7 +167,7 @@ export default function Reports() {
         <div className="page-header">
           <span className="page-title">Reports</span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {activeTab !== 'inventory' && activeTab !== 'shift-reports' && activeTab !== 'purchasing' && (
+            {activeTab !== 'inventory' && activeTab !== 'shift-reports' && activeTab !== 'purchasing' && activeTab !== 'returns' && (
               <>
                 <input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 140 }} />
                 <span style={{ color: 'var(--text-muted)' }}>to</span>
@@ -176,7 +180,7 @@ export default function Reports() {
                 </button>
               </>
             )}
-            {activeTab === 'purchasing' && (
+            {(activeTab === 'purchasing' || activeTab === 'returns') && (
               <>
                 <input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 140 }} />
                 <span style={{ color: 'var(--text-muted)' }}>to</span>
@@ -203,6 +207,11 @@ export default function Reports() {
             )}
             {activeTab === 'purchasing' && purchasingData && (
               <button className="btn btn-ghost" onClick={() => printPurchasingReport(purchasingData, dateFrom, dateTo, {}, isManager)}>
+                Print Report
+              </button>
+            )}
+            {activeTab === 'returns' && returnsData && (
+              <button className="btn btn-ghost" onClick={() => printReturnsReport(returnsData)}>
                 Print Report
               </button>
             )}
@@ -498,6 +507,90 @@ export default function Reports() {
                   </table>
                 </div>
               )}
+            </>
+          )}
+
+          {/* ── Returns tab ── */}
+          {activeTab === 'returns' && returnsData && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+                <StatCard label="Total Returns" value={returnsData.total_returns} />
+                <StatCard label="Total Refunded" value={fmt(returnsData.total_refund)} color="var(--danger)" />
+                <StatCard label="Pending Approval" value={(returnsData.by_status || {}).pending_approval || 0}
+                  color={(returnsData.by_status || {}).pending_approval > 0 ? 'var(--warning)' : undefined} />
+                <StatCard label="Rejected" value={(returnsData.by_status || {}).rejected || 0} />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                <div className="card" style={{ padding: 0 }}>
+                  <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>By Refund Method</div>
+                  {Object.keys(returnsData.by_method || {}).length === 0 ? (
+                    <div className="empty-state">No data</div>
+                  ) : (
+                    <table className="table">
+                      <thead><tr><th>Method</th><th>Amount</th></tr></thead>
+                      <tbody>
+                        {Object.entries(returnsData.by_method).map(([m, v]) => (
+                          <tr key={m}><td style={{ textTransform: 'capitalize' }}>{m.replace('_', ' ')}</td><td style={{ fontWeight: 600 }}>{fmt(v)}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+                <div className="card" style={{ padding: 0 }}>
+                  <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>Top Returned Products</div>
+                  {(returnsData.top_products || []).length === 0 ? (
+                    <div className="empty-state">No data</div>
+                  ) : (
+                    <table className="table">
+                      <thead><tr><th>Product</th><th>Qty</th><th>Value</th></tr></thead>
+                      <tbody>
+                        {returnsData.top_products.slice(0, 10).map((p, i) => (
+                          <tr key={i}>
+                            <td>{p.product_name}</td>
+                            <td style={{ color: 'var(--text-muted)' }}>{p.qty}</td>
+                            <td style={{ fontWeight: 600 }}>{fmt(p.refund)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+              <div className="card" style={{ padding: 0 }}>
+                <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>Return Transactions</div>
+                {returnsData.returns.length === 0 ? (
+                  <div className="empty-state">No returns in this period</div>
+                ) : (
+                  <table className="table">
+                    <thead>
+                      <tr><th>Return #</th><th>Receipt</th><th>Reason</th><th>Method</th><th>Refund</th><th>Status</th><th>Date</th></tr>
+                    </thead>
+                    <tbody>
+                      {returnsData.returns.map(r => (
+                        <tr key={r.id}>
+                          <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.return_number}</td>
+                          <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.original_receipt}</td>
+                          <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.reason}</td>
+                          <td style={{ fontSize: 12 }}>{r.refund_method}</td>
+                          <td style={{ fontWeight: 600, color: 'var(--danger)' }}>{fmt(r.total_refund)}</td>
+                          <td>
+                            <span style={{
+                              padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
+                              background: r.status === 'completed' ? '#dcfce7' : r.status === 'rejected' ? '#fee2e2' : '#fef3c7',
+                              color: r.status === 'completed' ? '#15803d' : r.status === 'rejected' ? '#dc2626' : '#92400e',
+                            }}>{r.status}</span>
+                          </td>
+                          <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                            {r.created_at ? new Date(r.created_at).toLocaleDateString('en-KE') : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </>
           )}
 

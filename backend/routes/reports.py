@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request, Response, session
 from db import db
-from models import Sale, SaleItem, Product, Category, PurchaseOrder, GoodsReceivedNote
+from models import Sale, SaleItem, Product, Category, PurchaseOrder, GoodsReceivedNote, Return, ReturnItem
 from datetime import datetime, date, timedelta
 from sqlalchemy import func
 import csv
@@ -386,4 +386,72 @@ def purchasing_report():
             'approved_by_name': po.approved_by_name,
             'received_at': po.received_at.isoformat() if po.received_at else None,
         } for po in pos[:100]],
+    })
+
+
+@bp.route('/returns', methods=['GET'])
+def returns_report():
+    """Returns & refunds summary for a date range. Manager/admin only."""
+    if _role() not in MANAGER_ROLES:
+        return _deny()
+
+    date_from = request.args.get('date_from', (date.today() - timedelta(days=30)).isoformat())
+    date_to   = request.args.get('date_to',   date.today().isoformat())
+    start = datetime.fromisoformat(date_from)
+    end   = datetime.fromisoformat(date_to).replace(hour=23, minute=59, second=59)
+
+    returns = (Return.query
+               .filter(Return.created_at >= start, Return.created_at <= end)
+               .order_by(Return.created_at.desc())
+               .all())
+
+    total_refund   = sum(r.total_refund for r in returns)
+    by_method      = {}
+    by_reason      = {}
+    by_status      = {}
+    by_product     = {}
+
+    for r in returns:
+        # by method
+        m = r.refund_method or 'unknown'
+        by_method[m] = by_method.get(m, 0) + r.total_refund
+        # by reason (bucket into first 5 words)
+        reason_key = ' '.join((r.reason or 'No reason').split()[:5])
+        by_reason[reason_key] = by_reason.get(reason_key, 0) + r.total_refund
+        # by status
+        by_status[r.status] = by_status.get(r.status, 0) + 1
+        # by product
+        for item in r.items:
+            pname = item.product_name
+            if pname not in by_product:
+                by_product[pname] = {'qty': 0, 'refund': 0.0}
+            by_product[pname]['qty']    += item.qty
+            by_product[pname]['refund'] += item.line_refund
+
+    top_products = sorted(
+        [{'product_name': k, **v, 'refund': round(v['refund'], 2)} for k, v in by_product.items()],
+        key=lambda x: x['refund'], reverse=True
+    )[:20]
+
+    return jsonify({
+        'date_from':      date_from,
+        'date_to':        date_to,
+        'total_returns':  len(returns),
+        'total_refund':   round(total_refund, 2),
+        'by_method':      {k: round(v, 2) for k, v in by_method.items()},
+        'by_reason':      {k: round(v, 2) for k, v in by_reason.items()},
+        'by_status':      by_status,
+        'top_products':   top_products,
+        'returns': [{
+            'id':              r.id,
+            'return_number':   r.return_number,
+            'original_receipt': r.original_receipt or '—',
+            'reason':          r.reason or '—',
+            'refund_method':   r.refund_method,
+            'total_refund':    round(r.total_refund, 2),
+            'status':          r.status,
+            'cashier_name':    r.cashier_name or '—',
+            'approved_by_name': r.approved_by_name,
+            'created_at':      r.created_at.isoformat() if r.created_at else None,
+        } for r in returns[:200]],
     })

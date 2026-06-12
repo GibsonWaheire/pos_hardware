@@ -355,8 +355,13 @@ class Return(db.Model):
     total_refund = db.Column(db.Float, nullable=False)
     cashier_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=True)
     cashier_name = db.Column(db.String(100))
+    # status: pending_approval | completed | rejected
     status = db.Column(db.String(20), default='completed')
     notes = db.Column(db.Text)
+    # Approval tracking (for refunds above threshold)
+    approved_by_id   = db.Column(db.Integer, nullable=True)
+    approved_by_name = db.Column(db.String(100))
+    approved_at      = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     items = db.relationship('ReturnItem', backref='return_obj', lazy=True,
@@ -369,6 +374,8 @@ class Return(db.Model):
             'reason': self.reason, 'refund_method': self.refund_method,
             'total_refund': self.total_refund, 'cashier_name': self.cashier_name,
             'status': self.status, 'notes': self.notes,
+            'approved_by_name': self.approved_by_name,
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'items': [i.to_dict() for i in self.items],
         }
@@ -727,6 +734,7 @@ class Store(db.Model):
     tax_number = db.Column(db.String(50))
     receipt_header = db.Column(db.Text)   # custom text above items
     receipt_footer = db.Column(db.Text)   # custom text below totals
+    returns_approval_threshold = db.Column(db.Float, default=5000.0)  # refunds above this need manager OK
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
@@ -735,6 +743,7 @@ class Store(db.Model):
             'phone': self.phone, 'email': self.email, 'currency': self.currency,
             'timezone': self.timezone, 'tax_number': self.tax_number,
             'receipt_header': self.receipt_header, 'receipt_footer': self.receipt_footer,
+            'returns_approval_threshold': self.returns_approval_threshold or 5000.0,
         }
 
 

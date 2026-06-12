@@ -529,6 +529,69 @@ export function printPurchasingReport(data, dateFrom, dateTo, store = {}, showCo
   printDoc(`Purchasing Report ${dateFrom} – ${dateTo}`, html)
 }
 
+/** Print A4 Returns & Refunds Report */
+export function printReturnsReport(data, store = {}) {
+  const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  const methodRows = Object.entries(data.by_method || {}).map(([m, v]) =>
+    `<tr><td style="text-transform:capitalize">${m.replace('_', ' ')}</td><td class="right">${fmt2(v)}</td></tr>`
+  ).join('')
+
+  const reasonRows = Object.entries(data.by_reason || {}).map(([r, v]) =>
+    `<tr><td>${r}</td><td class="right">${fmt2(v)}</td></tr>`
+  ).join('')
+
+  const productRows = (data.top_products || []).map((p, i) =>
+    `<tr><td>${i+1}</td><td>${p.product_name}</td><td class="right">${p.qty}</td><td class="right">${fmt2(p.refund)}</td></tr>`
+  ).join('')
+
+  const returnRows = (data.returns || []).slice(0, 50).map(r => `<tr>
+    <td style="font-family:monospace;font-size:9pt">${r.return_number}</td>
+    <td style="font-size:9pt">${r.original_receipt}</td>
+    <td style="font-size:9pt">${r.reason}</td>
+    <td style="font-size:9pt;text-transform:capitalize">${(r.refund_method||'').replace('_',' ')}</td>
+    <td class="right" style="font-weight:700;color:#cc0000">${fmt2(r.total_refund)}</td>
+    <td><span style="font-size:8pt;background:#f0f0f0;padding:1pt 5pt;border-radius:3pt">${r.status}</span></td>
+    <td style="font-size:9pt;color:#555">${r.created_at ? new Date(r.created_at).toLocaleDateString('en-KE') : '—'}</td>
+  </tr>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}</style></head><body>
+    <div class="letterhead flex sb ac">
+      <div><div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}</div></div>
+      <div class="right"><div class="bold small" style="text-transform:uppercase;letter-spacing:1pt">Returns & Refunds Report</div>
+        <div class="small muted">${data.date_from || ''} to ${data.date_to || ''}</div></div>
+    </div>
+    <div class="info-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="info-box"><div class="label">Total Returns</div><div class="value bold" style="font-size:16pt">${data.total_returns || 0}</div></div>
+      <div class="info-box"><div class="label">Total Refunded</div><div class="value bold" style="font-size:14pt;color:#cc0000">${fmt2(data.total_refund)}</div></div>
+      <div class="info-box"><div class="label">Pending Approval</div><div class="value bold" style="font-size:16pt">${(data.by_status||{}).pending_approval || 0}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12pt;margin-bottom:10pt">
+      <div><div class="bold gap" style="font-size:10pt">By Refund Method</div>
+        <table><thead><tr><th>Method</th><th class="right">Amount</th></tr></thead>
+        <tbody>${methodRows || '<tr><td colspan="2" style="color:#999;text-align:center">None</td></tr>'}</tbody></table></div>
+      <div><div class="bold gap" style="font-size:10pt">By Reason</div>
+        <table><thead><tr><th>Reason</th><th class="right">Amount</th></tr></thead>
+        <tbody>${reasonRows || '<tr><td colspan="2" style="color:#999;text-align:center">None</td></tr>'}</tbody></table></div>
+      <div><div class="bold gap" style="font-size:10pt">Top Returned Products</div>
+        <table><thead><tr><th>#</th><th>Product</th><th class="right">Qty</th><th class="right">Value</th></tr></thead>
+        <tbody>${productRows || '<tr><td colspan="4" style="color:#999;text-align:center">None</td></tr>'}</tbody></table></div>
+    </div>
+    <div class="bold gap" style="font-size:10pt">Return Transactions (first 50)</div>
+    <table><thead><tr><th>Return #</th><th>Receipt</th><th>Reason</th><th>Method</th><th class="right">Refund</th><th>Status</th><th>Date</th></tr></thead>
+    <tbody>${returnRows || '<tr><td colspan="7" style="text-align:center;color:#999">No returns in this period</td></tr>'}</tbody></table>
+    <div class="sig-section"><div class="sig-title">Authorisation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Prepared By</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Manager Sign-off</div></div>
+      </div></div>
+    <div class="doc-footer">Generated ${new Date().toLocaleString('en-KE')} · ${store.name || ''}</div>
+  </body></html>`
+  printDoc(`Returns Report ${data.date_from} – ${data.date_to}`, html)
+}
+
+
 /** Print A4 KRA-compliant Tax Invoice */
 export function printTaxInvoice(invoice, store = {}) {
   const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

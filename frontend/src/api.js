@@ -227,8 +227,12 @@ export const deletePurchaserLimit = (staffId) => withLocal(
 
 // ── Returns ───────────────────────────────────────────────────────────────────
 
-export const getReturns = () => withLocal(
-  () => api.get('/returns'),
+export const getReturns = (params) => withLocal(
+  () => api.get('/returns', { params }),
+  () => local.lsStub([])
+)
+export const getPendingReturns = () => withLocal(
+  () => api.get('/returns/pending'),
   () => local.lsStub([])
 )
 export const getReturn = (id) => withLocal(
@@ -238,6 +242,14 @@ export const getReturn = (id) => withLocal(
 export const createReturn = (data) => withLocal(
   () => api.post('/returns', data),
   () => local.lsStub(data)
+)
+export const approveReturn = (id, data) => withLocal(
+  () => api.post(`/returns/${id}/approve`, data),
+  () => local.lsStub({})
+)
+export const rejectReturn = (id, data) => withLocal(
+  () => api.post(`/returns/${id}/reject`, data),
+  () => local.lsStub({})
 )
 
 // ── Shifts ────────────────────────────────────────────────────────────────────
@@ -550,6 +562,10 @@ export const getCreditNote = (id) => withLocal(
 
 // ── Extended Reports ──────────────────────────────────────────────────────────
 
+export const getReturnsReport = (params) => withLocal(
+  () => api.get('/reports/returns', { params }),
+  () => local.lsStub({})
+)
 export const getPurchasingReport = (params) => withLocal(
   () => api.get('/reports/purchasing', { params }),
   () => local.lsStub({})
