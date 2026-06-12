@@ -88,6 +88,14 @@ Every feature gating decision must follow this table.
 | 18 | Role-gated reports with per-department A4 printouts — purchasing tab, inventory tab hides prices from inventory role, Print Report button per tab | ✅ |
 | 19 | Tax Invoice & B2B Documents — KRA-compliant INV-YYYY-NNNN invoices, credit notes (CN-YYYY-NNNN) auto-generated on returns, invoice history on customer detail, Print Invoice on POS completion screen | ✅ |
 | 20 | Returns & Refunds Workflow — manager approval gate for refunds above threshold, invoice/receipt lookup, Approve/Reject UI, Returns Report tab in Reports with A4 printout | ✅ |
+| 21 | Customer Account Statements — A4 print, period filter, opening/closing balance; Credit Limit Alerts — banner + per-row badges | ✅ |
+| 22 | Manager Dashboard — pending approvals widget, operational alerts (unfiled shifts, over-limit accounts, sync status), current shift widget | ✅ |
+| 23 | Supplier Portal — data isolation enforcement, delivery note with dispatch details, PO-for-supplier printout with acknowledgement page | ✅ |
+| 24 | Offline Sync Queue — localStorage queue, auto-flush on reconnect, offline banner, pending badge, CloudSync queue tab | ✅ |
+| 25 | Appointments & Services — currency fix, invoice-on-completion, nav wiring | ✅ |
+| 26 | Loyalty — wire earnPoints after every sale, dynamic redemption rate from config, KES currency fixes | ✅ |
+| 27 | Sale History & Receipt Date Fix — immutable created_at on reprints, cashier history panel with reprint | ✅ |
+| 28 | Operational Settings — Business Rules in Settings (returns threshold, VAT rate, low stock), role descriptions, per-item discount auth gate, Products pre-fill from store defaults | ✅ |
 
 ---
 
@@ -480,16 +488,336 @@ Every document the system must be able to produce:
 
 ## Known Gaps / Tech Debt
 
-- Discount override at POS not gated behind manager auth (item removal + void are gated; inline discount is not)
-- `Settings.jsx` role select still missing `purchasing` role description labels
+- ~~Discount override at POS not gated behind manager auth~~ — fixed Phase 28
+- ~~`Settings.jsx` role select missing role descriptions~~ — fixed Phase 28
 - Receipt printing uses env vars as fallback — ensure `.env` is populated on deployment
 - `python-escpos` and `pyserial` must be installed manually: `pip install python-escpos pyserial`
 - Stripe Terminal requires `STRIPE_SECRET_KEY` in `.env`
-- Phase 17: `StockMovement` only populated going forward — historical `StockAdjustment` records are not backfilled into the new table
-- Phase 17: Damage report "Raise" button in Inventory only sets status to `raised`; manager must navigate to Inventory → Damage Reports tab to approve. Phase 22 (Dashboard Approvals) will surface pending items to the manager on login
-- Phase 17: Count sheet has no session/reference number linking back to count corrections — future improvement
-- Appointments/Services pages are scaffolded but unfinished — Phase 25
-- **POS receipt — supplier details on receipt:** For B2B/trade sales, include buyer's KRA PIN and address on the receipt where applicable (currently only on the full tax invoice). Low priority — the tax invoice covers this for formal transactions.
+- Phase 17: `StockMovement` only populated going forward — historical `StockAdjustment` records not backfilled
+- Phase 17: Count sheet has no session/reference number linking back to count corrections
+- **CRITICAL — PIN storage:** Staff PINs stored as plain text in DB. Must be hashed (bcrypt) — Phase 30
+- **CRITICAL — No rate limiting:** `/api/auth/login` and `/api/auth/department` have no brute-force protection — Phase 30
+- **CRITICAL — Unauthenticated card routes:** `POST /api/auth/generate-card/<id>` and `revoke-card` require no session — Phase 30
+- **CRITICAL — Default PINs in source code:** `0000`, `1111`, `2222` etc. hardcoded in `auth.py` — Phase 30
+- **CRITICAL — No session idle timeout:** A logged-in cashier session never expires on inactivity — Phase 30
+- No product images on POS tiles — Phase 29
+- No Hold Sale / parked transactions — Phase 32
+- No reorder point / auto-PO suggestions — Phase 33
+- No bulk CSV product import — Phase 34
+- **POS receipt — supplier details:** B2B buyer KRA PIN on receipt (low priority — tax invoice covers it)
+
+---
+
+---
+
+### Phase 29 — POS Terminal Overhaul (Supermarket Look & Feel)
+
+**Goal:** The POS terminal must look and feel like a real supermarket checkout — not a dashboard. Fast, touch-friendly, visually rich, with a clear product browse area and a professional cart/receipt panel.
+
+#### 29A — Layout Redesign
+- **3-panel layout** (wide screen): `[Category sidebar 180px] | [Product grid flex-1] | [Cart + checkout 380px]`
+- On tablet (< 1200px): collapse to 2-panel (products left, cart right) with category as horizontal pill tabs above grid
+- Cart panel always fixed on the right — never scrolls away
+- Receipt/print buttons always visible at the bottom of the cart panel (not hidden in History modal)
+
+#### 29B — Product Search Overhaul
+- **Unified search bar** (top of product panel, large, autofocused on shift open)
+- Searches simultaneously: product name, barcode, PLU code, supplier SKU
+- Live results as you type (debounced 200ms)
+- Barcode scan directly into the same search input — no separate BarcodeInput component
+- "No results" state with a "Not found — manual entry?" link
+- Keyboard shortcut: `F3` or `/` focuses search from anywhere on the page
+
+#### 29C — Product Tiles with Images
+- Tiles show product image (if uploaded) — fallback to colored icon by category
+- Tile layout: image top half, name + price bottom half
+- Touch target: minimum 120×140px tile
+- Out-of-stock tiles shown greyed with "Out of Stock" overlay (still tappable → shows alert)
+- Low-stock badge (yellow dot) on tile corner
+
+#### 29D — Idle / Attract Screen
+- After 90 seconds of no cashier activity (no mouse/touch/keyboard), POS enters idle mode
+- Full-screen slide show: store logo, promotional images, today's offers
+- Promotions managed from Settings (upload up to 5 images + caption)
+- Any keypress, tap, or barcode scan instantly exits idle mode
+- Idle screen doubles as customer-facing display if screen is visible to customer
+
+#### 29E — Numeric Keypad & Quick Actions
+- Each cart item has a tap-to-edit qty field — tapping opens an on-screen numeric keypad
+- Keypad supports: `0–9`, `×` (multiply for bulk entry), `⌫` (backspace), `Enter` (confirm)
+- Quick action buttons on cart panel: `Hold Sale`, `Void All`, `Price Check`
+- `Hold Sale` parks the current cart (up to 3 slots) — see Phase 32
+
+#### 29F — Receipt Print on Right Panel
+- **ESC/POS "Print Receipt"** button always visible at the bottom of the cart panel
+- Triggers after payment is complete — no need to open History modal
+- Also: re-print last receipt button (single click, no modal)
+- Browser fallback "Print (A4/80mm)" button next to ESC/POS button
+
+#### Implementation files:
+- `frontend/src/pages/POS.jsx` — full layout rebuild, unified search, idle timer, quick actions
+- `frontend/src/components/Cart.jsx` — inline qty keypad, print buttons at bottom
+- `frontend/src/components/ProductGrid.jsx` — new component: image tiles, out-of-stock overlay
+- `frontend/src/components/CategorySidebar.jsx` — new component: vertical category list with icons
+- `frontend/src/components/IdleScreen.jsx` — new component: attract loop
+- `frontend/src/pages/Settings.jsx` — add Promotions section (upload + manage idle screen slides)
+- `backend/routes/stores.py` — `GET/POST /api/stores/promotions` for idle screen images
+- `backend/models.py` — `StorePromotion` model (image_path, caption, sort_order, is_active)
+
+---
+
+### Phase 30 — Security Hardening (CRITICAL)
+
+**Goal:** Bring the app to production-grade security before any live deployment. Several critical vulnerabilities exist that must be fixed.
+
+#### 30A — PIN Hashing (CRITICAL)
+- **Problem:** `personal_pin` and `pin` fields stored as plain text in SQLite. A DB dump exposes all staff PINs.
+- **Fix:** Hash all PINs with `bcrypt` on write; verify with `bcrypt.checkpw()` on login
+- Migration: on next successful login, detect unhashed PIN (no `$2b$` prefix) → hash and save
+- New staff PINs always hashed at creation
+- Manager card codes remain as UUID hex (already opaque)
+- Files: `backend/routes/auth.py`, `backend/routes/staff.py`, `backend/models.py`
+
+#### 30B — Rate Limiting & Brute Force Protection (CRITICAL)
+- Install `Flask-Limiter` (`pip install flask-limiter`)
+- Limits:
+  - `POST /api/auth/department` — 10 requests/minute per IP
+  - `POST /api/auth/login` — 5 requests/minute per IP
+  - `POST /api/auth/authorize` — 10 requests/minute per IP
+  - All other write endpoints — 120 requests/minute per IP
+  - All read endpoints — 300 requests/minute per IP
+- Failed login counter: `login_attempts` (Integer) + `locked_until` (DateTime) on `Staff` model
+- After 5 consecutive failures → `locked_until = now + 30 minutes`
+- Login endpoint checks `locked_until` before attempting PIN match
+- Successful login resets `login_attempts = 0`
+- Manager can unlock a staff account via `POST /api/staff/<id>/unlock`
+- Lockout info returned to frontend: "Account locked. Try again in X minutes."
+- Files: `backend/app.py` (limiter setup), `backend/routes/auth.py`, `backend/models.py`
+
+#### 30C — Fix Unauthenticated Admin Routes (CRITICAL)
+- **Problem:** `POST /api/auth/generate-card/<id>` and `POST /api/auth/revoke-card/<id>` require NO session — anyone on the network can call them.
+- **Fix:** Add `get_current_user()` guard requiring admin role on both routes
+- Same fix for any other admin-only routes missing auth checks
+- Audit all blueprints for missing `get_current_user()` calls on write endpoints
+- Files: `backend/routes/auth.py`, all route blueprints
+
+#### 30D — Session Idle Timeout (Frontend)
+- **Problem:** A logged-in cashier session never expires — an unattended terminal is a security risk.
+- **Fix:** `useIdleTimeout` React hook — detects inactivity (mouse, keyboard, touch)
+- After configurable timeout (default: 10 minutes, set in Settings → Security):
+  - Screen blurs / locks with "Session locked — enter PIN to resume"
+  - PIN re-entry resumes session without full logout (session still valid on backend)
+  - Full logout after 30 minutes idle
+- Idle timeout stored in `Store` model: `session_timeout_minutes` (default 10)
+- Files: `frontend/src/hooks/useIdleTimeout.js` (new), `frontend/src/App.jsx`, `backend/models.py`, `backend/routes/stores.py`
+
+#### 30E — HTTPS & Secure Cookie Enforcement
+- When `FLASK_ENV=production`:
+  - `SESSION_COOKIE_SECURE = True` (HTTPS-only cookies)
+  - `SESSION_COOKIE_HTTPONLY = True` (already set)
+  - `SESSION_COOKIE_SAMESITE = 'Strict'` (upgrade from Lax)
+  - Add `HSTS` header: `Strict-Transport-Security: max-age=31536000`
+- Startup warning if `SECRET_KEY` is the default dev string
+- Startup warning if `FLASK_ENV != production` in live mode
+- Files: `backend/app.py`
+
+#### 30F — Input Validation & Sanitization
+- Max length validation on all text inputs (name ≤ 200, PIN ≤ 10, barcode ≤ 50, etc.)
+- Strip HTML tags from all string inputs (prevent stored XSS)
+- Reject negative prices, quantities, and rates at API level (not just frontend)
+- Validate email format on staff/customer creation
+- Centralized `validate_str(val, max_len)` helper in `auth_utils.py`
+- Files: `backend/auth_utils.py`, all route blueprints
+
+#### 30G — Remove Hardcoded Default PINs
+- **Problem:** Default PINs (`0000`, `1111`, `2222`, etc.) are hardcoded in `auth.py`. If the seed script is never run, these become permanent backdoors.
+- **Fix:** Move defaults to `seed.py` only — `auth.py` must not contain any fallback PINs
+- On first startup with empty DB: force admin to create a real PIN before any access is granted
+- Files: `backend/routes/auth.py`, `backend/seed.py`
+
+#### 30H — Audit Log Completeness
+- Ensure every write operation (create/update/delete) on sensitive models logs to the audit table
+- Currently missing: product price changes, stock adjustments, customer credit limit changes
+- Add `log_action()` calls where missing
+- `GET /api/audit` pagination: default limit 100, max 500
+- Files: `backend/routes/products.py`, `backend/routes/inventory.py`, `backend/routes/customers.py`
+
+---
+
+### Phase 31 — Product Images & Rich Catalog
+
+**Goal:** Products have images shown on POS tiles and in the product list. Supports barcode label printing.
+
+#### 31A — Product Image Upload
+- `image_url` field on `Product` model
+- `POST /api/products/<id>/image` — multipart file upload; saves to `backend/static/product_images/`; returns URL
+- `DELETE /api/products/<id>/image` — remove image
+- `GET /api/products/<id>` returns `image_url` (relative path served as static)
+- Max file size: 2MB; accepted types: JPEG, PNG, WebP
+- `Products.jsx`: image upload button on edit modal; thumbnail preview
+- Files: `backend/routes/products.py`, `backend/models.py`, `frontend/src/pages/Products.jsx`
+
+#### 31B — Reorder Point per Product
+- `reorder_point` (Integer, default 0) and `reorder_qty` (Integer, default 0) fields on `Product`
+- Shown in product edit modal: "Reorder When Below" + "Suggested Order Qty"
+- `GET /api/products/below-reorder` — returns all active products where `stock_qty <= reorder_point` and `reorder_point > 0`
+- Dashboard widget (Phase 33) uses this endpoint
+- Files: `backend/models.py`, `backend/routes/products.py`, `frontend/src/pages/Products.jsx`
+
+#### 31C — Barcode Label Printing
+- "Print Label" button per product in `Products.jsx`
+- Two formats selectable: **58mm single label** (name, barcode, price) or **A4 sheet** (30-up Avery-style)
+- `printBarcodeLabel(product, format)` in `utils/print.js`
+- Barcode rendered as SVG Code128 (use `JsBarcode` library)
+- Files: `frontend/src/utils/print.js`, `frontend/src/pages/Products.jsx`
+
+---
+
+### Phase 32 — Hold Sale / Parked Transactions
+
+**Goal:** Cashier can park the current sale (e.g. customer forgot wallet) and start a new one.
+
+#### What to build:
+- "Hold Sale" button on POS cart panel (always visible when cart is not empty)
+- Tapping Hold Sale: prompt for an optional hold note → stores cart + customer + note in `localStorage` under a slot key
+- Up to **3 parked slots** at any time
+- "Parked (N)" badge on a "Retrieve" button in the POS status bar
+- Retrieve modal: shows all parked sales (note, item count, total, time parked) — tap to restore
+- Restoring a parked sale: replaces current cart (warn if current cart is non-empty)
+- Parked sales auto-expire after 2 hours (cleared on retrieve or expiry)
+- Parked sales survive page reload (localStorage)
+- Files: `frontend/src/pages/POS.jsx`, `frontend/src/utils/parkedSales.js` (new helper)
+
+---
+
+### Phase 33 — Reorder Points & Auto-PO Suggestions
+
+**Goal:** When products fall below their reorder point, the system surfaces this to the manager and can suggest or draft a Purchase Order.
+
+#### What to build:
+- `GET /api/products/below-reorder` — products where `stock_qty <= reorder_point > 0`, joined with supplier info
+- **Dashboard widget** (manager/admin): "X products need reordering" — grouped by supplier, shows product + current stock + reorder point + suggested qty
+- "Create Draft PO" button per supplier group — pre-fills a new PO with all products from that supplier at `reorder_qty` each
+- Auto-email/SMS option (Phase 35): notify purchasing officer when products go below reorder point
+- `Inventory.jsx`: "Reorder Alerts" tab showing same data as dashboard widget
+- Files: `backend/routes/products.py`, `frontend/src/pages/Dashboard.jsx`, `frontend/src/pages/Inventory.jsx`, `frontend/src/pages/PurchaseOrders.jsx`
+
+---
+
+### Phase 34 — Bulk CSV Product Import / Export
+
+**Goal:** Import hundreds of products at once from a spreadsheet — critical for initial store setup and price updates.
+
+#### 34A — CSV Export
+- "Export CSV" button on Products page (manager/admin)
+- Downloads all products as CSV: name, barcode, PLU, price, tax_rate, tax_class, stock_qty, reorder_point, category, unit, is_active
+- Files: `frontend/src/pages/Products.jsx`, `backend/routes/products.py`
+
+#### 34B — CSV Import
+- "Import CSV" button (admin only) — opens import modal
+- Step 1: Download template (pre-formatted CSV with column headers)
+- Step 2: Upload CSV → backend parses and validates every row
+- Step 3: Preview table — shows parsed rows, flags errors (missing name, invalid price, unknown category)
+- Step 4: Commit — upsert by barcode (update existing, create new); returns summary (X created, Y updated, Z errors)
+- Backend: `POST /api/products/import` — multipart CSV; returns `{ created, updated, errors: [{row, field, message}] }`
+- Files: `backend/routes/products.py`, `frontend/src/pages/Products.jsx`
+
+---
+
+### Phase 35 — SMS & Email Notifications
+
+**Goal:** Key business events trigger notifications to the right person without them having to log in.
+
+#### Notification events:
+| Event | Recipient | Channel |
+|---|---|---|
+| Product below reorder point | Purchasing officer | SMS |
+| Daily sales summary (end of day) | Owner / Admin | SMS + Email |
+| Shift not closed by 10pm | Manager | SMS |
+| Unfiled shift reports (> 2 days) | Manager | Email |
+| Return pending approval (> 1hr) | Manager | SMS |
+| Customer account over credit limit | Manager | SMS |
+| Cloud sync failure (> 2 attempts) | Admin | Email |
+| New staff account created | New staff member | SMS (PIN delivery) |
+
+#### Implementation:
+- SMS: **Africa's Talking API** (Kenyan provider, KES billing) — `pip install africastalking`
+- Email: SMTP via `Flask-Mail` — supports Gmail, Zoho, custom SMTP
+- `Notification` model: `event_type`, `recipient_id`, `channel`, `message`, `status`, `sent_at`, `error`
+- `POST /api/notifications/test` — admin can test SMS/email delivery
+- Settings page: Notifications tab — enter Africa's Talking API key, SMTP config, per-event toggles
+- Files: `backend/notifications.py` (new), `backend/models.py`, `backend/routes/stores.py`, `frontend/src/pages/Settings.jsx`
+
+---
+
+### Phase 36 — Google Sheets Report Export
+
+**Goal:** Owner and accountant can view key business data in Google Sheets on their phone, without needing POS access. One-way push only — no sync back.
+
+#### What gets pushed (nightly, auto-scheduled):
+| Sheet tab | Data |
+|---|---|
+| Daily Sales | Date, transactions, revenue, by payment method, avg basket |
+| Stock Levels | Product, category, qty, reorder flag, last movement date |
+| Shift Reports | Cashier, date, opening float, closing float, discrepancy |
+| Top Products | Weekly top 20 by quantity and revenue |
+| Accounts | Customer name, balance, credit limit, last transaction |
+
+#### Implementation:
+- Google Sheets API v4 + OAuth2 service account (JSON key file)
+- `pip install google-api-python-client google-auth`
+- `backend/sheets_export.py` — `push_daily_report(app)` function
+- Scheduled via `apscheduler` — runs at 23:45 every night
+- Settings page: Google Sheets tab — paste spreadsheet URL, upload service account JSON, enable/disable per-tab, "Push Now" test button
+- Data is **append-only** — new row per day/shift; never overwrites existing rows
+- Files: `backend/sheets_export.py` (new), `backend/routes/stores.py`, `frontend/src/pages/Settings.jsx`
+
+---
+
+### Phase 37 — eTIMS / KRA Integration (Kenya Compliance)
+
+**Goal:** Kenya Revenue Authority requires eTIMS (Electronic Tax Invoice Management System) compliance. All tax invoices must be submitted electronically and carry a KRA QR code.
+
+#### What to build:
+- **eTIMS API client** (`backend/etims.py`): sign and submit invoice data to KRA sandbox/production
+- Every `Invoice` record gets: `etims_status` (pending/submitted/error), `etims_cu_invoice_number`, `etims_qr_code`
+- `POST /api/invoices/<id>/submit-etims` — submit to KRA, store response
+- Auto-submit on invoice creation (if eTIMS is enabled in settings)
+- QR code printed on all tax invoices and receipts (contains CU invoice number + hash)
+- Settings: eTIMS tab — API credentials, sandbox vs production toggle, VSCU/OSCU device serial
+- Fallback: if eTIMS is unreachable, invoice is saved locally with `etims_status=pending` and retried on next sync
+- Files: `backend/etims.py` (new), `backend/models.py`, `backend/routes/invoices.py`, `frontend/src/pages/Settings.jsx`, `frontend/src/utils/print.js`
+
+> **Note:** KRA eTIMS is mandatory for VAT-registered businesses in Kenya as of 2024. Prioritize this before going live.
+
+---
+
+### Phase 38 — Multi-Branch Support (Phase 12)
+
+_Deferred — implement after all single-branch phases are complete._
+
+- Each branch: own local DB + backend instance
+- All branches sync to central PostgreSQL cloud DB
+- HQ dashboard: consolidated view across all branches
+- Stock transfer between branches (transfer note printout)
+- Branch-specific staff, shifts, and reports
+
+---
+
+## Recommended Implementation Order
+
+| Priority | Phase | Reason |
+|---|---|---|
+| **IMMEDIATE** | 30 — Security Hardening | Plain-text PINs + no rate limiting = critical risk before any live use |
+| **HIGH** | 29 — POS Terminal Overhaul | Core UX improvement — cashier productivity + customer experience |
+| **HIGH** | 37 — eTIMS / KRA | Legal compliance — mandatory for VAT-registered businesses |
+| **HIGH** | 31 — Product Images | Speeds up cashier product identification |
+| **MEDIUM** | 32 — Hold Sale | Daily operational need |
+| **MEDIUM** | 33 — Reorder Points | Reduces stockouts, automates purchasing workflow |
+| **MEDIUM** | 35 — SMS Notifications | Reduces manager's need to check the system manually |
+| **LOWER** | 34 — CSV Import | One-time setup utility, manual entry works for now |
+| **LOWER** | 36 — Google Sheets Export | Nice-to-have for accountant visibility |
+| **DEFERRED** | 38 — Multi-Branch | Only needed once first branch is running smoothly |
 
 ---
 
