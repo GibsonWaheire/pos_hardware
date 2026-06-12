@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from db import db
 from models import CustomerAccount, AccountTransaction
 from auth_utils import get_current_user
-from datetime import date
+from datetime import date, datetime
 
 bp = Blueprint('accounts', __name__, url_prefix='/api/accounts')
 
@@ -16,6 +16,22 @@ def _gen_deposit_receipt():
             .first())
     seq = int(last.receipt_number.split('-')[-1]) + 1 if last else 1
     return f'{prefix}{seq:04d}'
+
+
+@bp.route('/alerts', methods=['GET'])
+def get_alerts():
+    """Return accounts that are over or near (≥90%) their credit limit."""
+    accounts = CustomerAccount.query.filter_by(is_active=True).all()
+    alerts = []
+    for acct in accounts:
+        if acct.credit_limit > 0:
+            used = -acct.balance  # balance negative = money owed
+            pct = used / acct.credit_limit
+            if pct >= 1.0:
+                alerts.append({'account': acct.to_dict(), 'type': 'over_limit', 'pct': round(pct * 100, 1)})
+            elif pct >= 0.9:
+                alerts.append({'account': acct.to_dict(), 'type': 'near_limit', 'pct': round(pct * 100, 1)})
+    return jsonify(alerts)
 
 
 @bp.route('', methods=['GET'])
@@ -77,6 +93,44 @@ def get_by_customer(customer_id):
 def get_account(account_id):
     acct = CustomerAccount.query.get_or_404(account_id)
     return jsonify(acct.to_dict(include_transactions=True))
+
+
+@bp.route('/<int:account_id>/statement', methods=['GET'])
+def get_statement(account_id):
+    acct = CustomerAccount.query.get_or_404(account_id)
+    date_from = request.args.get('date_from')  # YYYY-MM-DD
+    date_to   = request.args.get('date_to')    # YYYY-MM-DD
+
+    txns_q = AccountTransaction.query.filter_by(account_id=account_id)
+
+    # Opening balance: balance_after of last transaction strictly before date_from
+    opening_balance = 0.0
+    if date_from:
+        cutoff = datetime.strptime(date_from, '%Y-%m-%d')
+        prev = (AccountTransaction.query
+                .filter(AccountTransaction.account_id == account_id,
+                        AccountTransaction.created_at < cutoff)
+                .order_by(AccountTransaction.created_at.desc())
+                .first())
+        if prev:
+            opening_balance = prev.balance_after
+        txns_q = txns_q.filter(AccountTransaction.created_at >= cutoff)
+
+    if date_to:
+        end = datetime.strptime(date_to, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+        txns_q = txns_q.filter(AccountTransaction.created_at <= end)
+
+    txns = txns_q.order_by(AccountTransaction.created_at).all()
+    closing_balance = txns[-1].balance_after if txns else opening_balance
+
+    return jsonify({
+        'account': acct.to_dict(),
+        'date_from': date_from,
+        'date_to': date_to,
+        'opening_balance': opening_balance,
+        'closing_balance': closing_balance,
+        'transactions': [t.to_dict() for t in txns],
+    })
 
 
 @bp.route('/<int:account_id>', methods=['PUT'])

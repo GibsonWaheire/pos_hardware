@@ -777,6 +777,92 @@ export function printCreditNote(cn, store = {}) {
 }
 
 
+/** Print A4 Account Statement */
+export function printAccountStatement(account, transactions, openingBalance, closingBalance, dateFrom, dateTo, store = {}) {
+  const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const period = dateFrom && dateTo ? `${dateFrom} to ${dateTo}`
+    : dateFrom ? `From ${dateFrom}`
+    : dateTo   ? `Up to ${dateTo}`
+    : 'All time'
+
+  const rows = transactions.map(t => {
+    const credit = t.amount >= 0
+    return `<tr>
+      <td>${t.created_at ? new Date(t.created_at).toLocaleDateString('en-KE') : '—'}</td>
+      <td style="text-transform:capitalize">${t.type}</td>
+      <td style="font-family:monospace;font-size:8pt">${t.receipt_number || (t.sale_id ? 'Sale #' + t.sale_id : '—')}${t.mpesa_ref ? '<br><span style="color:#0284c7">M-Pesa: ' + t.mpesa_ref + '</span>' : ''}</td>
+      <td class="right" style="color:${credit ? '#16a34a' : '#dc2626'}">${credit ? '+' : ''}${fmt2(t.amount)}</td>
+      <td class="right bold">${fmt2(t.balance_after)}</td>
+      <td style="text-transform:capitalize">${t.payment_method || '—'}</td>
+      <td style="font-size:8pt;color:#666">${t.notes || '—'}</td>
+    </tr>`
+  }).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}
+    .stmt-hdr { background:#f0f9ff; border:1pt solid #0ea5e9; border-radius:4pt; padding:10pt 14pt; margin-bottom:14pt; }
+  </style></head><body>
+    <div class="letterhead flex sb ac">
+      <div>
+        <div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}</div>
+        <div class="store-sub">${[store.phone, store.email].filter(Boolean).join(' | ')}</div>
+      </div>
+      <div class="right">
+        <div style="font-size:14pt;font-weight:700;text-transform:uppercase;letter-spacing:2pt">ACCOUNT STATEMENT</div>
+        <div class="small muted">Period: ${period}</div>
+        <div class="small muted">Generated: ${new Date().toLocaleDateString('en-KE')}</div>
+      </div>
+    </div>
+
+    <div class="stmt-hdr">
+      <div class="flex sb ac">
+        <div>
+          <div style="font-weight:700;font-size:13pt">${account.customer_name || ''}</div>
+          ${account.customer_phone ? `<div class="small muted">${account.customer_phone}</div>` : ''}
+          ${account.notes ? `<div class="small muted">${account.notes}</div>` : ''}
+        </div>
+        <div class="right">
+          <div class="small muted">Opening Balance</div>
+          <div style="font-weight:700;font-size:12pt">${fmt2(openingBalance)}</div>
+        </div>
+        <div class="right">
+          <div class="small muted">Closing Balance</div>
+          <div style="font-weight:700;font-size:12pt;color:${closingBalance >= 0 ? '#16a34a' : '#dc2626'}">${fmt2(closingBalance)}</div>
+        </div>
+        ${account.credit_limit > 0 ? `<div class="right"><div class="small muted">Credit Limit</div><div style="font-weight:600">${fmt2(account.credit_limit)}</div></div>` : ''}
+      </div>
+    </div>
+
+    ${transactions.length === 0
+      ? '<div style="text-align:center;padding:24pt;color:#666;font-style:italic">No transactions in this period.</div>'
+      : `<table><thead><tr>
+          <th>Date</th><th>Type</th><th>Reference</th>
+          <th class="right">Amount</th><th class="right">Balance</th>
+          <th>Method</th><th>Notes</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr style="background:#f5f5f5;font-weight:700">
+          <td colspan="4" class="right">Closing Balance</td>
+          <td class="right" style="color:${closingBalance >= 0 ? '#16a34a' : '#dc2626'}">${fmt2(closingBalance)}</td>
+          <td colspan="2"></td>
+        </tr></tfoot>
+        </table>`}
+
+    <div class="sig-section" style="margin-top:20pt"><div class="sig-title">Acknowledgement</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Accounts Manager</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Customer / Authorised Signatory</div></div>
+      </div>
+    </div>
+    <div class="doc-footer">
+      ${store.name || ''} | Statement generated ${new Date().toLocaleString('en-KE')}
+      <br>Please contact us within 7 days if you dispute any entry on this statement.
+    </div>
+  </body></html>`
+  printDoc(`STMT-${account.customer_name || account.id}`, html)
+}
+
+
 /** Shared receipt CSS (80mm thermal width) */
 export const RECEIPT_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }

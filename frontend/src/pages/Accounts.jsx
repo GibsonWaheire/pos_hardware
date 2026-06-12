@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { getAccounts, getAccount, createAccount, updateAccount, depositToAccount, adjustAccount, lookupAccount } from '../api'
+import { getAccounts, getAccount, createAccount, updateAccount, depositToAccount, adjustAccount, lookupAccount, getAccountStatement, getAccountAlerts, getStoreConfig } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
+import { printAccountStatement } from '../utils/print'
 
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleString() : '—' }
 
@@ -14,13 +15,17 @@ export default function Accounts() {
   const [showAdjust, setShowAdjust] = useState(false)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState(null)
+  const [alerts, setAlerts] = useState([])
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
-    try { const r = await getAccounts(); setAccounts(r.data) }
-    catch (e) { console.error(e) }
+    try {
+      const [acctRes, alertRes] = await Promise.all([getAccounts(), getAccountAlerts()])
+      setAccounts(acctRes.data)
+      setAlerts(alertRes.data || [])
+    } catch (e) { console.error(e) }
     finally { setLoading(false) }
   }
 
@@ -46,6 +51,16 @@ export default function Accounts() {
       </div>
 
       <div className="page-body" style={{ flex: 1, overflow: 'auto' }}>
+        {/* Credit limit alert banner */}
+        {alerts.filter(a => a.type === 'over_limit').length > 0 && (
+          <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: '#dc2626', fontWeight: 700 }}>Credit Limit Exceeded</span>
+            <span style={{ color: '#991b1b', fontSize: 13 }}>
+              {alerts.filter(a => a.type === 'over_limit').map(a => a.account.customer_name).join(', ')} — over their credit limit
+            </span>
+          </div>
+        )}
+
         {/* Search */}
         <div style={{ marginBottom: 16, display: 'flex', gap: 8 }}>
           <input className="input" placeholder="Search by name or phone..."
@@ -74,8 +89,10 @@ export default function Accounts() {
                 </tr>
               </thead>
               <tbody>
-                {displayList.map(acct => (
-                  <tr key={acct.id} style={{ cursor: 'pointer' }} onClick={() => openAccount(acct.id)}>
+                {displayList.map(acct => {
+                  const alert = alerts.find(a => a.account.id === acct.id)
+                  return (
+                  <tr key={acct.id} style={{ cursor: 'pointer', background: alert?.type === 'over_limit' ? '#fff5f5' : undefined }} onClick={() => openAccount(acct.id)}>
                     <td style={{ fontWeight: 600 }}>{acct.customer_name}</td>
                     <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{acct.customer_phone || '—'}</td>
                     <td>
@@ -92,7 +109,13 @@ export default function Accounts() {
                     <td style={{ color: 'var(--text-muted)' }}>{fmt(acct.total_deposited)}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{fmt(acct.total_charged)}</td>
                     <td style={{ color: 'var(--text-muted)' }}>
-                      {acct.credit_limit > 0 ? fmt(acct.credit_limit) : '—'}
+                      {acct.credit_limit > 0 ? (
+                        <span>
+                          {fmt(acct.credit_limit)}
+                          {alert?.type === 'over_limit' && <span className="badge badge-red" style={{ marginLeft: 6, fontSize: 10 }}>OVER LIMIT</span>}
+                          {alert?.type === 'near_limit' && <span className="badge badge-yellow" style={{ marginLeft: 6, fontSize: 10 }}>{alert.pct}% USED</span>}
+                        </span>
+                      ) : '—'}
                     </td>
                     <td>
                       <button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); openAccount(acct.id) }}>
@@ -100,7 +123,8 @@ export default function Accounts() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -167,8 +191,32 @@ export default function Accounts() {
 // ── Account Detail Drawer ────────────────────────────────────────────────────
 
 function AccountDetail({ account, onClose, onDeposit, onAdjust, onRefresh }) {
+  const { fmt } = useCurrency()
   const txns = account.transactions || []
   const available = account.balance + account.credit_limit
+  const today = new Date().toISOString().slice(0, 10)
+  const firstOfMonth = today.slice(0, 8) + '01'
+  const [stmtFrom, setStmtFrom] = useState(firstOfMonth)
+  const [stmtTo, setStmtTo]     = useState(today)
+  const [printing, setPrinting]  = useState(false)
+
+  async function handlePrintStatement() {
+    setPrinting(true)
+    try {
+      const [stmtRes, storeRes] = await Promise.all([
+        getAccountStatement(account.id, { date_from: stmtFrom, date_to: stmtTo }),
+        getStoreConfig(),
+      ])
+      const d = stmtRes.data
+      printAccountStatement(
+        d.account, d.transactions,
+        d.opening_balance, d.closing_balance,
+        d.date_from, d.date_to,
+        storeRes.data
+      )
+    } catch (e) { console.error(e) }
+    finally { setPrinting(false) }
+  }
 
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -212,10 +260,20 @@ function AccountDetail({ account, onClose, onDeposit, onAdjust, onRefresh }) {
           </div>
         )}
 
-        {/* Action buttons */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {/* Action buttons + statement print */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="btn btn-primary" onClick={onDeposit}>+ Deposit</button>
           <button className="btn btn-ghost" onClick={onAdjust}>Adjust Balance</button>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input type="date" className="input" style={{ fontSize: 12, padding: '4px 8px', width: 130 }}
+              value={stmtFrom} onChange={e => setStmtFrom(e.target.value)} />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>to</span>
+            <input type="date" className="input" style={{ fontSize: 12, padding: '4px 8px', width: 130 }}
+              value={stmtTo} onChange={e => setStmtTo(e.target.value)} />
+            <button className="btn btn-ghost btn-sm" onClick={handlePrintStatement} disabled={printing}>
+              {printing ? 'Preparing...' : 'Print Statement'}
+            </button>
+          </div>
         </div>
 
         {/* Transaction statement */}
@@ -274,6 +332,7 @@ function AccountDetail({ account, onClose, onDeposit, onAdjust, onRefresh }) {
 // ── Create Account Modal ──────────────────────────────────────────────────────
 
 function CreateAccountModal({ onClose, onSave }) {
+  const { currency } = useCurrency()
   const [form, setForm] = useState({ customer_name: '', customer_phone: '', credit_limit: '', notes: '' })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -337,6 +396,7 @@ function CreateAccountModal({ onClose, onSave }) {
 // ── Deposit Modal ─────────────────────────────────────────────────────────────
 
 function DepositModal({ account, onClose, onSave }) {
+  const { fmt, currency } = useCurrency()
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState('mpesa')
   const [mpesaRef, setMpesaRef] = useState('')
@@ -422,6 +482,7 @@ function DepositModal({ account, onClose, onSave }) {
 // ── Adjust Modal ──────────────────────────────────────────────────────────────
 
 function AdjustModal({ account, onClose, onSave }) {
+  const { fmt, currency } = useCurrency()
   const [amount, setAmount] = useState('')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')

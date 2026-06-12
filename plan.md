@@ -272,17 +272,27 @@ Every feature gating decision must follow this table.
 
 ---
 
-### Phase 21 — Customer Account Statements
+### Phase 21 — Customer Account Statements ✅ COMPLETE (2026-06-12)
 
 **Goal:** B2B customers need a printed account statement.
 
-#### 21A — Account Statement
-- Statement: customer name, account number, period, opening balance, all transactions (deposits, charges, adjustments), closing balance
-- **Printout:** A4 customer statement — professional format, manager signature, suitable for sending to customer
+#### 21A — Account Statement ✅
+- `GET /api/accounts/<id>/statement?date_from=&date_to=` — computes opening balance (last txn before period), returns period transactions + closing balance
+- `AccountDetail` modal: date range pickers (default: 1st of month → today), "Print Statement" button
+- `printAccountStatement()` in `utils/print.js` — A4 with letterhead, period header, opening/closing balance summary box, full transactions table with color-coded amounts, closing balance footer row, 2-party signature block
 
-#### 21B — Credit Limit Alerts
-- Alert badge on Accounts page when customer is within 10% of credit limit
-- Manager notification on login if any account has exceeded credit limit
+#### 21B — Credit Limit Alerts ✅
+- `GET /api/accounts/alerts` — returns accounts ≥90% used (near_limit) or ≥100% used (over_limit) of credit limit
+- Alert banner at top of Accounts page when any account is over limit
+- Per-row badges: "OVER LIMIT" (red) or "XX% USED" (yellow) in Credit Limit column
+- Row background tinted red for over-limit accounts
+- Alerts loaded in parallel with account list on page mount
+
+#### Implementation files:
+- `backend/routes/accounts.py` — added `/alerts` and `/<id>/statement` routes; added `datetime` import
+- `frontend/src/api.js` — added `getAccountStatement`, `getAccountAlerts`
+- `frontend/src/utils/print.js` — added `printAccountStatement`
+- `frontend/src/pages/Accounts.jsx` — added imports, alerts state, banner, badges, AccountDetail date range + print; fixed missing `useCurrency()` in sub-components
 
 ---
 

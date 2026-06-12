@@ -671,6 +671,14 @@ export const getAccountByCustomer = (customerId) => withLocal(
   () => api.get(`/accounts/by-customer/${customerId}`),
   () => local.lsStub(null)
 )
+export const getAccountStatement = (id, params) => withLocal(
+  () => api.get(`/accounts/${id}/statement`, { params }),
+  () => local.lsStub({ account: {}, transactions: [], opening_balance: 0, closing_balance: 0 })
+)
+export const getAccountAlerts = () => withLocal(
+  () => api.get('/accounts/alerts'),
+  () => local.lsStub([])
+)
 
 // ── Audit Log ─────────────────────────────────────────────────────────────────
 
