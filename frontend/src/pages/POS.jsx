@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getProducts, getDailyTotals, getProductByBarcode, getProductByPlu, lookupCustomer, readScale, getCurrentShift, openShift, getCategories, getAccountByCustomer } from '../api'
+import { getProducts, getDailyTotals, getProductByBarcode, getProductByPlu, lookupCustomer, readScale, getCurrentShift, openShift, getCategories, getAccountByCustomer, getLoyaltyConfig } from '../api'
 import { useAuth } from '../context/AuthContext'
 import Cart from '../components/Cart'
 import BarcodeInput from '../components/BarcodeInput'
@@ -97,6 +97,9 @@ export default function POS() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState(null)
 
+  // Loyalty config (cents_per_point from backend)
+  const [loyaltyConfig, setLoyaltyConfig] = useState({ cents_per_point: 1 })
+
   // Customer / loyalty
   const [customer, setCustomer] = useState(null)
   const [customerQuery, setCustomerQuery] = useState('')
@@ -113,6 +116,7 @@ export default function POS() {
     loadCategories()
     loadProducts()
     loadDailyTotals()
+    getLoyaltyConfig().then(r => { if (r.data) setLoyaltyConfig(r.data) }).catch(() => {})
   }, [shiftStatus])
 
   // Re-filter when search or category changes
@@ -275,7 +279,8 @@ export default function POS() {
   const cartDiscount = cartItems.reduce((s, i) => s + i.discount * i.qty, 0)
   const cartTax = cartItems.reduce((s, i) => s + (i.unit_price - i.discount) * i.qty * i.tax_rate, 0)
   const tierDiscount = customer?.tier_discount_percent ? (cartSubtotal - cartDiscount) * (customer.tier_discount_percent / 100) : 0
-  const pointsRedeemAmt = redeemPoints ? Math.min(parseFloat(redeemPoints) * 0.01, cartSubtotal - cartDiscount) : 0
+  const kesPerPoint = (loyaltyConfig.cents_per_point || 1) / 100
+  const pointsRedeemAmt = redeemPoints ? Math.min(parseFloat(redeemPoints) * kesPerPoint, cartSubtotal - cartDiscount) : 0
   const cartTotal = Math.max(0, cartSubtotal - cartDiscount + cartTax - tierDiscount - pointsRedeemAmt)
 
   function handleSaleComplete() { setPaymentOpen(null); clearCart(); loadDailyTotals() }
@@ -528,7 +533,7 @@ export default function POS() {
           {customer && customer.loyalty_points > 0 && cartItems.length > 0 && (
             <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
               <input className="input" type="number" min={0} max={customer.loyalty_points}
-                placeholder="Redeem points..."
+                placeholder={`Redeem points (${customer.loyalty_points.toLocaleString()} avail)`}
                 value={redeemPoints}
                 onChange={e => setRedeemPoints(e.target.value)}
                 style={{ fontSize: 12 }} />

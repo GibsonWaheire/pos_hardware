@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer, getStoreConfig, createSaleInvoice } from '../api'
+import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer, getStoreConfig, createSaleInvoice, earnPoints } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
 import { printDoc, RECEIPT_CSS, printTaxInvoice } from '../utils/print'
@@ -25,6 +25,7 @@ export default function PaymentModal({
   const [error, setError] = useState('')
   const [completedSale, setCompletedSale] = useState(null)
   const [printMsg, setPrintMsg] = useState('')
+  const [pointsEarned, setPointsEarned] = useState(null)  // { points_earned, new_balance }
 
   // Account payment state
   const [acctQuery, setAcctQuery] = useState('')
@@ -63,6 +64,12 @@ export default function PaymentModal({
     setCompletedSale(sale)
     // Notify parent immediately so cart clears in background
     onComplete(sale)
+    // Credit loyalty points silently if customer attached
+    if (customer?.id && sale?.id) {
+      earnPoints({ customer_id: customer.id, sale_id: sale.id, sale_total: total })
+        .then(r => { if (r?.data?.points_earned) setPointsEarned(r.data) })
+        .catch(() => {})
+    }
   }
 
   async function handleReprint() {
@@ -302,9 +309,17 @@ export default function PaymentModal({
           <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 4 }}>
             {completedSale.receipt_number}
           </div>
-          <div style={{ fontWeight: 700, fontSize: 28, color: 'var(--success)', marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 28, color: 'var(--success)', marginBottom: pointsEarned ? 8 : 16 }}>
             {KES(completedSale.total)}
           </div>
+
+          {pointsEarned && (
+            <div style={{ background: '#ffd70022', border: '1px solid #ffd700', borderRadius: 8, padding: '8px 16px', marginBottom: 16, fontSize: 13 }}>
+              <span style={{ fontWeight: 700, color: '#b8860b' }}>+{pointsEarned.points_earned} pts earned</span>
+              <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>Balance: {pointsEarned.new_balance.toLocaleString()} pts</span>
+              {pointsEarned.tier && <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>· {pointsEarned.tier}</span>}
+            </div>
+          )}
 
           {method === 'cash' && (
             <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 14 }}>

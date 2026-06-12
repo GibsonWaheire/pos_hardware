@@ -61,7 +61,7 @@ export default function Loyalty() {
           <div className="card" style={{ marginBottom: 20, display: 'flex', gap: 32 }}>
             <div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>Points Earn Rate</div>
-              <div style={{ fontWeight: 700 }}>{config.points_per_dollar} pt / $1 spent</div>
+              <div style={{ fontWeight: 700 }}>{config.points_per_kes} pt / KES 1 spent</div>
             </div>
             <div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>Redemption Value</div>

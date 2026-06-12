@@ -99,7 +99,7 @@ def earn_points():
         type='earn',
         points=points_earned,
         balance_after=customer.loyalty_points,
-        notes=f'Earned from sale {sale_id}',
+        notes=f'Earned from sale {sale_id} (KES {sale_total:.2f})',
     )
     db.session.add(txn)
     db.session.commit()
@@ -136,7 +136,7 @@ def redeem_points():
         type='redeem',
         points=-points_to_redeem,
         balance_after=customer.loyalty_points,
-        notes=f'Redeemed for ${discount_amount:.2f} discount',
+        notes=f'Redeemed for KES {discount_amount:.2f} discount',
     )
     db.session.add(txn)
     db.session.commit()
@@ -178,9 +178,9 @@ def manual_adjust():
 @bp.route('/config', methods=['GET'])
 def get_config():
     return jsonify({
-        'points_per_dollar': POINTS_PER_DOLLAR,
+        'points_per_kes': POINTS_PER_DOLLAR,
         'cents_per_point': CENTS_PER_POINT,
-        'redemption_rate': f'1 point = ${CENTS_PER_POINT / 100:.4f}',
+        'redemption_rate': f'1 point = KES {CENTS_PER_POINT / 100:.4f}',
     })
 
 

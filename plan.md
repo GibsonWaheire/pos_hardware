@@ -380,13 +380,41 @@ Every feature gating decision must follow this table.
 
 ---
 
-### Phase 25 — Appointments & Services Module Cleanup
+### Phase 25 — Appointments & Services Module Cleanup ✅ COMPLETE (2026-06-12)
 
 **Goal:** Clean up or complete the Services/Appointments pages that were scaffolded but never finished.
 
-- Decide: keep (if the store offers installation/cutting services) or remove pages
-- If kept: full booking workflow — create appointment, assign staff, status tracking, invoice on completion
-- If not needed: remove from nav and codebase
+#### What was built:
+- Both pages kept (hardware store offers cutting/installation services)
+- Fixed `$` → KES currency in Services.jsx and Appointments.jsx using `useCurrency()` hook
+- Appointments.jsx: added Invoice on Completion — creates a POS sale from appointment services, prints tax invoice; "Invoice" button shown only when `status === 'completed'`
+- App.jsx: added Services (manager/admin) and Appointments (cashier/manager/admin) nav links and routes
+
+---
+
+### Phase 26 — Loyalty Programme: Wire Earn/Redeem + Currency Fixes ✅ COMPLETE (2026-06-12)
+
+**Goal:** Loyalty points are actually credited after each sale; fix all `$` currency bugs in loyalty-related pages.
+
+#### 26A — Wire earnPoints after sale ✅
+- `PaymentModal.jsx`: after `handleSaleSuccess`, if customer is attached, silently calls `earnPoints({ customer_id, sale_id, sale_total })`
+- Success screen shows "X points earned — new balance: Y pts"
+
+#### 26B — Dynamic redemption rate ✅
+- `POS.jsx`: loads `getLoyaltyConfig()` on shift open; uses `config.cents_per_point / 100` as KES-per-point multiplier instead of hardcoded `0.01`
+- Config controlled by `LOYALTY_POINTS_PER_DOLLAR` and `LOYALTY_CENTS_PER_POINT` env vars on backend
+
+#### 26C — Currency fixes ✅
+- `Loyalty.jsx`: fix `$1 spent` → `KES` labels; fix redemption rate display using KES
+- `Terminals.jsx`: add `useCurrency()` hook; fix `-$X` → `−fmt(X)` on voided amount stat card
+- `backend/routes/loyalty.py`: fix `$` in notes/return strings → KES
+
+#### Implementation files:
+- `backend/routes/loyalty.py` — updated notes strings to say KES
+- `frontend/src/pages/Loyalty.jsx` — KES labels in config card
+- `frontend/src/pages/Terminals.jsx` — useCurrency, fmt voided_amount
+- `frontend/src/pages/POS.jsx` — load loyalty config, dynamic pointsRedeemAmt
+- `frontend/src/components/PaymentModal.jsx` — call earnPoints after sale, show points earned on success
 
 ---
 

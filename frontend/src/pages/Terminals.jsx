@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { getTerminals, registerTerminal, updateTerminal, getVoidLogs, getVoidStats, recordNoSale } from '../api'
+import { useCurrency } from '../context/CurrencyContext'
 
 export default function Terminals() {
+  const { fmt } = useCurrency()
   const [terminals, setTerminals] = useState([])
   const [voidStats, setVoidStats] = useState(null)
   const [voidLogs, setVoidLogs] = useState([])
@@ -68,7 +70,7 @@ export default function Terminals() {
       {voidStats && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, padding: '0 24px 16px' }}>
           <StatCard label="Voids Today" value={voidStats.total_voids} color={voidStats.total_voids > 0 ? 'var(--warning)' : undefined} />
-          <StatCard label="Voided Amount" value={`$${voidStats.voided_amount.toFixed(2)}`} color={voidStats.voided_amount > 0 ? 'var(--danger)' : undefined} />
+          <StatCard label="Voided Amount" value={fmt(voidStats.voided_amount)} color={voidStats.voided_amount > 0 ? 'var(--danger)' : undefined} />
           <StatCard label="No-Sales Today" value={voidStats.total_no_sales} />
         </div>
       )}
