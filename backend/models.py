@@ -452,6 +452,135 @@ class StockAdjustment(db.Model):
         }
 
 
+# ── Phase 17 Models ────────────────────────────────────────────────────────────
+
+class StockMovement(db.Model):
+    """Unified, immutable log of every stock level change."""
+    __tablename__ = 'stock_movements'
+
+    id             = db.Column(db.Integer, primary_key=True)
+    product_id     = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
+    product_name   = db.Column(db.String(200))
+    qty_before     = db.Column(db.Integer, nullable=False)
+    qty_change     = db.Column(db.Integer, nullable=False)
+    qty_after      = db.Column(db.Integer, nullable=False)
+    # movement_type: sale | po_receipt | manual_add | manual_remove |
+    #                damage | write_off | theft | count_correction | return
+    movement_type  = db.Column(db.String(30), nullable=False, index=True)
+    reference_type = db.Column(db.String(20))   # sale | po | adjustment | damage_report
+    reference_id   = db.Column(db.String(50))   # receipt/PO/DMG number
+    notes          = db.Column(db.Text)
+    user_id        = db.Column(db.Integer, nullable=True)
+    user_name      = db.Column(db.String(100))
+    user_role      = db.Column(db.String(20))
+    created_at     = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'product_id': self.product_id, 'product_name': self.product_name,
+            'qty_before': self.qty_before, 'qty_change': self.qty_change, 'qty_after': self.qty_after,
+            'movement_type': self.movement_type,
+            'reference_type': self.reference_type, 'reference_id': self.reference_id,
+            'notes': self.notes,
+            'user_name': self.user_name, 'user_role': self.user_role,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class GoodsReceivedNote(db.Model):
+    __tablename__ = 'goods_received_notes'
+
+    id                = db.Column(db.Integer, primary_key=True)
+    grn_number        = db.Column(db.String(30), unique=True, index=True)
+    po_id             = db.Column(db.Integer, db.ForeignKey('purchase_orders.id'), nullable=False)
+    po_number         = db.Column(db.String(30))
+    supplier_id       = db.Column(db.Integer, nullable=True)
+    supplier_name     = db.Column(db.String(200))
+    received_by_id    = db.Column(db.Integer, nullable=True)
+    received_by_name  = db.Column(db.String(100))
+    received_at       = db.Column(db.DateTime, default=datetime.utcnow)
+    notes             = db.Column(db.Text)
+    status            = db.Column(db.String(20), default='draft')  # draft | confirmed | signed_off
+    signed_off_by_id  = db.Column(db.Integer, nullable=True)
+    signed_off_by_name= db.Column(db.String(100))
+    signed_off_at     = db.Column(db.DateTime)
+    created_at        = db.Column(db.DateTime, default=datetime.utcnow)
+
+    items = db.relationship('GRNItem', backref='grn', lazy=True, cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'grn_number': self.grn_number,
+            'po_id': self.po_id, 'po_number': self.po_number,
+            'supplier_id': self.supplier_id, 'supplier_name': self.supplier_name,
+            'received_by_name': self.received_by_name,
+            'received_at': self.received_at.isoformat() if self.received_at else None,
+            'notes': self.notes, 'status': self.status,
+            'signed_off_by_name': self.signed_off_by_name,
+            'signed_off_at': self.signed_off_at.isoformat() if self.signed_off_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'items': [i.to_dict() for i in self.items],
+        }
+
+
+class GRNItem(db.Model):
+    __tablename__ = 'grn_items'
+
+    id           = db.Column(db.Integer, primary_key=True)
+    grn_id       = db.Column(db.Integer, db.ForeignKey('goods_received_notes.id'), nullable=False)
+    product_id   = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)
+    product_name = db.Column(db.String(200))
+    qty_ordered  = db.Column(db.Integer, default=0)
+    qty_received = db.Column(db.Integer, default=0)
+    unit_cost    = db.Column(db.Float, default=0.0)
+    variance     = db.Column(db.Integer, default=0)  # qty_received - qty_ordered
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'product_id': self.product_id, 'product_name': self.product_name,
+            'qty_ordered': self.qty_ordered, 'qty_received': self.qty_received,
+            'unit_cost': self.unit_cost, 'variance': self.variance,
+        }
+
+
+class DamageReport(db.Model):
+    __tablename__ = 'damage_reports'
+
+    id               = db.Column(db.Integer, primary_key=True)
+    report_number    = db.Column(db.String(30), unique=True, index=True)
+    product_id       = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
+    product_name     = db.Column(db.String(200))
+    qty              = db.Column(db.Integer, nullable=False)
+    reason           = db.Column(db.String(200))
+    details          = db.Column(db.Text)
+    estimated_value  = db.Column(db.Float, default=0.0)
+    status           = db.Column(db.String(20), default='raised')  # raised | pending_approval | approved | rejected
+    raised_by_id     = db.Column(db.Integer, nullable=True)
+    raised_by_name   = db.Column(db.String(100))
+    raised_at        = db.Column(db.DateTime, default=datetime.utcnow)
+    reviewed_by_id   = db.Column(db.Integer, nullable=True)
+    reviewed_by_name = db.Column(db.String(100))
+    reviewed_at      = db.Column(db.DateTime)
+    review_notes     = db.Column(db.Text)
+    stock_adjusted   = db.Column(db.Boolean, default=False)
+    created_at       = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'report_number': self.report_number,
+            'product_id': self.product_id, 'product_name': self.product_name,
+            'qty': self.qty, 'reason': self.reason, 'details': self.details,
+            'estimated_value': self.estimated_value, 'status': self.status,
+            'raised_by_name': self.raised_by_name,
+            'raised_at': self.raised_at.isoformat() if self.raised_at else None,
+            'reviewed_by_name': self.reviewed_by_name,
+            'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None,
+            'review_notes': self.review_notes,
+            'stock_adjusted': self.stock_adjusted,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 # ── Phase 3 Models ─────────────────────────────────────────────────────────────
 
 class LoyaltyTier(db.Model):

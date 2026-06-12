@@ -1,7 +1,9 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 from db import db
 from models import Product, Category
 from auth_utils import get_current_user, log_action, stamp
+
+WRITE_ROLES = {'inventory', 'manager', 'admin'}
 
 bp = Blueprint('products', __name__, url_prefix='/api')
 
@@ -91,6 +93,8 @@ def get_product(product_id):
 
 @bp.route('/products', methods=['POST'])
 def create_product():
+    if session.get('role', '') not in WRITE_ROLES:
+        return jsonify({'error': 'Not authorised to create products'}), 403
     data = request.json or {}
     required = ['name', 'price']
     missing = [f for f in required if not data.get(f)]
@@ -135,6 +139,8 @@ def create_product():
 
 @bp.route('/products/<int:product_id>', methods=['PUT'])
 def update_product(product_id):
+    if session.get('role', '') not in WRITE_ROLES:
+        return jsonify({'error': 'Not authorised to update products'}), 403
     product = Product.query.get_or_404(product_id)
     data = request.json or {}
 
@@ -189,6 +195,8 @@ def update_product(product_id):
 
 @bp.route('/products/<int:product_id>', methods=['DELETE'])
 def delete_product(product_id):
+    if session.get('role', '') not in WRITE_ROLES:
+        return jsonify({'error': 'Not authorised to delete products'}), 403
     product = Product.query.get_or_404(product_id)
     product.is_active = False
     user = get_current_user()

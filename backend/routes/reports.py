@@ -1,6 +1,6 @@
-from flask import Blueprint, jsonify, request, Response
+from flask import Blueprint, jsonify, request, Response, session
 from db import db
-from models import Sale, SaleItem, Product, Category
+from models import Sale, SaleItem, Product, Category, PurchaseOrder, GoodsReceivedNote
 from datetime import datetime, date, timedelta
 from sqlalchemy import func
 import csv
@@ -8,10 +8,21 @@ import io
 
 bp = Blueprint('reports', __name__, url_prefix='/api/reports')
 
+MANAGER_ROLES    = {'manager', 'admin'}
+INVENTORY_ROLES  = {'inventory', 'manager', 'admin'}
+PURCHASING_ROLES = {'purchasing', 'manager', 'admin'}
+
+def _role():
+    return session.get('role', '')
+
+def _deny(msg='Access denied'):
+    return jsonify({'error': msg}), 403
+
 
 @bp.route('/sales', methods=['GET'])
 def sales_report():
-    """Sales summary grouped by day for a date range."""
+    """Sales summary grouped by day for a date range. Manager/admin only."""
+    if _role() not in MANAGER_ROLES: return _deny()
     date_from = request.args.get('date_from', (date.today() - timedelta(days=30)).isoformat())
     date_to = request.args.get('date_to', date.today().isoformat())
 
@@ -50,7 +61,8 @@ def sales_report():
 
 @bp.route('/top-products', methods=['GET'])
 def top_products():
-    """Top-selling products by quantity and revenue."""
+    """Top-selling products by quantity and revenue. Manager/admin only."""
+    if _role() not in MANAGER_ROLES: return _deny()
     date_from = request.args.get('date_from', (date.today() - timedelta(days=30)).isoformat())
     date_to = request.args.get('date_to', date.today().isoformat())
     limit = min(int(request.args.get('limit', 20)), 100)
@@ -86,7 +98,8 @@ def top_products():
 
 @bp.route('/payment-methods', methods=['GET'])
 def payment_methods_breakdown():
-    """Revenue breakdown by payment method."""
+    """Revenue breakdown by payment method. Manager/admin only."""
+    if _role() not in MANAGER_ROLES: return _deny()
     date_from = request.args.get('date_from', date.today().isoformat())
     date_to = request.args.get('date_to', date.today().isoformat())
 
@@ -112,7 +125,8 @@ def payment_methods_breakdown():
 
 @bp.route('/by-cashier', methods=['GET'])
 def by_cashier():
-    """Revenue and transaction count grouped by cashier."""
+    """Revenue and transaction count grouped by cashier. Manager/admin only."""
+    if _role() not in MANAGER_ROLES: return _deny()
     date_from = request.args.get('date_from', (date.today() - timedelta(days=30)).isoformat())
     date_to = request.args.get('date_to', date.today().isoformat())
     start = datetime.fromisoformat(date_from)
@@ -143,7 +157,8 @@ def by_cashier():
 
 @bp.route('/by-category', methods=['GET'])
 def by_category():
-    """Revenue grouped by product category."""
+    """Revenue grouped by product category. Manager/admin only."""
+    if _role() not in MANAGER_ROLES: return _deny()
     date_from = request.args.get('date_from', (date.today() - timedelta(days=30)).isoformat())
     date_to = request.args.get('date_to', date.today().isoformat())
     start = datetime.fromisoformat(date_from)
@@ -203,7 +218,8 @@ def by_category():
 
 @bp.route('/inventory', methods=['GET'])
 def inventory_report():
-    """Stock value, low-stock items, and top turnover products."""
+    """Stock value, low-stock items, and top turnover products. Inventory + manager/admin."""
+    if _role() not in INVENTORY_ROLES: return _deny()
     from models import StockAdjustment
     products = Product.query.filter_by(is_active=True).all()
 
@@ -231,7 +247,8 @@ def inventory_report():
 
 @bp.route('/export/csv', methods=['GET'])
 def export_csv():
-    """Download sales data as CSV for the given date range."""
+    """Download sales data as CSV for the given date range. Manager/admin only."""
+    if _role() not in MANAGER_ROLES: return _deny()
     date_from = request.args.get('date_from', (date.today() - timedelta(days=30)).isoformat())
     date_to = request.args.get('date_to', date.today().isoformat())
     report_type = request.args.get('type', 'sales')  # sales | items | cashier
@@ -306,3 +323,67 @@ def export_csv():
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
+
+
+@bp.route('/purchasing', methods=['GET'])
+def purchasing_report():
+    """PO summary and GRN stats. Purchasing + manager + admin."""
+    role = _role()
+    if role not in PURCHASING_ROLES:
+        return _deny()
+
+    date_from = request.args.get('date_from', (date.today() - timedelta(days=30)).isoformat())
+    date_to   = request.args.get('date_to',   date.today().isoformat())
+    start = datetime.fromisoformat(date_from)
+    end   = datetime.fromisoformat(date_to).replace(hour=23, minute=59, second=59)
+
+    staff_id = session.get('staff_id')
+    query = PurchaseOrder.query.filter(
+        PurchaseOrder.created_at >= start,
+        PurchaseOrder.created_at <= end,
+    )
+    if role == 'purchasing':
+        query = query.filter_by(created_by_id=staff_id)
+
+    pos = query.order_by(PurchaseOrder.created_at.desc()).all()
+
+    by_status = {}
+    for po in pos:
+        by_status[po.status] = by_status.get(po.status, 0) + 1
+
+    # GRNs in period
+    grn_query = GoodsReceivedNote.query.filter(
+        GoodsReceivedNote.created_at >= start,
+        GoodsReceivedNote.created_at <= end,
+    )
+    if role == 'purchasing':
+        po_ids = [po.id for po in pos]
+        if po_ids:
+            grn_query = grn_query.filter(GoodsReceivedNote.po_id.in_(po_ids))
+        else:
+            grn_query = grn_query.filter(db.false())
+    grns = grn_query.all()
+
+    show_cost = role in MANAGER_ROLES
+
+    return jsonify({
+        'date_from': date_from,
+        'date_to': date_to,
+        'total_pos': len(pos),
+        'by_status': by_status,
+        'total_cost': round(sum(po.total_cost for po in pos), 2) if show_cost else None,
+        'grn_count': len(grns),
+        'grn_signed_off': len([g for g in grns if g.status == 'signed_off']),
+        'pos': [{
+            'id': po.id,
+            'po_number': po.po_number,
+            'supplier_name': po.supplier_name or '—',
+            'items_count': len(po.items),
+            'total_cost': round(po.total_cost, 2) if show_cost else None,
+            'status': po.status,
+            'created_by_name': po.created_by_name or '—',
+            'created_at': po.created_at.isoformat() if po.created_at else None,
+            'approved_by_name': po.approved_by_name,
+            'received_at': po.received_at.isoformat() if po.received_at else None,
+        } for po in pos[:100]],
+    })

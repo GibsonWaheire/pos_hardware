@@ -94,6 +94,441 @@ export const A4_CSS = `
   .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%) rotate(-35deg); font-size: 72pt; font-weight: 900; opacity: 0.04; pointer-events: none; text-transform: uppercase; white-space: nowrap; }
 `
 
+/** Print a GRN document */
+export function printGRN(grn, store = {}) {
+  const fmt2 = (n) => Number(n || 0).toFixed(2)
+  const rows = (grn.items || []).map(it => {
+    const variance = it.qty_received - it.qty_ordered
+    const varColor = variance < 0 ? '#cc0000' : variance > 0 ? '#007700' : '#333'
+    return `<tr>
+      <td>${it.product_name}</td>
+      <td class="right">${it.qty_ordered}</td>
+      <td class="right">${it.qty_received}</td>
+      <td class="right" style="color:${varColor};font-weight:600">${variance > 0 ? '+' : ''}${variance}</td>
+      <td class="right">${fmt2(it.unit_cost)}</td>
+      <td class="right">${fmt2(it.qty_received * it.unit_cost)}</td>
+    </tr>`
+  }).join('')
+
+  const totalReceived = (grn.items || []).reduce((s, i) => s + i.qty_received * i.unit_cost, 0)
+  const statusStamp = grn.status === 'signed_off'
+    ? `<div style="text-align:center;margin:8pt 0"><span class="stamp" style="color:#007700">Signed Off</span></div>`
+    : grn.status === 'confirmed'
+    ? `<div style="text-align:center;margin:8pt 0"><span class="stamp" style="color:#1a73e8">Confirmed</span></div>`
+    : ''
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}</style></head><body>
+    <div class="watermark">${grn.grn_number}</div>
+    <div class="letterhead flex sb ac">
+      <div>
+        <div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}<br>${store.phone || ''} · ${store.email || ''}</div>
+      </div>
+      <div class="right">
+        <div class="bold" style="font-size:8pt;text-transform:uppercase;letter-spacing:1pt">Goods Received Note</div>
+        <div style="font-size:10pt;font-weight:700">${grn.grn_number}</div>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-box">
+        <div class="label">Supplier</div>
+        <div class="value bold">${grn.supplier_name || '—'}</div>
+      </div>
+      <div class="info-box">
+        <div class="label">Purchase Order</div>
+        <div class="value bold">${grn.po_number || '—'}</div>
+      </div>
+      <div class="info-box">
+        <div class="label">Received By</div>
+        <div class="value">${grn.received_by_name || '—'}</div>
+        <div class="value small muted">${grn.received_at ? new Date(grn.received_at).toLocaleString('en-KE') : '—'}</div>
+      </div>
+      <div class="info-box">
+        <div class="label">Status</div>
+        <div class="value bold">${grn.status.toUpperCase()}</div>
+        ${grn.signed_off_by_name ? `<div class="value small muted">Signed off by ${grn.signed_off_by_name}</div>` : ''}
+      </div>
+    </div>
+
+    ${statusStamp}
+
+    <table>
+      <thead><tr>
+        <th>Product</th>
+        <th class="right">Ordered</th>
+        <th class="right">Received</th>
+        <th class="right">Variance</th>
+        <th class="right">Unit Cost</th>
+        <th class="right">Line Total</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div class="totals">
+      <div class="row grand"><span>Total Received Value</span><span>${fmt2(totalReceived)}</span></div>
+    </div>
+
+    ${grn.notes ? `<div class="info-box" style="margin-bottom:12pt"><div class="label">Notes</div><div class="value">${grn.notes}</div></div>` : ''}
+
+    <div class="sig-section">
+      <div class="sig-title">Authorisation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Received By (Inventory)</div><div class="role">${grn.received_by_name || ''}</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Verified By (Purchasing)</div><div class="role"></div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Approved By (Manager)</div><div class="role">${grn.signed_off_by_name || ''}</div></div>
+      </div>
+    </div>
+    <div class="doc-footer">Generated ${new Date().toLocaleString('en-KE')} · ${store.name || ''}</div>
+  </body></html>`
+  printDoc(grn.grn_number, html)
+}
+
+/** Print a Damage / Write-off Report */
+export function printDamageReport(report, store = {}) {
+  const statusColor = { approved: '#007700', rejected: '#cc0000', raised: '#b45309', pending_approval: '#1a73e8' }
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}</style></head><body>
+    <div class="letterhead flex sb ac">
+      <div>
+        <div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}<br>${store.phone || ''}</div>
+      </div>
+      <div class="right">
+        <div class="bold" style="font-size:8pt;text-transform:uppercase;letter-spacing:1pt">Damage / Write-off Report</div>
+        <div style="font-size:10pt;font-weight:700">${report.report_number}</div>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-box">
+        <div class="label">Product</div>
+        <div class="value bold">${report.product_name}</div>
+      </div>
+      <div class="info-box">
+        <div class="label">Quantity Written Off</div>
+        <div class="value bold" style="font-size:16pt">${report.qty}</div>
+      </div>
+      <div class="info-box">
+        <div class="label">Estimated Value</div>
+        <div class="value bold">KES ${Number(report.estimated_value || 0).toFixed(2)}</div>
+      </div>
+      <div class="info-box">
+        <div class="label">Status</div>
+        <div class="value bold" style="color:${statusColor[report.status] || '#333'}">${report.status.toUpperCase()}</div>
+      </div>
+    </div>
+
+    <div class="info-box" style="margin-bottom:10pt">
+      <div class="label">Reason</div>
+      <div class="value">${report.reason || '—'}</div>
+    </div>
+    ${report.details ? `<div class="info-box" style="margin-bottom:10pt"><div class="label">Details</div><div class="value">${report.details}</div></div>` : ''}
+    ${report.review_notes ? `<div class="info-box" style="margin-bottom:10pt"><div class="label">Review Notes</div><div class="value">${report.review_notes}</div></div>` : ''}
+
+    <table>
+      <thead><tr><th>Field</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Raised By</td><td>${report.raised_by_name || '—'}</td></tr>
+        <tr><td>Raised At</td><td>${report.raised_at ? new Date(report.raised_at).toLocaleString('en-KE') : '—'}</td></tr>
+        <tr><td>Reviewed By</td><td>${report.reviewed_by_name || '—'}</td></tr>
+        <tr><td>Reviewed At</td><td>${report.reviewed_at ? new Date(report.reviewed_at).toLocaleString('en-KE') : '—'}</td></tr>
+        <tr><td>Stock Adjusted</td><td>${report.stock_adjusted ? 'Yes' : 'No'}</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sig-section">
+      <div class="sig-title">Authorisation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Raised By (Inventory)</div><div class="role">${report.raised_by_name || ''}</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Approved By (Manager)</div><div class="role">${report.reviewed_by_name || ''}</div></div>
+      </div>
+    </div>
+    <div class="doc-footer">Generated ${new Date().toLocaleString('en-KE')} · ${store.name || ''}</div>
+  </body></html>`
+  printDoc(report.report_number, html)
+}
+
+/** Print a physical count sheet — blank rows for staff to fill in */
+export function printCountSheet(products, store = {}, category = 'All Categories') {
+  const rows = products.map(p => `<tr>
+    <td>${p.name}</td>
+    <td style="font-family:monospace;font-size:9pt">${p.barcode || '—'}</td>
+    <td>${p.category_name || '—'}</td>
+    <td class="right">${p.weight_unit || 'pcs'}</td>
+    <td class="right" style="color:#aaa">${p.stock_qty}</td>
+    <td></td>
+    <td></td>
+  </tr>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}
+    tbody td { padding: 8pt 6pt; border-bottom: 0.5pt solid #ddd; }
+    tbody tr td:nth-child(6), tbody tr td:nth-child(7) { border-bottom: 1pt solid #999; }
+  </style></head><body>
+    <div class="letterhead flex sb ac">
+      <div>
+        <div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">Physical Stock Count Sheet</div>
+      </div>
+      <div class="right small muted">
+        <div>Category: <strong>${category}</strong></div>
+        <div>Date: ___________________________</div>
+        <div>Counter: ___________________________</div>
+        <div>Supervisor: ___________________________</div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr>
+        <th>Product Name</th>
+        <th>Barcode</th>
+        <th>Category</th>
+        <th class="right">Unit</th>
+        <th class="right">System Qty</th>
+        <th class="right">Physical Count</th>
+        <th class="right">Initials</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div class="sig-section">
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Counted By</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Verified By</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Manager Sign-off</div></div>
+      </div>
+    </div>
+    <div class="doc-footer">Printed ${new Date().toLocaleString('en-KE')} · ${products.length} products · ${store.name || ''}</div>
+  </body></html>`
+  printDoc('Count Sheet', html)
+}
+
+/** Print a stock movement report */
+export function printMovementReport(movements, store = {}, filters = {}) {
+  const rows = movements.map(m => `<tr>
+    <td style="font-size:9pt;color:#555;white-space:nowrap">${new Date(m.created_at).toLocaleString('en-KE')}</td>
+    <td>${m.product_name}</td>
+    <td><span style="background:#f0f0f0;padding:2pt 6pt;border-radius:3pt;font-size:8pt">${m.movement_type}</span></td>
+    <td class="right">${m.qty_before}</td>
+    <td class="right" style="font-weight:700;color:${m.qty_change >= 0 ? '#007700' : '#cc0000'}">${m.qty_change >= 0 ? '+' : ''}${m.qty_change}</td>
+    <td class="right">${m.qty_after}</td>
+    <td style="font-size:9pt;color:#555">${m.reference_id || '—'}</td>
+    <td style="font-size:9pt;color:#555">${m.user_name || '—'}</td>
+  </tr>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}</style></head><body>
+    <div class="letterhead flex sb ac">
+      <div>
+        <div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">Stock Movement Report</div>
+      </div>
+      <div class="right small muted">
+        ${filters.date_from ? `<div>From: ${filters.date_from}</div>` : ''}
+        ${filters.date_to ? `<div>To: ${filters.date_to}</div>` : ''}
+        <div>${movements.length} movements</div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr>
+        <th>Date / Time</th><th>Product</th><th>Type</th>
+        <th class="right">Before</th><th class="right">Change</th><th class="right">After</th>
+        <th>Reference</th><th>By</th>
+      </tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:#999">No movements in this period</td></tr>'}</tbody>
+    </table>
+
+    <div class="sig-section">
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Prepared By</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Manager Sign-off</div></div>
+      </div>
+    </div>
+    <div class="doc-footer">Generated ${new Date().toLocaleString('en-KE')} · ${store.name || ''}</div>
+  </body></html>`
+  printDoc('Movement Report', html)
+}
+
+/** Print A4 Sales & Revenue Report */
+export function printSalesReport(salesData, topProducts, paymentData, dateFrom, dateTo, store = {}) {
+  const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const dailyRows = (salesData.rows || []).map(r => `<tr>
+    <td>${r.date}</td><td class="right">${r.transactions}</td>
+    <td class="right">${fmt2(r.revenue)}</td><td class="right">${fmt2(r.tax)}</td>
+  </tr>`).join('')
+  const topRows = topProducts.slice(0, 15).map((p, i) => `<tr>
+    <td>${i + 1}</td><td>${p.product_name}</td>
+    <td class="right">${p.total_qty}</td><td class="right">${fmt2(p.total_revenue)}</td>
+  </tr>`).join('')
+  const pmtRows = paymentData.map(p => `<tr>
+    <td>${p.method}</td><td class="right">${p.count}</td><td class="right">${fmt2(p.total)}</td>
+  </tr>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}</style></head><body>
+    <div class="letterhead flex sb ac">
+      <div><div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}<br>${store.phone || ''}</div></div>
+      <div class="right"><div class="bold small" style="text-transform:uppercase;letter-spacing:1pt">Sales & Revenue Report</div>
+        <div class="small muted">${dateFrom} to ${dateTo}</div></div>
+    </div>
+    <div class="info-grid">
+      <div class="info-box"><div class="label">Total Revenue</div><div class="value bold" style="font-size:16pt">${fmt2(salesData.total_revenue)}</div></div>
+      <div class="info-box"><div class="label">Transactions</div><div class="value bold" style="font-size:16pt">${salesData.total_transactions}</div></div>
+      <div class="info-box"><div class="label">Avg Sale</div><div class="value bold">${salesData.total_transactions ? fmt2(salesData.total_revenue / salesData.total_transactions) : '—'}</div></div>
+      <div class="info-box"><div class="label">Period</div><div class="value">${dateFrom}<br>to ${dateTo}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12pt;margin-bottom:10pt">
+      <div><div class="bold gap" style="font-size:10pt">Daily Breakdown</div>
+        <table><thead><tr><th>Date</th><th class="right">Sales</th><th class="right">Revenue</th><th class="right">Tax</th></tr></thead>
+        <tbody>${dailyRows}</tbody></table></div>
+      <div><div class="bold gap" style="font-size:10pt">Payment Methods</div>
+        <table><thead><tr><th>Method</th><th class="right">Count</th><th class="right">Total</th></tr></thead>
+        <tbody>${pmtRows}</tbody></table>
+        <div class="bold gap" style="font-size:10pt;margin-top:8pt">Top Products</div>
+        <table><thead><tr><th>#</th><th>Product</th><th class="right">Qty</th><th class="right">Revenue</th></tr></thead>
+        <tbody>${topRows}</tbody></table></div>
+    </div>
+    <div class="sig-section"><div class="sig-title">Authorisation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Prepared By</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Manager Sign-off</div></div>
+      </div></div>
+    <div class="doc-footer">Generated ${new Date().toLocaleString('en-KE')} · ${store.name || ''}</div>
+  </body></html>`
+  printDoc(`Sales Report ${dateFrom} – ${dateTo}`, html)
+}
+
+/** Print A4 Cashier Performance Report */
+export function printCashierReport(cashierData, dateFrom, dateTo, store = {}) {
+  const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const rows = cashierData.map(c => `<tr>
+    <td style="font-weight:600">${c.cashier_name}</td>
+    <td class="right">${c.transactions}</td>
+    <td class="right">${fmt2(c.revenue)}</td>
+    <td class="right">${fmt2(c.tax)}</td>
+    <td class="right">${fmt2(c.avg_sale)}</td>
+  </tr>`).join('')
+  const totalRev = cashierData.reduce((s, c) => s + (c.revenue || 0), 0)
+  const totalTx  = cashierData.reduce((s, c) => s + (c.transactions || 0), 0)
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}</style></head><body>
+    <div class="letterhead flex sb ac">
+      <div><div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}</div></div>
+      <div class="right"><div class="bold small" style="text-transform:uppercase;letter-spacing:1pt">Cashier Performance Report</div>
+        <div class="small muted">${dateFrom} to ${dateTo}</div></div>
+    </div>
+    <div class="info-grid" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="info-box"><div class="label">Total Revenue</div><div class="value bold" style="font-size:14pt">${fmt2(totalRev)}</div></div>
+      <div class="info-box"><div class="label">Total Transactions</div><div class="value bold" style="font-size:14pt">${totalTx}</div></div>
+      <div class="info-box"><div class="label">Cashiers Active</div><div class="value bold" style="font-size:14pt">${cashierData.length}</div></div>
+    </div>
+    <table><thead><tr>
+      <th>Cashier</th><th class="right">Transactions</th><th class="right">Revenue</th><th class="right">Tax</th><th class="right">Avg Sale</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+    <div class="sig-section"><div class="sig-title">Authorisation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Prepared By</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Manager Sign-off</div></div>
+      </div></div>
+    <div class="doc-footer">Generated ${new Date().toLocaleString('en-KE')} · ${store.name || ''}</div>
+  </body></html>`
+  printDoc(`Cashier Report ${dateFrom} – ${dateTo}`, html)
+}
+
+/** Print A4 Inventory Status Report */
+export function printInventoryReport(inventoryData, store = {}, showPrices = true) {
+  const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const s = inventoryData.summary || {}
+  const outRows = (inventoryData.out_of_stock || []).map(p =>
+    `<tr><td>${p.name}</td>${showPrices ? `<td class="right">${fmt2(p.price)}</td>` : ''}</tr>`).join('')
+  const lowRows = (inventoryData.low_stock || []).map(p =>
+    `<tr><td>${p.name}</td><td class="right" style="color:#b45309">${p.stock_qty}</td><td class="right">${p.threshold}</td>${showPrices ? `<td class="right">${fmt2(p.price)}</td>` : ''}</tr>`).join('')
+  const valRows = (inventoryData.top_by_value || []).map((p, i) =>
+    `<tr><td>${i+1}</td><td>${p.name}</td><td class="right">${p.stock_qty}</td>${showPrices ? `<td class="right">${fmt2(p.price)}</td><td class="right">${fmt2(p.value)}</td>` : ''}</tr>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}</style></head><body>
+    <div class="letterhead flex sb ac">
+      <div><div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}</div></div>
+      <div class="right"><div class="bold small" style="text-transform:uppercase;letter-spacing:1pt">Inventory Status Report</div>
+        <div class="small muted">Generated ${new Date().toLocaleDateString('en-KE')}</div></div>
+    </div>
+    <div class="info-grid" style="grid-template-columns:repeat(${showPrices ? 4 : 3},1fr)">
+      <div class="info-box"><div class="label">Total Products</div><div class="value bold" style="font-size:16pt">${s.total_products || 0}</div></div>
+      ${showPrices ? `<div class="info-box"><div class="label">Stock Value</div><div class="value bold" style="font-size:14pt">${fmt2(s.total_stock_value)}</div></div>` : ''}
+      <div class="info-box"><div class="label">Out of Stock</div><div class="value bold" style="font-size:16pt;color:#cc0000">${s.out_of_stock_count || 0}</div></div>
+      <div class="info-box"><div class="label">Low Stock</div><div class="value bold" style="font-size:16pt;color:#b45309">${s.low_stock_count || 0}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12pt;margin-bottom:10pt">
+      <div><div class="bold gap" style="font-size:10pt">Out of Stock (${(inventoryData.out_of_stock || []).length})</div>
+        <table><thead><tr><th>Product</th>${showPrices ? '<th class="right">Price</th>' : ''}</tr></thead>
+        <tbody>${outRows || '<tr><td colspan="2" style="color:#888;text-align:center">None</td></tr>'}</tbody></table></div>
+      <div><div class="bold gap" style="font-size:10pt">Low Stock (${(inventoryData.low_stock || []).length})</div>
+        <table><thead><tr><th>Product</th><th class="right">Qty</th><th class="right">Min</th>${showPrices ? '<th class="right">Price</th>' : ''}</tr></thead>
+        <tbody>${lowRows || '<tr><td colspan="4" style="color:#888;text-align:center">None</td></tr>'}</tbody></table></div>
+    </div>
+    ${showPrices ? `<div class="bold gap" style="font-size:10pt">Top 10 by Stock Value</div>
+    <table><thead><tr><th>#</th><th>Product</th><th class="right">Qty</th><th class="right">Unit Price</th><th class="right">Value</th></tr></thead>
+    <tbody>${valRows}</tbody></table>` : ''}
+    <div class="sig-section"><div class="sig-title">Authorisation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Prepared By (Inventory)</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Manager Sign-off</div></div>
+      </div></div>
+    <div class="doc-footer">Generated ${new Date().toLocaleString('en-KE')} · ${store.name || ''}</div>
+  </body></html>`
+  printDoc('Inventory Status Report', html)
+}
+
+/** Print A4 Purchasing / PO Report */
+export function printPurchasingReport(data, dateFrom, dateTo, store = {}, showCost = true) {
+  const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const statusRows = Object.entries(data.by_status || {}).map(([s, n]) =>
+    `<tr><td>${s}</td><td class="right">${n}</td></tr>`).join('')
+  const poRows = (data.pos || []).map(po => `<tr>
+    <td style="font-family:monospace;font-size:9pt">${po.po_number}</td>
+    <td>${po.supplier_name}</td>
+    <td class="right">${po.items_count}</td>
+    ${showCost ? `<td class="right">${fmt2(po.total_cost)}</td>` : ''}
+    <td><span style="font-size:8pt;background:#f0f0f0;padding:1pt 5pt;border-radius:3pt">${po.status}</span></td>
+    <td style="font-size:9pt;color:#555">${po.created_by_name}</td>
+    <td style="font-size:9pt;color:#555">${po.created_at ? new Date(po.created_at).toLocaleDateString('en-KE') : '—'}</td>
+  </tr>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}</style></head><body>
+    <div class="letterhead flex sb ac">
+      <div><div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}</div></div>
+      <div class="right"><div class="bold small" style="text-transform:uppercase;letter-spacing:1pt">Purchasing Report</div>
+        <div class="small muted">${dateFrom} to ${dateTo}</div></div>
+    </div>
+    <div class="info-grid" style="grid-template-columns:repeat(${showCost ? 4 : 3},1fr)">
+      <div class="info-box"><div class="label">Total POs</div><div class="value bold" style="font-size:16pt">${data.total_pos || 0}</div></div>
+      ${showCost ? `<div class="info-box"><div class="label">Total Cost</div><div class="value bold" style="font-size:14pt">${fmt2(data.total_cost)}</div></div>` : ''}
+      <div class="info-box"><div class="label">GRNs Raised</div><div class="value bold" style="font-size:16pt">${data.grn_count || 0}</div></div>
+      <div class="info-box"><div class="label">GRNs Signed Off</div><div class="value bold" style="font-size:16pt;color:#007700">${data.grn_signed_off || 0}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:12pt;margin-bottom:10pt">
+      <div><div class="bold gap" style="font-size:10pt">POs by Status</div>
+        <table><thead><tr><th>Status</th><th class="right">Count</th></tr></thead>
+        <tbody>${statusRows}</tbody></table></div>
+    </div>
+    <div class="bold gap" style="font-size:10pt">Purchase Orders</div>
+    <table><thead><tr>
+      <th>PO Number</th><th>Supplier</th><th class="right">Items</th>
+      ${showCost ? '<th class="right">Total Cost</th>' : ''}
+      <th>Status</th><th>Created By</th><th>Date</th>
+    </tr></thead><tbody>${poRows || '<tr><td colspan="7" style="text-align:center;color:#888">No purchase orders in this period</td></tr>'}</tbody></table>
+    <div class="sig-section"><div class="sig-title">Authorisation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Purchasing Officer</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Manager Sign-off</div></div>
+      </div></div>
+    <div class="doc-footer">Generated ${new Date().toLocaleString('en-KE')} · ${store.name || ''}</div>
+  </body></html>`
+  printDoc(`Purchasing Report ${dateFrom} – ${dateTo}`, html)
+}
+
 /** Shared receipt CSS (80mm thermal width) */
 export const RECEIPT_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }

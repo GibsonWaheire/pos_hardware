@@ -278,6 +278,48 @@ export const getStockAdjustments = (params) => withLocal(
   () => local.lsStub([])
 )
 
+// ── Phase 17: Stock Movements ──────────────────────────────────────────────────
+export const getStockMovements = (params) => withLocal(
+  () => api.get('/inventory/movements', { params }),
+  () => local.lsStub([])
+)
+
+// ── Phase 17: Damage Reports ───────────────────────────────────────────────────
+export const getDamageReports = (params) => withLocal(
+  () => api.get('/inventory/damage-reports', { params }),
+  () => local.lsStub([])
+)
+export const createDamageReport = (data) => withLocal(
+  () => api.post('/inventory/damage-reports', data),
+  () => local.lsStub(data)
+)
+export const approveDamageReport = (id, data) => withLocal(
+  () => api.post(`/inventory/damage-reports/${id}/approve`, data),
+  () => local.lsStub({})
+)
+export const rejectDamageReport = (id, data) => withLocal(
+  () => api.post(`/inventory/damage-reports/${id}/reject`, data),
+  () => local.lsStub({})
+)
+
+// ── Phase 17: GRNs ─────────────────────────────────────────────────────────────
+export const getGRNs = (params) => withLocal(
+  () => api.get('/grns', { params }),
+  () => local.lsStub([])
+)
+export const getGRN = (id) => withLocal(
+  () => api.get(`/grns/${id}`),
+  () => local.lsStub({})
+)
+export const confirmGRN = (id, data) => withLocal(
+  () => api.post(`/grns/${id}/confirm`, data),
+  () => local.lsStub({})
+)
+export const signOffGRN = (id, data) => withLocal(
+  () => api.post(`/grns/${id}/sign-off`, data),
+  () => local.lsStub({})
+)
+
 // ── Customers & Loyalty ───────────────────────────────────────────────────────
 
 export const getCustomers = (params) => withLocal(
@@ -473,6 +515,10 @@ export const getDashboard = () => withLocal(
 
 // ── Extended Reports ──────────────────────────────────────────────────────────
 
+export const getPurchasingReport = (params) => withLocal(
+  () => api.get('/reports/purchasing', { params }),
+  () => local.lsStub({})
+)
 export const getReportByCashier = (params) => withLocal(
   () => api.get('/reports/by-cashier', { params }),
   () => local.lsStub([])

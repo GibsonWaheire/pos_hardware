@@ -2,10 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 import {
   getSalesReport, getTopProducts, getPaymentBreakdown,
   getReportByCashier, getReportByCategory, getInventoryReport,
+  getPurchasingReport,
   getExportCsvUrl, getShiftReports, printShiftReport, fileShiftReport,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
+import {
+  printSalesReport, printCashierReport, printInventoryReport, printPurchasingReport,
+} from '../utils/print'
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
 function daysAgo(n) {
@@ -41,6 +45,7 @@ export default function Reports() {
   const [cashierData, setCashierData]   = useState([])
   const [categoryData, setCategoryData] = useState([])
   const [inventoryData, setInventoryData] = useState(null)
+  const [purchasingData, setPurchasingData] = useState(null)
 
   // Shift reports tab
   const [shiftReports, setShiftReports] = useState([])
@@ -53,8 +58,17 @@ export default function Reports() {
   const printRef = useRef(null)
 
   useEffect(() => { load() }, [tab])
+  // Auto-correct tab to first accessible one on mount (TABS accessible via closure at call time)
+  useEffect(() => {
+    if (!TABS.find(t => t.key === tab)) {
+      const first = TABS[0]?.key
+      if (first) setTab(first)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function load() {
+    // TABS is accessible via closure since load() is only called after render
+    if (!TABS.find(entry => entry.key === tab)) return
     setLoading(true)
     const params = { date_from: dateFrom, date_to: dateTo }
     try {
@@ -69,6 +83,8 @@ export default function Reports() {
         const r = await getReportByCategory(params); setCategoryData(r.data)
       } else if (tab === 'inventory') {
         const r = await getInventoryReport(); setInventoryData(r.data)
+      } else if (tab === 'purchasing') {
+        const r = await getPurchasingReport(params); setPurchasingData(r.data)
       } else if (tab === 'shift-reports') {
         await loadShiftReports()
       }
@@ -116,14 +132,20 @@ export default function Reports() {
 
   const canFile  = user && ['manager', 'admin'].includes(user.role)
   const canPrint = user && ['manager', 'admin', 'inventory', 'purchasing'].includes(user.role)
+  const isManager = user && ['manager', 'admin'].includes(user.role)
+  const isInventory = user?.role === 'inventory'
 
-  const TABS = [
-    { key: 'sales',         label: 'Sales' },
-    { key: 'cashier',       label: 'By Cashier' },
-    { key: 'category',      label: 'By Category' },
-    { key: 'inventory',     label: 'Inventory' },
-    { key: 'shift-reports', label: 'Shift Reports' },
+  const ALL_TABS = [
+    { key: 'sales',         label: 'Sales',         roles: ['manager', 'admin'] },
+    { key: 'cashier',       label: 'By Cashier',    roles: ['manager', 'admin'] },
+    { key: 'category',      label: 'By Category',   roles: ['manager', 'admin'] },
+    { key: 'inventory',     label: 'Inventory',     roles: ['inventory', 'manager', 'admin'] },
+    { key: 'purchasing',    label: 'Purchasing',    roles: ['purchasing', 'manager', 'admin'] },
+    { key: 'shift-reports', label: 'Shift Reports', roles: ['manager', 'admin'] },
   ]
+  const TABS = ALL_TABS.filter(t => t.roles.includes(user?.role))
+  // Auto-select first visible tab if current tab is not accessible
+  const activeTab = TABS.find(t => t.key === tab) ? tab : (TABS[0]?.key || 'inventory')
 
   const filteredReports = shiftReports.filter(r => {
     if (srFilter === 'all') return true
@@ -141,7 +163,7 @@ export default function Reports() {
         <div className="page-header">
           <span className="page-title">Reports</span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {tab !== 'inventory' && tab !== 'shift-reports' && (
+            {activeTab !== 'inventory' && activeTab !== 'shift-reports' && activeTab !== 'purchasing' && (
               <>
                 <input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 140 }} />
                 <span style={{ color: 'var(--text-muted)' }}>to</span>
@@ -149,10 +171,40 @@ export default function Reports() {
                 <button className="btn btn-primary" onClick={load} disabled={loading}>
                   {loading ? 'Loading...' : 'Run'}
                 </button>
-                <button className="btn btn-ghost" onClick={() => downloadCsv(tab === 'cashier' ? 'cashier' : tab === 'sales' ? 'sales' : 'items')}>
+                <button className="btn btn-ghost" onClick={() => downloadCsv(activeTab === 'cashier' ? 'cashier' : activeTab === 'sales' ? 'sales' : 'items')}>
                   Export CSV
                 </button>
               </>
+            )}
+            {activeTab === 'purchasing' && (
+              <>
+                <input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 140 }} />
+                <span style={{ color: 'var(--text-muted)' }}>to</span>
+                <input className="input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ width: 140 }} />
+                <button className="btn btn-primary" onClick={load} disabled={loading}>
+                  {loading ? 'Loading...' : 'Run'}
+                </button>
+              </>
+            )}
+            {activeTab === 'sales' && salesData && (
+              <button className="btn btn-ghost" onClick={() => printSalesReport(salesData, topProducts, paymentData, dateFrom, dateTo)}>
+                Print Report
+              </button>
+            )}
+            {activeTab === 'cashier' && cashierData.length > 0 && (
+              <button className="btn btn-ghost" onClick={() => printCashierReport(cashierData, dateFrom, dateTo)}>
+                Print Report
+              </button>
+            )}
+            {activeTab === 'inventory' && inventoryData && (
+              <button className="btn btn-ghost" onClick={() => printInventoryReport(inventoryData, {}, isManager)}>
+                Print Report
+              </button>
+            )}
+            {activeTab === 'purchasing' && purchasingData && (
+              <button className="btn btn-ghost" onClick={() => printPurchasingReport(purchasingData, dateFrom, dateTo, {}, isManager)}>
+                Print Report
+              </button>
             )}
           </div>
         </div>
@@ -162,9 +214,9 @@ export default function Reports() {
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
               padding: '8px 16px', background: 'none', border: 'none', cursor: 'pointer',
-              color: tab === t.key ? 'var(--accent)' : 'var(--text-muted)',
-              borderBottom: tab === t.key ? '2px solid var(--accent)' : '2px solid transparent',
-              fontWeight: tab === t.key ? 600 : 400, fontSize: 14,
+              color: activeTab === t.key ? 'var(--accent)' : 'var(--text-muted)',
+              borderBottom: activeTab === t.key ? '2px solid var(--accent)' : '2px solid transparent',
+              fontWeight: activeTab === t.key ? 600 : 400, fontSize: 14,
             }}>{t.label}</button>
           ))}
         </div>
@@ -172,7 +224,7 @@ export default function Reports() {
         <div className="page-body" style={{ flex: 1, overflow: 'auto' }}>
 
           {/* ── Sales tab ── */}
-          {tab === 'sales' && salesData && (
+          {activeTab === 'sales' && salesData && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
                 <StatCard label="Revenue" value={fmt(salesData.total_revenue)} />
@@ -230,7 +282,7 @@ export default function Reports() {
           )}
 
           {/* ── Cashier tab ── */}
-          {tab === 'cashier' && (
+          {activeTab === 'cashier' && (
             <>
               {cashierData.length === 0 && !loading && <div className="empty-state">No data for this period</div>}
               {cashierData.length > 0 && (
@@ -272,7 +324,7 @@ export default function Reports() {
           )}
 
           {/* ── Category tab ── */}
-          {tab === 'category' && (
+          {activeTab === 'category' && (
             <>
               {categoryData.length === 0 && !loading && <div className="empty-state">No data for this period</div>}
               {categoryData.length > 0 && (
@@ -313,11 +365,11 @@ export default function Reports() {
           )}
 
           {/* ── Inventory tab ── */}
-          {tab === 'inventory' && inventoryData && (
+          {activeTab === 'inventory' && inventoryData && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
                 <StatCard label="Total Products" value={inventoryData.summary.total_products} />
-                <StatCard label="Stock Value" value={fmt(inventoryData.summary.total_stock_value)} color="var(--accent)" />
+                {isManager && <StatCard label="Stock Value" value={fmt(inventoryData.summary.total_stock_value)} color="var(--accent)" />}
                 <StatCard label="Out of Stock" value={inventoryData.summary.out_of_stock_count} color={inventoryData.summary.out_of_stock_count > 0 ? 'var(--danger)' : undefined} />
                 <StatCard label="Low Stock" value={inventoryData.summary.low_stock_count} color={inventoryData.summary.low_stock_count > 0 ? 'var(--warning)' : undefined} />
               </div>
@@ -329,10 +381,10 @@ export default function Reports() {
                     <div className="empty-state" style={{ color: 'var(--success)' }}>All products in stock</div>
                   ) : (
                     <table className="table">
-                      <thead><tr><th>Product</th><th>Price</th></tr></thead>
+                      <thead><tr><th>Product</th>{isManager && <th>Price</th>}</tr></thead>
                       <tbody>
                         {inventoryData.out_of_stock.map(p => (
-                          <tr key={p.id}><td>{p.name}</td><td>{fmt(p.price)}</td></tr>
+                          <tr key={p.id}><td>{p.name}</td>{isManager && <td>{fmt(p.price)}</td>}</tr>
                         ))}
                       </tbody>
                     </table>
@@ -345,14 +397,14 @@ export default function Reports() {
                     <div className="empty-state" style={{ color: 'var(--success)' }}>No low-stock alerts</div>
                   ) : (
                     <table className="table">
-                      <thead><tr><th>Product</th><th>Stock</th><th>Min</th><th>Price</th></tr></thead>
+                      <thead><tr><th>Product</th><th>Stock</th><th>Min</th>{isManager && <th>Price</th>}</tr></thead>
                       <tbody>
                         {inventoryData.low_stock.map(p => (
                           <tr key={p.id}>
                             <td>{p.name}</td>
                             <td style={{ color: 'var(--warning)', fontWeight: 600 }}>{p.stock_qty}</td>
                             <td style={{ color: 'var(--text-muted)' }}>{p.threshold}</td>
-                            <td>{fmt(p.price)}</td>
+                            {isManager && <td>{fmt(p.price)}</td>}
                           </tr>
                         ))}
                       </tbody>
@@ -363,15 +415,21 @@ export default function Reports() {
                 <div className="card" style={{ padding: 0, gridColumn: 'span 2' }}>
                   <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>Top 10 by Stock Value</div>
                   <table className="table">
-                    <thead><tr><th>#</th><th>Product</th><th>Qty</th><th>Unit Price</th><th>Stock Value</th></tr></thead>
+                    <thead>
+                      <tr>
+                        <th>#</th><th>Product</th><th>Qty</th>
+                        {isManager && <th>Unit Price</th>}
+                        {isManager && <th>Stock Value</th>}
+                      </tr>
+                    </thead>
                     <tbody>
                       {inventoryData.top_by_value.map((p, i) => (
                         <tr key={p.id}>
                           <td style={{ color: 'var(--text-muted)' }}>{i + 1}</td>
                           <td style={{ fontWeight: 500 }}>{p.name}</td>
                           <td style={{ color: 'var(--text-muted)' }}>{p.stock_qty}</td>
-                          <td>{fmt(p.price)}</td>
-                          <td style={{ fontWeight: 700, color: 'var(--accent)' }}>{fmt(p.value)}</td>
+                          {isManager && <td>{fmt(p.price)}</td>}
+                          {isManager && <td style={{ fontWeight: 700, color: 'var(--accent)' }}>{fmt(p.value)}</td>}
                         </tr>
                       ))}
                     </tbody>
@@ -381,8 +439,70 @@ export default function Reports() {
             </>
           )}
 
+          {/* ── Purchasing tab ── */}
+          {activeTab === 'purchasing' && purchasingData && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+                <StatCard label="Total POs" value={purchasingData.total_pos} />
+                {isManager && purchasingData.total_cost != null && (
+                  <StatCard label="Total Cost" value={fmt(purchasingData.total_cost)} color="var(--accent)" />
+                )}
+                <StatCard label="GRNs Received" value={purchasingData.grn_count} />
+                <StatCard label="GRNs Signed Off" value={purchasingData.grn_signed_off} color="var(--success)" />
+                {Object.entries(purchasingData.by_status || {}).map(([status, count]) => (
+                  <StatCard key={status} label={status.charAt(0).toUpperCase() + status.slice(1)} value={count} />
+                ))}
+              </div>
+
+              {purchasingData.pos?.length === 0 && (
+                <div className="empty-state">No purchase orders for this period</div>
+              )}
+
+              {purchasingData.pos?.length > 0 && (
+                <div className="card" style={{ padding: 0 }}>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>PO Number</th>
+                        <th>Supplier</th>
+                        <th>Items</th>
+                        {isManager && <th>Total Cost</th>}
+                        <th>Status</th>
+                        <th>Created By</th>
+                        <th>Date</th>
+                        <th>Approved By</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {purchasingData.pos.map(po => (
+                        <tr key={po.id}>
+                          <td style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{po.po_number}</td>
+                          <td>{po.supplier_name}</td>
+                          <td style={{ color: 'var(--text-muted)' }}>{po.items_count}</td>
+                          {isManager && <td style={{ fontWeight: 600 }}>{po.total_cost != null ? fmt(po.total_cost) : '—'}</td>}
+                          <td>
+                            <span style={{
+                              padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
+                              background: po.status === 'received' ? '#dcfce7' : po.status === 'approved' ? '#dbeafe' : po.status === 'cancelled' ? '#fee2e2' : '#fef3c7',
+                              color: po.status === 'received' ? '#15803d' : po.status === 'approved' ? '#1e40af' : po.status === 'cancelled' ? '#dc2626' : '#92400e',
+                            }}>
+                              {po.status}
+                            </span>
+                          </td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{po.created_by_name}</td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{po.created_at ? new Date(po.created_at).toLocaleDateString('en-KE') : '—'}</td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{po.approved_by_name || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
           {/* ── Shift Reports tab ── */}
-          {tab === 'shift-reports' && (
+          {activeTab === 'shift-reports' && (
             <>
               <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: 4 }}>

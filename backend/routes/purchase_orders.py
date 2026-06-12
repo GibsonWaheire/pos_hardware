@@ -1,7 +1,8 @@
 import json
 from flask import Blueprint, jsonify, request, session
 from db import db
-from models import PurchaseOrder, PurchaseOrderItem, Product, StockAdjustment, Staff, PurchaserLimit
+from models import (PurchaseOrder, PurchaseOrderItem, Product, StockAdjustment,
+                    Staff, PurchaserLimit, GoodsReceivedNote, GRNItem, StockMovement)
 from datetime import datetime, date
 
 bp = Blueprint('purchase_orders', __name__, url_prefix='/api/purchase-orders')
@@ -218,6 +219,7 @@ def receive_po(po_id):
     if not receive_data:
         return jsonify({'error': 'items list is required'}), 400
 
+    grn_items = []
     for po_item in po.items:
         qty = receive_data.get(po_item.id, 0)
         if qty <= 0:
@@ -241,6 +243,45 @@ def receive_po(po_id):
                 )
                 db.session.add(adj)
 
+                mv = StockMovement(
+                    product_id=product.id, product_name=product.name,
+                    qty_before=before, qty_change=qty, qty_after=product.stock_qty,
+                    movement_type='po_receipt',
+                    reference_type='po', reference_id=po.po_number,
+                    user_id=staff_id, user_name=received_by,
+                    user_role=session.get('role', ''),
+                )
+                db.session.add(mv)
+
+        grn_items.append(GRNItem(
+            product_id=po_item.product_id,
+            product_name=po_item.product_name,
+            qty_ordered=po_item.qty_ordered,
+            qty_received=qty,
+            unit_cost=po_item.unit_cost,
+            variance=qty - po_item.qty_ordered,
+        ))
+
+    # Auto-generate GRN
+    today = date.today().strftime('%Y%m%d')
+    grn_prefix = f'GRN-{today}-'
+    last_grn = (GoodsReceivedNote.query
+                .filter(GoodsReceivedNote.grn_number.like(f'{grn_prefix}%'))
+                .order_by(GoodsReceivedNote.grn_number.desc()).first())
+    grn_seq = (int(last_grn.grn_number.split('-')[-1]) + 1) if last_grn else 1
+    grn = GoodsReceivedNote(
+        grn_number=f'{grn_prefix}{grn_seq:03d}',
+        po_id=po.id,
+        po_number=po.po_number,
+        supplier_id=po.supplier_id,
+        supplier_name=po.supplier_name,
+        received_by_id=staff_id,
+        received_by_name=received_by,
+        status='draft',
+    )
+    grn.items = grn_items
+    db.session.add(grn)
+
     all_received = all(i.qty_received >= i.qty_ordered for i in po.items)
     any_received = any(i.qty_received > 0 for i in po.items)
     if all_received:
@@ -250,7 +291,7 @@ def receive_po(po_id):
         po.status = 'partial'
 
     db.session.commit()
-    return jsonify(po.to_dict())
+    return jsonify({**po.to_dict(), 'grn_number': grn.grn_number})
 
 
 @bp.route('/<int:po_id>/cancel', methods=['POST'])

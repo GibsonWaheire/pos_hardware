@@ -83,6 +83,8 @@ Every feature gating decision must follow this table.
 | 13 | POS UX (category filter, pagination, unit display, account balance, auto-refresh), inventory sort, accountability hardening | ✅ |
 | 14 | Shift report filing system (auto-generate, print/file lifecycle, A4 print, shift-open gate) | ✅ |
 | 15 | Professional printouts: POS receipt (80mm), quote/invoice, purchase order, shift report — all with store header + signature blocks | ✅ |
+| 16 | Role logic & access control cleanup — nav/route guards, role-scoped Inventory, role-gated Reports tabs, read-only Products for purchasing, backend 403 enforcement on all sensitive endpoints | ✅ |
+| 17 | Inventory operations & GRN system — StockMovement unified log, GoodsReceivedNote (auto on PO receive), DamageReport workflow (raise→approve→write-off), physical count sheet print, movement report print | ✅ |
 
 ---
 
@@ -90,80 +92,53 @@ Every feature gating decision must follow this table.
 
 ---
 
-### Phase 16 — Role Logic & Access Control Cleanup
+### Phase 16 — Role Logic & Access Control Cleanup ✅ COMPLETE
 
-**Goal:** Every role sees exactly what they need, nothing more.
-
-#### 16A — Nav & Route Guards
-- Fix `App.jsx` NAV array to match role table above
-- `inventory` removed from Reports route (gains new scoped Reports page)
-- `purchasing` removed from Inventory route (gains read-only stock view)
-- `cashier` added to Quotes route (they create proformas at counter)
-- Add `inventory` home → `/inventory`; keep `purchasing` home → `/purchase-orders`
-- Backend: all report endpoints enforce role check — `GET /api/reports/sales` blocked for inventory/purchasing
-
-#### 16B — Inventory Page: Role-scoped View
-- `inventory` sees: stock levels, adjustments tab, movement log — NO "Stock Value (KES)" stat card
-- `purchasing` sees: read-only stock level table (qty + name only, no prices, no value) — just enough to know what to order
-- `manager/admin` sees: everything including stock value
-
-#### 16C — Reports Page: Role-gated Tabs
-- Tab visibility controlled by role:
-  - **Sales Analytics** → manager + admin only
-  - **Cashier Performance** → manager + admin only
-  - **Product Performance** → manager + admin only
-  - **Category Analysis** → manager + admin only
-  - **Inventory Report** → inventory + manager + admin
-  - **Purchasing / PO Report** → purchasing + manager + admin
-  - **Shift Reports** → manager + admin only
-- First visible tab auto-selected on load per role
-- Backend: role-check on each report endpoint
-
-#### 16D — Products Page: Read-only for Purchasing
-- `purchasing` can see product list (name, category, unit) — needed to create POs
-- `purchasing` cannot add, edit, delete, or see selling price
-- Backend: `POST/PUT/DELETE /api/products` blocked for purchasing role
-
-#### 16E — Purchasing: No Revenue Data Anywhere
-- Remove revenue columns from any page purchasing can access
-- `GET /api/purchase-orders` already does not return revenue — confirm
-- `GET /api/inventory/overview` hides `total_stock_value` for purchasing role
+**Implemented:**
+- `App.jsx`: NAV restructured by department; `cashier` sees Quotes; `purchasing` sees read-only Stock; `inventory` home → `/inventory`
+- `Inventory.jsx`: purchasing gets read-only view (no price, no Adjust, no History tab); non-manager hides Stock Value stat card
+- `Reports.jsx`: TABS array filtered by role; `inventory` auto-redirects to Inventory tab only; `load()` guarded to bail on inaccessible tabs
+- `Products.jsx`: purchasing read-only (no Add/Edit/Disable buttons, no Price/Tax columns); fixed `$` currency bug
+- Backend: `reports.py`, `inventory.py`, `products.py` all have role 403 guards on write/sensitive endpoints
 
 ---
 
-### Phase 17 — Inventory Operations & GRN System
+### Phase 17 — Inventory Operations & GRN System ✅ COMPLETE
 
-**Goal:** Professional warehouse operations — every stock movement has a paper trail.
+**Implemented:**
 
 #### 17A — Goods Received Note (GRN)
-- Auto-generate `GoodsReceivedNote` record when PO is marked fully/partially received
-- GRN fields: grn_number, po_id, received_by, received_at, items (product, qty_ordered, qty_received, unit_cost), notes, status (draft → confirmed → signed_off)
-- GRN sign-off requires manager approval
-- **Printout:** A4 GRN document — PO ref, supplier, date, items table (ordered vs received, variance), receiving notes, signature blocks: Received by (inventory) + Verified by (purchasing) + Approved by (manager)
+- `GoodsReceivedNote` + `GRNItem` models (`goods_received_notes`, `grn_items` tables)
+- Auto-generated in `receive_po()` whenever items are received — every partial or full receive creates a GRN
+- Status flow: `draft → confirmed → signed_off`
+- `routes/grn.py` blueprint: `GET /api/grns`, `GET /api/grns/<id>`, `POST /api/grns/<id>/confirm`, `POST /api/grns/<id>/sign-off`
+- Inventory page "GRNs" tab: list with Confirm (inventory) and Sign Off (manager) actions
+- **Printout:** `printGRN()` in `utils/print.js` — A4 with letterhead, supplier/PO info, items table with ordered vs received vs variance, total value, 3-party signature block
 
 #### 17B — Stock Movement Log
-- Unified `StockMovement` table replacing fragmented adjustment tracking
-- Movement types: `sale`, `po_receipt`, `manual_add`, `manual_remove`, `damage`, `write_off`, `theft`, `count_correction`, `transfer_in`, `transfer_out`
-- Every movement: product, qty_before, qty_change, qty_after, type, reference (sale_id / po_id / adjustment_id), user, timestamp
-- Inventory page "Movements" tab: filterable by product, type, date range
-- **Printout:** Stock Movement Report — filterable, shows all movements with running balance
+- `StockMovement` model (`stock_movements` table): product, qty_before/change/after, movement_type, reference_type/id, user, timestamp
+- Movement types: `sale`, `po_receipt`, `manual_add`, `manual_remove`, `damage`, `write_off`, `theft`, `count_correction`, `return`
+- `adjust_stock()` writes both `StockAdjustment` (backward compat) and `StockMovement`
+- `receive_po()` writes `StockMovement` per product received
+- `GET /api/inventory/movements` — filterable by type, date range, product
+- Inventory page "Movement Log" tab with type/date filters
+- **Printout:** `printMovementReport()` — A4 with all movements, manager signature
 
 #### 17C — Damage & Write-off Workflow
-- Inventory staff can raise a Damage Report: product, qty, reason, photos (optional), estimated value
-- Status: `raised → pending_approval → approved / rejected`
-- Approved damage → automatically reduces stock + creates `write_off` movement
-- Rejected → no stock change, reason recorded
-- **Printout:** Damage/Write-off Report — product, qty, reason, value, raised by, approved by, signature blocks
+- `DamageReport` model (`damage_reports` table): raised by inventory, reviewed by manager
+- Status: `raised → approved / rejected`; approval auto-reduces stock + writes `write_off` StockMovement
+- API: `POST /api/inventory/damage-reports`, `GET /api/inventory/damage-reports`, `/approve`, `/reject`
+- Inventory "Damage Reports" tab: raise from stock table, manager review modal with approve/reject
+- **Printout:** `printDamageReport()` — A4 with product details, reason, reviewer notes, 2-party signature
 
 #### 17D — Physical Count Sheet
-- Manager or inventory generates a "Count Sheet" for a category or all products
-- Printout: blank A4 sheet with product name, barcode, unit, current system qty (optional — or blank for blind count), space for physical count entry + initials
-- After count, discrepancies entered as `count_correction` adjustments
-- Count sheet reference number links adjustments to the count session
+- "Print Count Sheet" button on stock tab (filtered by current search)
+- `printCountSheet()` — A4 with product name, barcode, category, unit, system qty, blank physical count column, initials column
+- Header has date/counter/supervisor fields for manual completion
 
-#### 17E — Stock Adjustment Report Printout
-- Existing adjustment list → add "Print Report" button
-- A4 printout: date range, all adjustments (product, type, qty change, reason, user), total movements, signature block
+#### 17E — Stock Movement Report Printout
+- "Print Report" button on Movement Log tab
+- Respects active filters (type, date range) — prints exactly what's on screen
 
 ---
 
@@ -370,8 +345,9 @@ Every document the system must be able to produce:
 - Receipt printing uses env vars as fallback — ensure `.env` is populated on deployment
 - `python-escpos` and `pyserial` must be installed manually: `pip install python-escpos pyserial`
 - Stripe Terminal requires `STRIPE_SECRET_KEY` in `.env`
-- No `StockMovement` unified table yet — Phase 17B adds this
-- GRN auto-generation on PO receive not yet implemented — Phase 17A
+- Phase 17: `StockMovement` only populated going forward — historical `StockAdjustment` records are not backfilled into the new table
+- Phase 17: Damage report "Raise" button in Inventory only sets status to `raised`; manager must navigate to Inventory → Damage Reports tab to approve. Phase 22 (Dashboard Approvals) will surface pending items to the manager on login
+- Phase 17: Count sheet has no session/reference number linking back to count corrections — future improvement
 - Appointments/Services pages are scaffolded but unfinished — Phase 25
 
 ---

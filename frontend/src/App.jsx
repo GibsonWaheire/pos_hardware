@@ -24,27 +24,34 @@ import Login from './pages/Login'
 // ── Nav items and their allowed roles ────────────────────────────────────────
 
 const NAV = [
+  // Cashier
   { to: '/',                label: 'Checkout',  icon: '🛒', end: true,  roles: ['cashier','manager','admin'] },
+  { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['cashier','manager','admin'] },
+  { to: '/customers',       label: 'Customers', icon: '👤',             roles: ['cashier','manager','admin'] },
+  // Manager / Admin only
   { to: '/dashboard',       label: 'Dashboard', icon: '📊',             roles: ['manager','admin'] },
-  { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['manager','admin'] },
-  { to: '/products',        label: 'Products',  icon: '📦',             roles: ['inventory','manager','admin'] },
-  { to: '/inventory',       label: 'Inventory', icon: '🗂️',            roles: ['inventory','purchasing','manager','admin'] },
-  { to: '/suppliers',       label: 'Suppliers', icon: '🚚',             roles: ['supplier','purchasing','manager','admin'] },
-  { to: '/purchase-orders', label: 'Orders',    icon: '📋',             roles: ['supplier','purchasing','manager','admin'] },
   { to: '/returns',         label: 'Returns',   icon: '↩️',             roles: ['manager','admin'] },
   { to: '/shifts',          label: 'Shifts',    icon: '⏱️',             roles: ['manager','admin'] },
-  { to: '/customers',       label: 'Customers', icon: '👤',             roles: ['cashier','manager','admin'] },
   { to: '/accounts',        label: 'Accounts',  icon: '🏦',             roles: ['manager','admin'] },
   { to: '/loyalty',         label: 'Loyalty',   icon: '⭐',             roles: ['manager','admin'] },
   { to: '/terminals',       label: 'Terminals', icon: '🖥️',             roles: ['manager','admin'] },
-  { to: '/reports',         label: 'Reports',   icon: '📈',             roles: ['inventory','purchasing','manager','admin'] },
-  { to: '/cloud-sync',      label: 'Cloud',     icon: '☁️',             roles: ['admin'] },
+  { to: '/reports',         label: 'Reports',   icon: '📈',             roles: ['manager','admin'] },
   { to: '/settings',        label: 'Settings',  icon: '⚙️',             roles: ['manager','admin'] },
+  // Inventory department
+  { to: '/products',        label: 'Products',  icon: '📦',             roles: ['inventory','manager','admin'] },
+  { to: '/inventory',       label: 'Inventory', icon: '🗂️',            roles: ['inventory','manager','admin'] },
+  { to: '/reports',         label: 'Reports',   icon: '📈',             roles: ['inventory'] },
+  // Purchasing department
+  { to: '/inventory',       label: 'Stock',     icon: '🗂️',            roles: ['purchasing'] },
+  { to: '/suppliers',       label: 'Suppliers', icon: '🚚',             roles: ['purchasing','manager','admin'] },
+  { to: '/purchase-orders', label: 'Orders',    icon: '📋',             roles: ['supplier','purchasing','manager','admin'] },
+  // Admin
+  { to: '/cloud-sync',      label: 'Cloud',     icon: '☁️',             roles: ['admin'] },
 ]
 
 const HOME_BY_ROLE = {
   cashier:    '/',
-  inventory:  '/products',
+  inventory:  '/inventory',
   purchasing: '/purchase-orders',
   supplier:   '/purchase-orders',
   manager:    '/dashboard',
@@ -129,17 +136,17 @@ function AppInner() {
           <Route path="/"                element={<RoleGuard roles={['cashier','manager','admin']}><POS /></RoleGuard>} />
           <Route path="/dashboard"       element={<RoleGuard roles={['manager','admin']}><Dashboard /></RoleGuard>} />
           <Route path="/quotes"          element={<RoleGuard roles={['cashier','manager','admin']}><Quotes /></RoleGuard>} />
-          <Route path="/products"        element={<RoleGuard roles={['inventory','manager','admin']}><Products /></RoleGuard>} />
+          <Route path="/products"        element={<RoleGuard roles={['inventory','purchasing','manager','admin']}><Products /></RoleGuard>} />
           <Route path="/inventory"       element={<RoleGuard roles={['inventory','purchasing','manager','admin']}><Inventory /></RoleGuard>} />
           <Route path="/suppliers"       element={<RoleGuard roles={['purchasing','manager','admin']}><Suppliers /></RoleGuard>} />
-          <Route path="/purchase-orders" element={<RoleGuard roles={['purchasing','manager','admin']}><PurchaseOrders /></RoleGuard>} />
+          <Route path="/purchase-orders" element={<RoleGuard roles={['supplier','purchasing','manager','admin']}><PurchaseOrders /></RoleGuard>} />
           <Route path="/returns"         element={<RoleGuard roles={['manager','admin']}><ReturnsPage /></RoleGuard>} />
-          <Route path="/shifts"          element={<RoleGuard roles={['cashier','manager','admin']}><Shifts /></RoleGuard>} />
+          <Route path="/shifts"          element={<RoleGuard roles={['manager','admin']}><Shifts /></RoleGuard>} />
           <Route path="/customers"       element={<RoleGuard roles={['cashier','manager','admin']}><Customers /></RoleGuard>} />
           <Route path="/accounts"        element={<RoleGuard roles={['manager','admin']}><Accounts /></RoleGuard>} />
           <Route path="/loyalty"         element={<RoleGuard roles={['manager','admin']}><Loyalty /></RoleGuard>} />
           <Route path="/terminals"       element={<RoleGuard roles={['manager','admin']}><Terminals /></RoleGuard>} />
-          <Route path="/reports"         element={<RoleGuard roles={['inventory','purchasing','manager','admin']}><Reports /></RoleGuard>} />
+          <Route path="/reports"         element={<RoleGuard roles={['inventory','manager','admin']}><Reports /></RoleGuard>} />
           <Route path="/cloud-sync"      element={<RoleGuard roles={['admin']}><CloudSync /></RoleGuard>} />
           <Route path="/settings"        element={<RoleGuard roles={['manager','admin']}><Settings /></RoleGuard>} />
           {/* Catch-all: redirect to role home */}

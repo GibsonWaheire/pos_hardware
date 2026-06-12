@@ -47,6 +47,7 @@ from routes.audit import bp as audit_bp
 from routes.purchaser_limits import bp as purchaser_limits_bp
 from routes.hardware import bp as hardware_bp
 from routes.shift_reports import bp as shift_reports_bp
+from routes.grn import bp as grn_bp
 
 app.register_blueprint(products_bp)
 app.register_blueprint(sales_bp)
@@ -74,6 +75,7 @@ app.register_blueprint(audit_bp)
 app.register_blueprint(purchaser_limits_bp)
 app.register_blueprint(hardware_bp)
 app.register_blueprint(shift_reports_bp)
+app.register_blueprint(grn_bp)
 
 
 @app.route('/api/health')

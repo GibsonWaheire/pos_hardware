@@ -3,6 +3,8 @@ import {
   getProducts, createProduct, updateProduct, deleteProduct,
   getCategories, createCategory,
 } from '../api'
+import { useAuth } from '../context/AuthContext'
+import { useCurrency } from '../context/CurrencyContext'
 
 const EMPTY_FORM = {
   name: '', barcode: '', price: '', tax_rate: '0',
@@ -11,6 +13,9 @@ const EMPTY_FORM = {
 }
 
 export default function Products() {
+  const { user } = useAuth()
+  const { fmt } = useCurrency()
+  const readOnly = user?.role === 'purchasing'
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
   const [search, setSearch] = useState('')
@@ -104,7 +109,7 @@ export default function Products() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <div className="page-header">
         <span className="page-title">Products</span>
-        <button className="btn btn-primary" onClick={openAdd}>+ Add Product</button>
+        {!readOnly && <button className="btn btn-primary" onClick={openAdd}>+ Add Product</button>}
       </div>
 
       <div className="page-body" style={{ flex: 1, overflow: 'auto' }}>
@@ -122,23 +127,23 @@ export default function Products() {
               <tr>
                 <th>Name</th>
                 <th>Barcode</th>
-                <th>Price</th>
-                <th>Tax</th>
+                {!readOnly && <th>Price</th>}
+                {!readOnly && <th>Tax</th>}
                 <th>Stock</th>
                 <th>Category</th>
                 <th>Status</th>
-                <th></th>
+                {!readOnly && <th></th>}
               </tr>
             </thead>
             <tbody>
               {products.length === 0 ? (
-                <tr><td colSpan={8} className="empty-state">No products yet</td></tr>
+                <tr><td colSpan={readOnly ? 5 : 8} className="empty-state">No products yet</td></tr>
               ) : products.map(p => (
                 <tr key={p.id}>
                   <td style={{ fontWeight: 500 }}>{p.name}</td>
                   <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{p.barcode || '—'}</td>
-                  <td>${p.price.toFixed(2)}</td>
-                  <td>{p.tax_class} ({(p.tax_rate * 100).toFixed(0)}%)</td>
+                  {!readOnly && <td>{fmt(p.price)}</td>}
+                  {!readOnly && <td>{p.tax_class} ({(p.tax_rate * 100).toFixed(0)}%)</td>}
                   <td>
                     {p.stock_qty <= p.low_stock_threshold && p.stock_qty > 0
                       ? <span className="badge badge-yellow">{p.stock_qty} low</span>
@@ -153,12 +158,14 @@ export default function Products() {
                       {p.is_active ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td>
-                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)} style={{ marginRight: 6 }}>Edit</button>
-                    {p.is_active && (
-                      <button className="btn btn-danger btn-sm" onClick={() => handleDeactivate(p)}>Disable</button>
-                    )}
-                  </td>
+                  {!readOnly && (
+                    <td>
+                      <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)} style={{ marginRight: 6 }}>Edit</button>
+                      {p.is_active && (
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDeactivate(p)}>Disable</button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
