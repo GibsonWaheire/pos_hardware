@@ -1,5 +1,6 @@
 import axios from 'axios'
 import * as local from './localStore'
+import { enqueue } from './offlineQueue'
 
 const api = axios.create({
   baseURL: '/api',
@@ -23,6 +24,18 @@ const isOffline = e => e.isNetworkError
 async function withLocal(apiFn, localFn) {
   try { return await apiFn() }
   catch (e) { if (isOffline(e)) return localFn(); throw e }
+}
+
+/** Like withLocal, but also queues the operation for backend replay on reconnect. */
+async function withLocalAndQueue(apiFn, localFn, queueType, payload) {
+  try { return await apiFn() }
+  catch (e) {
+    if (isOffline(e)) {
+      enqueue(queueType, payload)
+      return localFn()
+    }
+    throw e
+  }
 }
 
 // ── Products ─────────────────────────────────────────────────────────────────
@@ -62,9 +75,10 @@ export const getLowStock = () => withLocal(
 
 // ── Sales ─────────────────────────────────────────────────────────────────────
 
-export const createSale = (data) => withLocal(
+export const createSale = (data) => withLocalAndQueue(
   () => api.post('/sales', data),
-  () => local.lsCreateSale(data)
+  () => local.lsCreateSale(data),
+  'create_sale', data
 )
 export const getSales = (params) => withLocal(
   () => api.get('/sales', { params }),
@@ -659,13 +673,15 @@ export const updateAccount = (id, data) => withLocal(
   () => api.put(`/accounts/${id}`, data),
   () => local.lsUpdateAccount(id, data)
 )
-export const depositToAccount = (id, data) => withLocal(
+export const depositToAccount = (id, data) => withLocalAndQueue(
   () => api.post(`/accounts/${id}/deposit`, data),
-  () => local.lsDepositToAccount(id, data)
+  () => local.lsDepositToAccount(id, data),
+  'deposit_account', { account_id: id, ...data }
 )
-export const adjustAccount = (id, data) => withLocal(
+export const adjustAccount = (id, data) => withLocalAndQueue(
   () => api.post(`/accounts/${id}/adjust`, data),
-  () => local.lsAdjustAccount(id, data)
+  () => local.lsAdjustAccount(id, data),
+  'adjust_account', { account_id: id, ...data }
 )
 export const lookupAccount = (q) => withLocal(
   () => api.get('/accounts/lookup', { params: { q } }),

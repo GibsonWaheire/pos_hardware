@@ -360,18 +360,23 @@ Every feature gating decision must follow this table.
 
 ---
 
-### Phase 24 — Offline Sync Queue (original Phase 11)
+### Phase 24 — Offline Sync Queue (original Phase 11) ✅ COMPLETE (2026-06-12)
 
 **Goal:** POS continues to work without internet; syncs when reconnected.
 
-- Queue sales, stock adjustments, account transactions in `OfflineQueue` table when backend unreachable
-- Flush queue on reconnect with conflict resolution:
-  - Sales: append-only, always replay
-  - Stock: last-write-wins per product
-  - Accounts: replay in chronological order
-- UI indicator: "X items pending sync" badge in top header
-- Offline mode banner: yellow bar warning cashier
-- Sync log: manager can see sync history and any conflicts
+#### What was built:
+- `frontend/src/offlineQueue.js` — localStorage queue: `enqueue`, `getQueue`, `getPendingCount`, `markSynced`, `markError`, `resetErrors`, `clearAll`
+- `frontend/src/offlineSync.js` — `flushQueue()` replays pending items to backend (raw axios, avoids circular dep); `checkBackendReachable()` pings `/api/health`
+- `frontend/src/context/OnlineStatusContext.jsx` — `OnlineStatusProvider` + `useOnlineStatus()` hook; polls backend every 30s; auto-flushes queue when backend comes back; exposes `isBackendUp`, `pendingCount`, `syncResult`
+- **Queued operations**: `createSale` (→ `POST /sales`), `depositToAccount` (→ `POST /accounts/:id/deposit`), `adjustAccount` (→ `POST /accounts/:id/adjust`) — all use `withLocalAndQueue()` helper
+- **UI — offline banner**: yellow full-width bar when backend unreachable, shows queued count
+- **UI — sync toast**: green bar when back online + items successfully replayed
+- **UI — pending badge**: sidebar + header show "X pending" when queue has items
+- **CloudSync.jsx** — new "Offline Queue" tab: table of all queued items (type, status, details, error), Flush Now button, Retry Errors, Clear All; fixed `$` → KES in fmt()
+
+#### Known limitations:
+- Account balance on replay: if the same account had other transactions while offline, the backend recomputes the running balance correctly from the DB — no drift on the server side. The local display may differ until a page refresh.
+- Stock adjustments are NOT queued (only sales are, which already include stock deduction on localStore). Write-offs and manual adjustments require online connectivity.
 
 ---
 

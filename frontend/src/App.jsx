@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from 're
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { CurrencyProvider } from './context/CurrencyContext'
+import { OnlineStatusProvider, useOnlineStatus } from './context/OnlineStatusContext'
 
 import POS from './pages/POS'
 import Products from './pages/Products'
@@ -89,6 +90,8 @@ function AppInner() {
     navigate('/', { replace: true })
   }
 
+  const { isBackendUp, pendingCount, syncResult } = useOnlineStatus()
+
   return (
     <div className="app-layout">
       <nav className="sidebar">
@@ -105,6 +108,13 @@ function AppInner() {
         {/* Spacer */}
         <div style={{ flex: 1 }} />
 
+        {/* Pending sync badge */}
+        {pendingCount > 0 && (
+          <div style={{ padding: '6px 12px', margin: '0 8px 4px', background: '#f59e0b22', borderRadius: 8, textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700 }}>{pendingCount} pending sync</div>
+          </div>
+        )}
+
         {/* Role dot at bottom of sidebar */}
         <div style={{ padding: '12px 0 4px', borderTop: '1px solid var(--border)', width: '100%', display: 'flex', justifyContent: 'center' }}>
           <div style={{ ...roleDot, background: ROLE_COLOUR[user.role] || '#888' }} title={user.role} />
@@ -112,6 +122,28 @@ function AppInner() {
       </nav>
 
       <div style={mainWrap}>
+        {/* Offline banner */}
+        {!isBackendUp && (
+          <div style={{
+            background: '#f59e0b', color: '#000', textAlign: 'center',
+            padding: '6px 16px', fontSize: 13, fontWeight: 600, flexShrink: 0,
+          }}>
+            Offline — sales and transactions are saved locally and will sync when connection is restored
+            {pendingCount > 0 && <span style={{ marginLeft: 12, background: '#00000033', borderRadius: 10, padding: '1px 8px' }}>{pendingCount} queued</span>}
+          </div>
+        )}
+
+        {/* Sync result toast */}
+        {syncResult && syncResult.synced > 0 && (
+          <div style={{
+            background: 'var(--success)', color: '#fff', textAlign: 'center',
+            padding: '6px 16px', fontSize: 13, fontWeight: 600, flexShrink: 0,
+          }}>
+            Back online — {syncResult.synced} offline operation{syncResult.synced !== 1 ? 's' : ''} synced to server
+            {syncResult.errors.length > 0 && <span style={{ marginLeft: 8, opacity: 0.85 }}>({syncResult.errors.length} failed)</span>}
+          </div>
+        )}
+
         {/* Top header bar */}
         <header style={topBar}>
           <div style={topBarLeft}>
@@ -122,6 +154,11 @@ function AppInner() {
             </span>
           </div>
           <div style={topBarRight}>
+            {pendingCount > 0 && (
+              <span style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, background: '#f59e0b22', padding: '3px 10px', borderRadius: 10 }}>
+                {pendingCount} pending
+              </span>
+            )}
             <button onClick={toggleTheme} style={topBarBtn} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
               {theme === 'dark' ? '☀️' : '🌙'}
             </button>
@@ -178,9 +215,11 @@ export default function App() {
     <CurrencyProvider>
       <ThemeProvider>
         <AuthProvider>
-          <BrowserRouter>
-            <AppInner />
-          </BrowserRouter>
+          <OnlineStatusProvider>
+            <BrowserRouter>
+              <AppInner />
+            </BrowserRouter>
+          </OnlineStatusProvider>
         </AuthProvider>
       </ThemeProvider>
     </CurrencyProvider>

@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
 import { getSyncStatus, runSync, getSyncLogs, getCloudDashboard, markAllPending } from '../api'
+import { getQueue, resetErrors, clearAll, getPendingCount } from '../offlineQueue'
+import { flushQueue } from '../offlineSync'
+import { useOnlineStatus } from '../context/OnlineStatusContext'
 
-function fmt(n) { return `$${Number(n || 0).toFixed(2)}` }
+function fmt(n) { return `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 function timeAgo(isoStr) {
   if (!isoStr) return 'Never'
   const diff = Math.floor((Date.now() - new Date(isoStr)) / 1000)
@@ -19,8 +22,13 @@ export default function CloudSync() {
   const [syncResult, setSyncResult] = useState(null)
   const [tab, setTab] = useState('status')
   const [error, setError] = useState('')
+  const [queue, setQueue] = useState(() => getQueue())
+  const [flushResult, setFlushResult] = useState(null)
+  const { isBackendUp, refreshPending } = useOnlineStatus()
 
   useEffect(() => { loadAll() }, [])
+
+  function refreshQueue() { setQueue(getQueue()); refreshPending() }
 
   async function loadAll() {
     try {
@@ -56,10 +64,12 @@ export default function CloudSync() {
     loadAll()
   }
 
+  const pendingInQueue = queue.filter(i => i.status === 'pending').length
   const TABS = [
     { key: 'status', label: 'Sync Status' },
-    { key: 'cloud', label: 'All Stores' },
-    { key: 'logs', label: 'Sync Logs' },
+    { key: 'queue',  label: `Offline Queue${pendingInQueue > 0 ? ` (${pendingInQueue})` : ''}` },
+    { key: 'cloud',  label: 'All Stores' },
+    { key: 'logs',   label: 'Sync Logs' },
   ]
 
   return (
@@ -309,6 +319,97 @@ SYNC_INTERVAL_MINUTES=15`}
 
             {!cloudData && !error && (
               <div className="empty-state">Loading cloud data...</div>
+            )}
+          </>
+        )}
+
+        {/* ── Offline Queue tab ── */}
+        {tab === 'queue' && (
+          <>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 15 }}>
+                  Offline Queue
+                  {pendingInQueue > 0 && <span style={{ marginLeft: 8, background: '#f59e0b', color: '#000', borderRadius: 10, fontSize: 11, padding: '1px 8px', fontWeight: 700 }}>{pendingInQueue} pending</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  Operations saved locally while offline. They replay to the backend automatically on reconnect.
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={refreshQueue}>Refresh</button>
+              {queue.some(i => i.status === 'error') && (
+                <button className="btn btn-ghost btn-sm" onClick={() => { resetErrors(); refreshQueue() }}>Retry Errors</button>
+              )}
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={!isBackendUp || pendingInQueue === 0 || syncing}
+                onClick={async () => {
+                  setSyncing(true); setFlushResult(null)
+                  try { const r = await flushQueue(); setFlushResult(r); refreshQueue() }
+                  catch (e) { setError(e.message) }
+                  finally { setSyncing(false) }
+                }}
+              >
+                {syncing ? 'Syncing...' : 'Flush Now'}
+              </button>
+              {queue.length > 0 && (
+                <button className="btn btn-danger btn-sm" onClick={() => { if (confirm('Clear entire offline queue? This cannot be undone.')) { clearAll(); refreshQueue() } }}>
+                  Clear All
+                </button>
+              )}
+            </div>
+
+            {flushResult && (
+              <div className="card" style={{ marginBottom: 14, borderColor: flushResult.errors.length ? 'var(--danger)' : 'var(--success)' }}>
+                <div style={{ fontWeight: 600, color: flushResult.errors.length ? 'var(--danger)' : 'var(--success)' }}>
+                  {flushResult.synced} item{flushResult.synced !== 1 ? 's' : ''} synced
+                  {flushResult.errors.length > 0 && `, ${flushResult.errors.length} failed`}
+                </div>
+                {flushResult.errors.map((e, i) => (
+                  <div key={i} style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>
+                    [{e.type}] {e.error}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {queue.length === 0 ? (
+              <div className="empty-state">No items in offline queue</div>
+            ) : (
+              <div className="card" style={{ padding: 0 }}>
+                <table className="table" style={{ fontSize: 13 }}>
+                  <thead>
+                    <tr><th>Time</th><th>Type</th><th>Status</th><th>Details</th><th>Error</th></tr>
+                  </thead>
+                  <tbody>
+                    {queue.map(item => (
+                      <tr key={item.id} style={{ background: item.status === 'error' ? '#fff5f5' : undefined }}>
+                        <td style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                          {new Date(item.created_at).toLocaleString()}
+                        </td>
+                        <td>
+                          <span className={`badge ${item.type === 'create_sale' ? 'badge-blue' : item.type === 'deposit_account' ? 'badge-green' : 'badge-yellow'}`}>
+                            {item.type.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`badge ${item.status === 'pending' ? 'badge-yellow' : item.status === 'error' ? 'badge-red' : 'badge-green'}`}>
+                            {item.status}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.type === 'create_sale' && `${item.payload.items?.length ?? 0} items · ${item.payload.payment_method || ''}`}
+                          {item.type === 'deposit_account' && `Acct #${item.payload.account_id} · ${fmt(item.payload.amount)}`}
+                          {item.type === 'adjust_account' && `Acct #${item.payload.account_id} · ${fmt(item.payload.amount)}`}
+                        </td>
+                        <td style={{ fontSize: 11, color: 'var(--danger)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {item.error || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </>
         )}
