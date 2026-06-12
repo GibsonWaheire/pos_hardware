@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { getInventoryOverview, getStockLevels, adjustStock, getStockAdjustments } from '../api'
+import { useCurrency } from '../context/CurrencyContext'
 
 export default function Inventory() {
+  const { fmt } = useCurrency()
   const [overview, setOverview] = useState(null)
   const [products, setProducts] = useState([])
   const [adjustments, setAdjustments] = useState([])
@@ -75,7 +77,7 @@ export default function Inventory() {
       {overview && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, padding: '16px 24px 0' }}>
           <StatCard label="Total Products" value={overview.total_products} />
-          <StatCard label="Stock Value" value={`$${overview.total_stock_value.toFixed(2)}`} />
+          <StatCard label="Stock Value" value={fmt(overview.total_stock_value)} />
           <StatCard label="Low Stock" value={overview.low_stock_count} color="var(--warning)" />
           <StatCard label="Out of Stock" value={overview.out_of_stock_count} color="var(--danger)" />
         </div>
@@ -122,7 +124,7 @@ export default function Inventory() {
                     <td style={{ fontWeight: 500 }}>{p.name}</td>
                     <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: 12 }}>{p.barcode || '—'}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{p.category_name || '—'}</td>
-                    <td>${p.price.toFixed(2)}</td>
+                    <td>{fmt(p.price)}</td>
                     <td style={{ fontWeight: 600 }}>{p.stock_qty}</td>
                     <td>
                       {p.stock_qty === 0

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { getAccounts, getAccount, createAccount, updateAccount, depositToAccount, adjustAccount, lookupAccount } from '../api'
+import { useCurrency } from '../context/CurrencyContext'
 
-function fmt(n) { return `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleString() : '—' }
 
 export default function Accounts() {
+  const { currency, fmt } = useCurrency()
   const [accounts, setAccounts] = useState([])
   const [selected, setSelected] = useState(null)   // full account with transactions
   const [loading, setLoading] = useState(true)
@@ -307,7 +308,7 @@ function CreateAccountModal({ onClose, onSave }) {
               placeholder="0712 345 678" />
           </div>
           <div>
-            <label className="label">Credit Limit (KES)</label>
+            <label className="label">Credit Limit ({currency})</label>
             <input className="input" type="number" min="0" step="1000"
               value={form.credit_limit}
               onChange={e => setForm({ ...form, credit_limit: e.target.value })}
@@ -372,7 +373,7 @@ function DepositModal({ account, onClose, onSave }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label className="label">Amount (KES) *</label>
+            <label className="label">Amount ({currency}) *</label>
             <input className="input" type="number" min="1" step="100"
               value={amount} onChange={e => setAmount(e.target.value)}
               placeholder="e.g. 100000" autoFocus style={{ fontSize: 18 }} />
@@ -455,7 +456,7 @@ function AdjustModal({ account, onClose, onSave }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label className="label">Adjustment Amount (KES)</label>
+            <label className="label">Adjustment Amount ({currency})</label>
             <input className="input" type="number" step="100"
               value={amount} onChange={e => setAmount(e.target.value)}
               placeholder="Positive = add, Negative = deduct" autoFocus />

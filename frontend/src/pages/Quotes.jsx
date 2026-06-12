@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { getQuotes, getQuote, createQuote, updateQuote, updateQuoteStatus, convertQuote, deleteQuote, getProducts } from '../api'
+import { useCurrency } from '../context/CurrencyContext'
 
-const KES = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-KE') : '—'
 
 const STATUS_COLOR = {
@@ -13,6 +13,7 @@ const STATUS_COLOR = {
 }
 
 export default function Quotes() {
+  const { fmt: KES } = useCurrency()
   const [quotes, setQuotes] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -177,6 +178,7 @@ export default function Quotes() {
 // ── Quote Detail Drawer ───────────────────────────────────────────────────────
 
 function QuoteDetail({ quote, onClose, onStatusChange, onConvert }) {
+  const { currency, fmt: KES } = useCurrency()
   const printRef = useRef()
 
   function handlePrint() {
@@ -212,18 +214,18 @@ function QuoteDetail({ quote, onClose, onStatusChange, onConvert }) {
             <td>${i + 1}</td>
             <td>${item.product_name}${item.notes ? `<br><small style="color:#666">${item.notes}</small>` : ''}</td>
             <td>${item.qty}</td>
-            <td>KES ${Number(item.unit_price).toLocaleString('en-KE', {minimumFractionDigits:2})}</td>
-            <td>${item.discount > 0 ? `KES ${Number(item.discount).toLocaleString('en-KE', {minimumFractionDigits:2})}` : '—'}</td>
+            <td>${KES(item.unit_price)}</td>
+            <td>${item.discount > 0 ? KES(item.discount) : '—'}</td>
             <td>${item.tax_rate > 0 ? `${(item.tax_rate * 100).toFixed(0)}%` : '—'}</td>
-            <td>KES ${Number(item.line_total).toLocaleString('en-KE', {minimumFractionDigits:2})}</td>
+            <td>${KES(item.line_total)}</td>
           </tr>`).join('')}
         </tbody>
       </table>
       <div class="totals">
-        <div>Subtotal: KES ${Number(quote.subtotal).toLocaleString('en-KE', {minimumFractionDigits:2})}</div>
-        ${quote.discount_total > 0 ? `<div>Discounts: -KES ${Number(quote.discount_total).toLocaleString('en-KE', {minimumFractionDigits:2})}</div>` : ''}
-        ${quote.tax_amount > 0 ? `<div>VAT/Tax: KES ${Number(quote.tax_amount).toLocaleString('en-KE', {minimumFractionDigits:2})}</div>` : ''}
-        <div class="grand">TOTAL: KES ${Number(quote.total).toLocaleString('en-KE', {minimumFractionDigits:2})}</div>
+        <div>Subtotal: ${KES(quote.subtotal)}</div>
+        ${quote.discount_total > 0 ? `<div>Discounts: -${KES(quote.discount_total)}</div>` : ''}
+        ${quote.tax_amount > 0 ? `<div>VAT/Tax: ${KES(quote.tax_amount)}</div>` : ''}
+        <div class="grand">TOTAL: ${KES(quote.total)}</div>
       </div>
       ${quote.notes ? `<div class="footer">Notes: ${quote.notes}</div>` : ''}
       <div class="footer" style="margin-top:16px">This is a proforma invoice. Prices are valid until ${quote.valid_until ? new Date(quote.valid_until).toLocaleDateString('en-KE') : 'further notice'}.</div>
@@ -328,6 +330,7 @@ function QuoteDetail({ quote, onClose, onStatusChange, onConvert }) {
 // ── Quote Form Modal (Create) ─────────────────────────────────────────────────
 
 function QuoteFormModal({ onClose, onSave }) {
+  const { fmt: KES } = useCurrency()
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [notes, setNotes] = useState('')

@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
+import { CurrencyProvider } from './context/CurrencyContext'
 
 import POS from './pages/POS'
 import Products from './pages/Products'
@@ -167,13 +168,15 @@ function RoleHome() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <BrowserRouter>
-          <AppInner />
-        </BrowserRouter>
-      </AuthProvider>
-    </ThemeProvider>
+    <CurrencyProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <AppInner />
+          </BrowserRouter>
+        </AuthProvider>
+      </ThemeProvider>
+    </CurrencyProvider>
   )
 }
 

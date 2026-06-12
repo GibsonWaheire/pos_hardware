@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { getReturns, createReturn, getSales, getSale } from '../api'
+import { useCurrency } from '../context/CurrencyContext'
 
 const EMPTY_FORM = { original_receipt: '', original_sale_id: null, reason: '', refund_method: 'cash', cashier_name: '', notes: '', items: [] }
 
 export default function ReturnsPage() {
+  const { fmt } = useCurrency()
   const [returns, setReturns] = useState([])
   const [modal, setModal] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -115,7 +117,7 @@ export default function ReturnsPage() {
                   <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{r.original_receipt || '—'}</td>
                   <td style={{ color: 'var(--text-muted)' }}>{r.reason || '—'}</td>
                   <td><span className="badge badge-blue">{r.refund_method}</span></td>
-                  <td style={{ fontWeight: 600, color: 'var(--danger)' }}>-${r.total_refund.toFixed(2)}</td>
+                  <td style={{ fontWeight: 600, color: 'var(--danger)' }}>-{fmt(r.total_refund)}</td>
                   <td style={{ color: 'var(--text-muted)' }}>{r.cashier_name || '—'}</td>
                   <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{new Date(r.created_at).toLocaleDateString()}</td>
                 </tr>
@@ -143,7 +145,7 @@ export default function ReturnsPage() {
               {lookupError && <p className="error-msg">{lookupError}</p>}
               {lookupSale && (
                 <div style={{ fontSize: 12, color: 'var(--success)', marginTop: 4 }}>
-                  Found: {lookupSale.receipt_number} · ${lookupSale.total.toFixed(2)} · {new Date(lookupSale.created_at).toLocaleDateString()}
+                  Found: {lookupSale.receipt_number} · {fmt(lookupSale.total)} · {new Date(lookupSale.created_at).toLocaleDateString()}
                 </div>
               )}
             </div>
@@ -159,14 +161,14 @@ export default function ReturnsPage() {
                       style={{ width: 16, height: 16 }} />
                     <div>
                       <div style={{ fontWeight: 500, fontSize: 13 }}>{item.product_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>${item.unit_price.toFixed(2)}/ea · max {item.max_qty}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmt(item.unit_price)}/ea · max {item.max_qty}</div>
                     </div>
                     <input className="input" type="number" min={1} max={item.max_qty}
                       value={item.qty}
                       onChange={e => updateItem(idx, 'qty', e.target.value)}
                       disabled={!item.selected} />
                     <div style={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}>
-                      {item.selected ? `$${(parseFloat(item.qty) * item.unit_price).toFixed(2)}` : ''}
+                      {item.selected ? fmt(parseFloat(item.qty) * item.unit_price) : ''}
                     </div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
                       <input type="checkbox" checked={item.restock}
@@ -177,7 +179,7 @@ export default function ReturnsPage() {
                   </div>
                 ))}
                 <div style={{ textAlign: 'right', fontWeight: 700, fontSize: 16, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-                  Refund Total: <span style={{ color: 'var(--danger)' }}>${returnTotal.toFixed(2)}</span>
+                  Refund Total: <span style={{ color: 'var(--danger)' }}>{fmt(returnTotal)}</span>
                 </div>
               </div>
             )}
@@ -213,7 +215,7 @@ export default function ReturnsPage() {
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
               <button className="btn btn-ghost" onClick={() => setModal(false)}>Cancel</button>
               <button className="btn btn-danger" onClick={handleSubmit} disabled={saving}>
-                {saving ? 'Processing...' : `Process Refund $${returnTotal.toFixed(2)}`}
+                {saving ? 'Processing...' : `Process Refund ${fmt(returnTotal)}`}
               </button>
             </div>
           </div>

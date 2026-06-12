@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { useCurrency } from '../context/CurrencyContext'
 import {
   getStaff, createStaff, updateStaff,
   getStoreConfig, updateStoreConfig,
@@ -22,6 +23,7 @@ const EMPTY_STORE = {
 
 export default function Settings() {
   const { user } = useAuth()
+  const { setCurrency } = useCurrency()
   const isManager = user?.role === 'manager' || user?.role === 'admin'
 
   const [staff, setStaff]       = useState([])
@@ -57,6 +59,7 @@ export default function Settings() {
     setStoreSaving(true); setStoreMsg('')
     try {
       await updateStoreConfig(storeForm)
+      setCurrency(storeForm.currency)
       setStoreMsg('Store settings saved')
       setTimeout(() => setStoreMsg(''), 3000)
     } catch (e) { setStoreMsg(e.message) } finally { setStoreSaving(false) }
@@ -203,11 +206,13 @@ export default function Settings() {
             <div className="form-group">
               <label className="label">Currency</label>
               <select className="input" value={storeForm.currency} onChange={e => setStoreForm({ ...storeForm, currency: e.target.value })}>
-                <option value="KES">KES (KSh)</option>
-                <option value="USD">USD ($)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="GBP">GBP (£)</option>
-                <option value="ZAR">ZAR (R)</option>
+                <option value="KES">KES – Kenyan Shilling</option>
+                <option value="USD">USD – US Dollar</option>
+                <option value="EUR">EUR – Euro</option>
+                <option value="GBP">GBP – British Pound</option>
+                <option value="ZAR">ZAR – South African Rand</option>
+                <option value="TZS">TZS – Tanzanian Shilling</option>
+                <option value="UGX">UGX – Ugandan Shilling</option>
               </select>
             </div>
             <div className="form-group">

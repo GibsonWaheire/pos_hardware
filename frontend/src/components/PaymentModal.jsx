@@ -1,18 +1,18 @@
 import { useState } from 'react'
 import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer } from '../api'
+import { useCurrency } from '../context/CurrencyContext'
 
 function newUUID() {
   try { return crypto.randomUUID() }
   catch { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
 }
 
-const KES = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-
 export default function PaymentModal({
   method, items, subtotal, discountTotal, taxAmount, total,
   customer, loyaltyPointsToRedeem, ageVerified,
   onClose, onComplete,
 }) {
+  const { currency, fmt: KES } = useCurrency()
   const [cashInput, setCashInput] = useState('')
   const [cardStatus, setCardStatus] = useState('')
   const [cardIntentId, setCardIntentId] = useState(null)
@@ -306,7 +306,7 @@ export default function PaymentModal({
               color: cashAmount >= total ? 'var(--success)' : 'var(--text)',
               border: `2px solid ${cashAmount >= total ? 'var(--success)' : 'var(--border)'}`,
             }}>
-              KES {cashInput || '0.00'}
+              {currency} {cashInput || '0.00'}
             </div>
             {cashAmount >= total && (
               <div style={{ textAlign: 'center', color: 'var(--success)', fontWeight: 600, marginBottom: 8 }}>
@@ -471,7 +471,7 @@ export default function PaymentModal({
               <>
                 <label className="label">Cash Portion</label>
                 <div style={{ fontSize: 28, fontWeight: 700, textAlign: 'center', padding: '10px', background: 'var(--surface2)', borderRadius: 8, marginBottom: 4 }}>
-                  KES {splitCash || '0.00'}
+                  {currency} {splitCash || '0.00'}
                 </div>
                 {splitCash && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: 13, marginBottom: 8 }}>

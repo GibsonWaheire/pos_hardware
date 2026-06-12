@@ -5,8 +5,10 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { getProducts } from '../api'
+import { useCurrency } from '../context/CurrencyContext'
 
 export default function ProductSearch({ onSelect }) {
+  const { fmt } = useCurrency()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [open, setOpen] = useState(false)
@@ -69,7 +71,7 @@ export default function ProductSearch({ onSelect }) {
                 <div style={{ fontWeight: 500 }}>{p.name}</div>
                 {p.barcode && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.barcode}</div>}
               </div>
-              <div style={{ fontWeight: 700, color: 'var(--accent)' }}>${p.price.toFixed(2)}</div>
+              <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{fmt(p.price)}</div>
             </div>
           ))}
         </div>
