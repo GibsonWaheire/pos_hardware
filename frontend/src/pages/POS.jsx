@@ -98,6 +98,11 @@ export default function POS() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState(null)
 
+  // Per-item discount (manager auth required)
+  const [discountAuthTarget, setDiscountAuthTarget] = useState(null)  // itemId awaiting auth
+  const [discountStep, setDiscountStep] = useState('auth')            // 'auth' | 'input'
+  const [discountInput, setDiscountInput] = useState('')
+
   // Sales history panel
   const [historyOpen, setHistoryOpen] = useState(false)
   const [salesHistory, setSalesHistory] = useState([])
@@ -305,6 +310,27 @@ export default function POS() {
     let store = {}
     try { const r = await getStoreConfig(); store = r.data || {} } catch {}
     printSaleReceipt(sale, store)
+  }
+
+  // ── Per-item discount ─────────────────────────────────────────────────────
+
+  function requestItemDiscount(itemId) {
+    setDiscountAuthTarget(itemId)
+    setDiscountInput('')
+    setDiscountStep('auth')
+  }
+
+  function applyItemDiscount() {
+    const amt = parseFloat(discountInput) || 0
+    const itemId = discountAuthTarget
+    setCartItems(prev => prev.map(i => {
+      if ((i._key || i.product_id) !== itemId) return i
+      const discount = Math.min(amt, i.unit_price)
+      const lineTotal = i.qty * (i.unit_price - discount) * (1 + i.tax_rate)
+      return { ...i, discount, line_total: lineTotal }
+    }))
+    setDiscountAuthTarget(null)
+    setDiscountInput('')
   }
 
   // ── Cart totals ───────────────────────────────────────────────────────────
@@ -583,7 +609,7 @@ export default function POS() {
           )}
         </div>
 
-        <Cart items={cartItems} onUpdateQty={updateQty} onRemove={removeItem} onRemoveRequest={requestRemoveItem} />
+        <Cart items={cartItems} onUpdateQty={updateQty} onRemove={removeItem} onRemoveRequest={requestRemoveItem} onDiscountRequest={requestItemDiscount} />
 
         <div className="cart-totals">
           <div className="totals-row"><span>Subtotal</span><span>KES {cartSubtotal.toFixed(2)}</span></div>
@@ -691,6 +717,48 @@ export default function POS() {
           onCancel={() => setRemoveAuthTarget(null)}
         />
       )}
+
+      {/* ── Manager auth: item discount ─── */}
+      {discountAuthTarget && discountStep === 'auth' && (
+        <ManagerAuthModal
+          title="Apply Item Discount"
+          description="Manager authorization required to discount a line item"
+          onAuthorize={() => setDiscountStep('input')}
+          onCancel={() => setDiscountAuthTarget(null)}
+        />
+      )}
+      {discountAuthTarget && discountStep === 'input' && (() => {
+        const item = cartItems.find(i => (i._key || i.product_id) === discountAuthTarget)
+        return (
+          <div className="modal-overlay">
+            <div className="modal" style={{ width: 360 }}>
+              <div className="modal-title">Item Discount</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+                {item?.product_name} — KES {item?.unit_price.toFixed(2)} each
+              </div>
+              <label className="label">Discount per unit (KES)</label>
+              <input
+                className="input" type="number" min={0} step={1}
+                max={item?.unit_price}
+                value={discountInput}
+                onChange={e => setDiscountInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && applyItemDiscount()}
+                autoFocus
+                style={{ marginBottom: 8 }}
+              />
+              {discountInput > 0 && item && (
+                <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 12 }}>
+                  New price: KES {(item.unit_price - parseFloat(discountInput)).toFixed(2)} each
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button className="btn btn-ghost" onClick={() => setDiscountAuthTarget(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={applyItemDiscount}>Apply</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Sales History modal ─── */}
       {historyOpen && (

@@ -83,9 +83,11 @@ app.register_blueprint(invoices_bp)
 def _ensure_columns():
     """Add any new columns that don't yet exist in the live SQLite DB."""
     cols_to_add = [
-        ('purchase_orders', 'dispatched_at',      'DATETIME'),
-        ('purchase_orders', 'dispatched_by_name',  'VARCHAR(100)'),
-        ('purchase_orders', 'dispatch_details',    'TEXT'),
+        ('purchase_orders', 'dispatched_at',                'DATETIME'),
+        ('purchase_orders', 'dispatched_by_name',            'VARCHAR(100)'),
+        ('purchase_orders', 'dispatch_details',              'TEXT'),
+        ('stores',          'default_tax_rate',              'REAL'),
+        ('stores',          'default_low_stock_threshold',   'INTEGER'),
     ]
     with db.engine.connect() as conn:
         for table, col, col_type in cols_to_add:

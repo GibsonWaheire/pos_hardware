@@ -25,7 +25,8 @@ def update_config():
     d = request.json or {}
     for field in ('name', 'address', 'phone', 'email', 'currency',
                   'timezone', 'receipt_header', 'receipt_footer', 'tax_number',
-                  'returns_approval_threshold'):
+                  'returns_approval_threshold', 'default_tax_rate',
+                  'default_low_stock_threshold'):
         if field in d:
             setattr(store, field, d[field])
 

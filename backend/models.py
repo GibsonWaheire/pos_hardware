@@ -747,6 +747,8 @@ class Store(db.Model):
     receipt_header = db.Column(db.Text)   # custom text above items
     receipt_footer = db.Column(db.Text)   # custom text below totals
     returns_approval_threshold = db.Column(db.Float, default=5000.0)  # refunds above this need manager OK
+    default_tax_rate = db.Column(db.Float, default=0.16)              # 16% Kenya standard VAT
+    default_low_stock_threshold = db.Column(db.Integer, default=5)    # global low-stock alert level
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
@@ -756,6 +758,8 @@ class Store(db.Model):
             'timezone': self.timezone, 'tax_number': self.tax_number,
             'receipt_header': self.receipt_header, 'receipt_footer': self.receipt_footer,
             'returns_approval_threshold': self.returns_approval_threshold or 5000.0,
+            'default_tax_rate': self.default_tax_rate if self.default_tax_rate is not None else 0.16,
+            'default_low_stock_threshold': self.default_low_stock_threshold or 5,
         }
 
 

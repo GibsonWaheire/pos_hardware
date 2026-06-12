@@ -19,6 +19,18 @@ const EMPTY_STORE = {
   name: '', address: '', phone: '', email: '',
   currency: 'KES', timezone: 'Africa/Nairobi',
   tax_number: '', receipt_header: '', receipt_footer: '',
+  returns_approval_threshold: 5000,
+  default_tax_rate: 16,      // stored as percent in UI, converted to decimal on save
+  default_low_stock_threshold: 5,
+}
+
+const ROLE_LABELS = {
+  cashier:    'Cashier — operates POS terminal, processes sales',
+  inventory:  'Inventory — manages stock, adjustments, GRNs',
+  purchasing: 'Purchasing — creates/manages purchase orders and suppliers',
+  manager:    'Manager — approves, reports, full store access (no system config)',
+  admin:      'Admin — full access including system settings and cloud sync',
+  supplier:   'Supplier — external vendor portal, own POs only',
 }
 
 export default function Settings() {
@@ -46,8 +58,17 @@ export default function Settings() {
   }
 
   async function loadStore() {
-    try { const res = await getStoreConfig(); setStoreForm({ ...EMPTY_STORE, ...res.data }) }
-    catch (e) { console.error(e) }
+    try {
+      const res = await getStoreConfig()
+      const d = res.data || {}
+      setStoreForm({
+        ...EMPTY_STORE, ...d,
+        // Convert decimal to percent for UI display
+        default_tax_rate: d.default_tax_rate != null ? Math.round(d.default_tax_rate * 100) : 16,
+        default_low_stock_threshold: d.default_low_stock_threshold ?? 5,
+        returns_approval_threshold: d.returns_approval_threshold ?? 5000,
+      })
+    } catch (e) { console.error(e) }
   }
 
   async function loadSuppliers() {
@@ -58,7 +79,13 @@ export default function Settings() {
   async function saveStore() {
     setStoreSaving(true); setStoreMsg('')
     try {
-      await updateStoreConfig(storeForm)
+      await updateStoreConfig({
+        ...storeForm,
+        // Convert percent back to decimal for backend
+        default_tax_rate: parseFloat(storeForm.default_tax_rate) / 100,
+        default_low_stock_threshold: parseInt(storeForm.default_low_stock_threshold) || 5,
+        returns_approval_threshold: parseFloat(storeForm.returns_approval_threshold) || 5000,
+      })
       setCurrency(storeForm.currency)
       setStoreMsg('Store settings saved')
       setTimeout(() => setStoreMsg(''), 3000)
@@ -237,6 +264,34 @@ export default function Settings() {
               <input className="input" placeholder="e.g. No refunds after 7 days" value={storeForm.receipt_footer} onChange={e => setStoreForm({ ...storeForm, receipt_footer: e.target.value })} />
             </div>
           </div>
+          {/* Business rules */}
+          <div style={{ fontWeight: 600, fontSize: 13, margin: '16px 0 10px', paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+            Business Rules
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="label">Returns Approval Threshold (KES)</label>
+              <input className="input" type="number" min={0} step={500}
+                value={storeForm.returns_approval_threshold}
+                onChange={e => setStoreForm({ ...storeForm, returns_approval_threshold: e.target.value })} />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Refunds above this amount require manager approval</div>
+            </div>
+            <div className="form-group">
+              <label className="label">Default VAT Rate (%)</label>
+              <input className="input" type="number" min={0} max={100} step={1}
+                value={storeForm.default_tax_rate}
+                onChange={e => setStoreForm({ ...storeForm, default_tax_rate: e.target.value })} />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Applied to new products by default (Kenya standard: 16%)</div>
+            </div>
+            <div className="form-group">
+              <label className="label">Default Low Stock Threshold (units)</label>
+              <input className="input" type="number" min={1} step={1}
+                value={storeForm.default_low_stock_threshold}
+                onChange={e => setStoreForm({ ...storeForm, default_low_stock_threshold: e.target.value })} />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Alert level for new products</div>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginTop: 4 }}>
             {storeMsg && <span style={{ fontSize: 13, color: storeMsg.includes('saved') ? 'var(--success)' : 'var(--danger)' }}>{storeMsg}</span>}
             <button className="btn btn-primary" onClick={saveStore} disabled={storeSaving}>
@@ -281,8 +336,13 @@ export default function Settings() {
                 <label className="label">Role</label>
                 <select className="input" value={form.role}
                   onChange={e => setForm({ ...form, role: e.target.value, supplier_id: '' })}>
-                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  {ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
                 </select>
+                {form.role && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
+                    {ROLE_LABELS[form.role]}
+                  </div>
+                )}
               </div>
 
               {form.role === 'supplier' && (

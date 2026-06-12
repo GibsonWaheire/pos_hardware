@@ -1,6 +1,6 @@
 import { useCurrency } from '../context/CurrencyContext'
 
-export default function Cart({ items, onUpdateQty, onRemove, onRemoveRequest }) {
+export default function Cart({ items, onUpdateQty, onRemove, onRemoveRequest, onDiscountRequest }) {
   const { fmt } = useCurrency()
   // Use onRemoveRequest if provided (triggers manager auth), else fall back to onRemove
   const handleRemove = onRemoveRequest || onRemove
@@ -40,6 +40,21 @@ export default function Cart({ items, onUpdateQty, onRemove, onRemoveRequest }) 
             </div>
 
             <div className="cart-item-total">{fmt(item.line_total)}</div>
+
+            {onDiscountRequest && (
+              <button
+                onClick={() => onDiscountRequest(itemId)}
+                style={{
+                  background: item.discount > 0 ? 'var(--warning)' : 'none',
+                  border: '1px solid var(--border)', borderRadius: 4,
+                  color: item.discount > 0 ? '#000' : 'var(--text-muted)',
+                  cursor: 'pointer', fontSize: 11, padding: '2px 5px',
+                }}
+                title={item.discount > 0 ? `Discount: −${fmt(item.discount)}` : 'Add discount (manager auth required)'}
+              >
+                %
+              </button>
+            )}
 
             <button
               onClick={() => handleRemove(itemId)}

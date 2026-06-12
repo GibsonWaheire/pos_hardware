@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   getProducts, createProduct, updateProduct, deleteProduct,
-  getCategories, createCategory,
+  getCategories, createCategory, getStoreConfig,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
@@ -21,12 +21,14 @@ export default function Products() {
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(null)  // null | { mode: 'add'|'edit', data: {} }
   const [form, setForm] = useState(EMPTY_FORM)
+  const [storeDefaults, setStoreDefaults] = useState({ default_tax_rate: 0.16, default_low_stock_threshold: 5 })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     loadProducts()
     loadCategories()
+    getStoreConfig().then(r => { if (r.data) setStoreDefaults(r.data) }).catch(() => {})
   }, [])
 
   async function loadProducts(q = '') {
@@ -48,7 +50,11 @@ export default function Products() {
   }
 
   function openAdd() {
-    setForm(EMPTY_FORM)
+    setForm({
+      ...EMPTY_FORM,
+      tax_rate: String(Math.round((storeDefaults.default_tax_rate || 0.16) * 100)),
+      low_stock_threshold: String(storeDefaults.default_low_stock_threshold || 5),
+    })
     setError('')
     setModal({ mode: 'add' })
   }
