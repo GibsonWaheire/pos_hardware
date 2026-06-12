@@ -3,12 +3,14 @@ import {
   getServices, createService, updateService, deleteService,
   getServiceCategories, createServiceCategory,
 } from '../api'
+import { useCurrency } from '../context/CurrencyContext'
 
 const DURATIONS = [15, 30, 45, 60, 75, 90, 120]
 
 const BLANK = { name: '', description: '', price: '', duration_minutes: 30, category_id: '', is_active: true }
 
 export default function Services() {
+  const { fmt, currency } = useCurrency()
   const [services, setServices] = useState([])
   const [categories, setCategories] = useState([])
   const [modal, setModal] = useState(null)   // null | 'add' | 'edit'
@@ -148,7 +150,7 @@ export default function Services() {
                     ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                   </td>
                   <td style={{ color: 'var(--text-muted)' }}>{s.duration_minutes} min</td>
-                  <td style={{ fontWeight: 600 }}>${s.price.toFixed(2)}</td>
+                  <td style={{ fontWeight: 600 }}>{fmt(s.price)}</td>
                   <td>
                     <span className={`badge ${s.is_active ? 'badge-green' : 'badge-red'}`}>
                       {s.is_active ? 'Active' : 'Inactive'}
@@ -185,7 +187,7 @@ export default function Services() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="form-group">
-                <label className="label">Price ($) *</label>
+                <label className="label">Price ({currency}) *</label>
                 <input className="input" type="number" min="0" step="0.01"
                   value={form.price}
                   onChange={e => setForm({ ...form, price: e.target.value })} />

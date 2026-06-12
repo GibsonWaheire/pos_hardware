@@ -20,6 +20,8 @@ import Dashboard from './pages/Dashboard'
 import CloudSync from './pages/CloudSync'
 import Accounts from './pages/Accounts'
 import Quotes from './pages/Quotes'
+import Services from './pages/Services'
+import Appointments from './pages/Appointments'
 import Login from './pages/Login'
 
 // ── Nav items and their allowed roles ────────────────────────────────────────
@@ -46,6 +48,9 @@ const NAV = [
   { to: '/inventory',       label: 'Stock',     icon: '🗂️',            roles: ['purchasing'] },
   { to: '/suppliers',       label: 'Suppliers', icon: '🚚',             roles: ['purchasing','manager','admin'] },
   { to: '/purchase-orders', label: 'Orders',    icon: '📋',             roles: ['supplier','purchasing','manager','admin'] },
+  // Services
+  { to: '/services',        label: 'Services',      icon: '🔧',         roles: ['manager','admin'] },
+  { to: '/appointments',    label: 'Appointments',  icon: '📅',         roles: ['cashier','manager','admin'] },
   // Admin
   { to: '/cloud-sync',      label: 'Cloud',     icon: '☁️',             roles: ['admin'] },
 ]
@@ -184,6 +189,8 @@ function AppInner() {
           <Route path="/loyalty"         element={<RoleGuard roles={['manager','admin']}><Loyalty /></RoleGuard>} />
           <Route path="/terminals"       element={<RoleGuard roles={['manager','admin']}><Terminals /></RoleGuard>} />
           <Route path="/reports"         element={<RoleGuard roles={['inventory','manager','admin']}><Reports /></RoleGuard>} />
+          <Route path="/services"        element={<RoleGuard roles={['manager','admin']}><Services /></RoleGuard>} />
+          <Route path="/appointments"    element={<RoleGuard roles={['cashier','manager','admin']}><Appointments /></RoleGuard>} />
           <Route path="/cloud-sync"      element={<RoleGuard roles={['admin']}><CloudSync /></RoleGuard>} />
           <Route path="/settings"        element={<RoleGuard roles={['manager','admin']}><Settings /></RoleGuard>} />
           {/* Catch-all: redirect to role home */}

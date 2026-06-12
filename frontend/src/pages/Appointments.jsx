@@ -3,7 +3,10 @@ import {
   getAppointments, createAppointment, updateAppointment,
   updateAppointmentStatus, deleteAppointment,
   getServices, getStaff, getCustomers,
+  createSale, createSaleInvoice, getStoreConfig,
 } from '../api'
+import { useCurrency } from '../context/CurrencyContext'
+import { printTaxInvoice } from '../utils/print'
 
 const STATUS_COLORS = {
   scheduled: '#6b7280',
@@ -47,6 +50,7 @@ const BLANK_FORM = {
 }
 
 export default function Appointments() {
+  const { fmt } = useCurrency()
   const [weekStart, setWeekStart] = useState(new Date())
   const [appointments, setAppointments] = useState([])
   const [services, setServices] = useState([])
@@ -58,6 +62,7 @@ export default function Appointments() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [view, setView] = useState('week')   // week | list
+  const [invoicing, setInvoicing] = useState(false)
 
   const weekDays = getWeekDays(weekStart)
   const dateFrom = weekDays[0].toISOString().split('T')[0]
@@ -153,6 +158,46 @@ export default function Appointments() {
         setSelected({ ...selected, status })
       }
     } catch (e) { alert(e.message) }
+  }
+
+  async function handleInvoice(appt) {
+    if (invoicing) return
+    setInvoicing(true)
+    try {
+      const items = (appt.services || []).map(s => ({
+        product_id: null,
+        product_name: s.service_name,
+        qty: 1,
+        unit_price: s.price,
+        discount: 0,
+      }))
+      const saleResp = await createSale({
+        items,
+        payment_method: 'cash',
+        amount_paid: appt.total_price || 0,
+        customer_id: appt.customer_id || null,
+        notes: `Appointment #${appt.id} — ${appt.client_name}`,
+        total: appt.total_price || 0,
+      })
+      const saleId = saleResp.data?.id || saleResp.data?.sale_id
+      if (saleId) {
+        try {
+          const [invResp, storeResp] = await Promise.all([
+            createSaleInvoice(saleId, {}),
+            getStoreConfig(),
+          ])
+          printTaxInvoice(invResp.data, storeResp.data)
+        } catch (e) {
+          alert('Sale recorded. Invoice print failed: ' + e.message)
+        }
+      } else {
+        alert('Sale recorded successfully.')
+      }
+    } catch (e) {
+      alert('Failed to create invoice: ' + e.message)
+    } finally {
+      setInvoicing(false)
+    }
   }
 
   // Position appointment block in calendar
@@ -285,7 +330,7 @@ export default function Appointments() {
                     <td style={{ color: 'var(--text-muted)' }}>
                       {a.services ? a.services.reduce((s, x) => s + x.duration_minutes, 0) : 0} min
                     </td>
-                    <td style={{ fontWeight: 600 }}>${(a.total_price || 0).toFixed(2)}</td>
+                    <td style={{ fontWeight: 600 }}>{fmt(a.total_price || 0)}</td>
                     <td>
                       <span style={{
                         background: STATUS_COLORS[a.status] + '33', color: STATUS_COLORS[a.status],
@@ -350,7 +395,7 @@ export default function Appointments() {
                   <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                     <select className="input" value={ps.service_id}
                       onChange={e => setPickedServices(pickedServices.map((x, xi) => xi === i ? { ...x, service_id: e.target.value } : x))}>
-                      {services.map(s => <option key={s.id} value={s.id}>{s.name} (${s.price})</option>)}
+                      {services.map(s => <option key={s.id} value={s.id}>{s.name} ({fmt(s.price)})</option>)}
                     </select>
                     <select className="input" value={ps.staff_id}
                       onChange={e => setPickedServices(pickedServices.map((x, xi) => xi === i ? { ...x, staff_id: e.target.value } : x))}>
@@ -363,10 +408,10 @@ export default function Appointments() {
               })}
               {pickedServices.length > 0 && (
                 <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'right' }}>
-                  Total: ${pickedServices.reduce((sum, ps) => {
+                  Total: {fmt(pickedServices.reduce((sum, ps) => {
                     const svc = services.find(s => s.id === parseInt(ps.service_id))
                     return sum + (svc?.price || 0)
-                  }, 0).toFixed(2)} •{' '}
+                  }, 0))} •{' '}
                   {pickedServices.reduce((sum, ps) => {
                     const svc = services.find(s => s.id === parseInt(ps.service_id))
                     return sum + (svc?.duration_minutes || 0)
@@ -422,7 +467,7 @@ export default function Appointments() {
               </div>
               <div>
                 <div style={{ color: 'var(--text-muted)', marginBottom: 2 }}>Total</div>
-                <div style={{ fontWeight: 700, fontSize: 16 }}>${(selected.total_price || 0).toFixed(2)}</div>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>{fmt(selected.total_price || 0)}</div>
               </div>
             </div>
 
@@ -434,7 +479,7 @@ export default function Appointments() {
                     <span style={{ fontWeight: 500 }}>{s.service_name}</span>
                     {s.staff_name && <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>• {s.staff_name}</span>}
                   </div>
-                  <div>${s.price.toFixed(2)}</div>
+                  <div>{fmt(s.price)}</div>
                 </div>
               ))}
             </div>
@@ -462,6 +507,11 @@ export default function Appointments() {
             )}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              {selected.status === 'completed' && (
+                <button className="btn btn-primary" onClick={() => handleInvoice(selected)} disabled={invoicing}>
+                  {invoicing ? 'Creating...' : 'Invoice'}
+                </button>
+              )}
               <button className="btn btn-ghost" onClick={() => setModal(null)}>Close</button>
             </div>
           </div>
