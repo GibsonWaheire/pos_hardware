@@ -2,18 +2,27 @@ import { useState, useEffect } from 'react'
 import {
   getCustomers, createCustomer, updateCustomer,
   getCustomerTransactions, adjustPoints,
-  getLoyaltyTiers,
+  getLoyaltyTiers, getCustomerInvoices, getStoreConfig,
 } from '../api'
+import { useAuth } from '../context/AuthContext'
+import { useCurrency } from '../context/CurrencyContext'
+import { printTaxInvoice } from '../utils/print'
 
 const EMPTY = { name: '', phone: '', email: '', date_of_birth: '', tier_id: '', notes: '' }
 
 export default function Customers() {
+  const { user } = useAuth()
+  const { fmt } = useCurrency()
+  const isManager = user && ['manager', 'admin'].includes(user.role)
+
   const [customers, setCustomers] = useState([])
   const [tiers, setTiers] = useState([])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(null)      // null | { mode: 'add'|'edit'|'detail', ... }
   const [form, setForm] = useState(EMPTY)
   const [detail, setDetail] = useState(null)    // { customer, transactions }
+  const [invoices, setInvoices] = useState([])
+  const [detailTab, setDetailTab] = useState('points') // 'points' | 'invoices'
   const [adjForm, setAdjForm] = useState({ points: '', notes: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -32,8 +41,24 @@ export default function Customers() {
     try {
       const res = await getCustomerTransactions(customer.id)
       setDetail(res.data)
+      setDetailTab('points')
+      setInvoices([])
       setModal({ mode: 'detail' })
+      if (isManager) {
+        try {
+          const ir = await getCustomerInvoices(customer.id)
+          setInvoices(ir.data)
+        } catch {}
+      }
     } catch (e) { alert(e.message) }
+  }
+
+  async function handleReprintInvoice(inv) {
+    try {
+      let store = {}
+      try { const r = await getStoreConfig(); store = r.data || {} } catch {}
+      printTaxInvoice(inv, store)
+    } catch (e) { alert('Print error: ' + e.message) }
   }
 
   async function handleSave() {
@@ -92,7 +117,7 @@ export default function Customers() {
                       : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                   </td>
                   <td style={{ fontWeight: 600 }}>{c.loyalty_points.toLocaleString()}</td>
-                  <td>${c.total_spent.toFixed(2)}</td>
+                  <td>{fmt(c.total_spent)}</td>
                   <td>{c.visit_count}</td>
                   <td>
                     <button className="btn btn-ghost btn-sm" style={{ marginRight: 6 }} onClick={() => openDetail(c)}>Details</button>
@@ -157,48 +182,101 @@ export default function Customers() {
       {/* Customer detail modal */}
       {modal?.mode === 'detail' && detail && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
-          <div className="modal" style={{ width: 580 }}>
+          <div className="modal" style={{ width: 620 }}>
             <div className="modal-title">{detail.customer.name}</div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
               <MiniStat label="Points" value={detail.customer.loyalty_points.toLocaleString()}
                 color={detail.customer.tier_color} />
               <MiniStat label="Tier" value={detail.customer.tier_name || '—'} />
-              <MiniStat label="Total Spent" value={`$${detail.customer.total_spent.toFixed(2)}`} />
+              <MiniStat label="Total Spent" value={fmt(detail.customer.total_spent)} />
             </div>
 
-            <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>Manual Point Adjustment</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              <input className="input" type="number" placeholder="e.g. 50 or -20"
-                value={adjForm.points} onChange={e => setAdjForm({ ...adjForm, points: e.target.value })}
-                style={{ width: 100 }} />
-              <input className="input" placeholder="Reason..."
-                value={adjForm.notes} onChange={e => setAdjForm({ ...adjForm, notes: e.target.value })} />
-              <button className="btn btn-primary" onClick={handleAdjust} disabled={saving}>Apply</button>
+            {/* Tab bar */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
+              {[['points', 'Loyalty Points'], ...(isManager ? [['invoices', `Invoices (${invoices.length})`]] : [])].map(([key, label]) => (
+                <button key={key} onClick={() => setDetailTab(key)} style={{
+                  padding: '6px 14px', background: 'none', border: 'none', cursor: 'pointer',
+                  color: detailTab === key ? 'var(--accent)' : 'var(--text-muted)',
+                  borderBottom: detailTab === key ? '2px solid var(--accent)' : '2px solid transparent',
+                  fontWeight: detailTab === key ? 600 : 400, fontSize: 13,
+                }}>{label}</button>
+              ))}
             </div>
-            {error && <p className="error-msg" style={{ marginBottom: 8 }}>{error}</p>}
 
-            <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>Point History</div>
-            <div style={{ maxHeight: 260, overflow: 'auto' }}>
-              <table className="table">
-                <thead><tr><th>Date</th><th>Type</th><th>Points</th><th>Balance</th><th>Notes</th></tr></thead>
-                <tbody>
-                  {detail.transactions.length === 0 ? (
-                    <tr><td colSpan={5} className="empty-state">No transactions yet</td></tr>
-                  ) : detail.transactions.map(t => (
-                    <tr key={t.id}>
-                      <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{new Date(t.created_at).toLocaleDateString()}</td>
-                      <td><span className={`badge ${t.points >= 0 ? 'badge-green' : 'badge-red'}`}>{t.type}</span></td>
-                      <td style={{ fontWeight: 600, color: t.points >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                        {t.points >= 0 ? '+' : ''}{t.points}
-                      </td>
-                      <td>{t.balance_after.toLocaleString()}</td>
-                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t.notes}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {detailTab === 'points' && (
+              <>
+                <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>Manual Point Adjustment</div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                  <input className="input" type="number" placeholder="e.g. 50 or -20"
+                    value={adjForm.points} onChange={e => setAdjForm({ ...adjForm, points: e.target.value })}
+                    style={{ width: 100 }} />
+                  <input className="input" placeholder="Reason..."
+                    value={adjForm.notes} onChange={e => setAdjForm({ ...adjForm, notes: e.target.value })} />
+                  <button className="btn btn-primary" onClick={handleAdjust} disabled={saving}>Apply</button>
+                </div>
+                {error && <p className="error-msg" style={{ marginBottom: 8 }}>{error}</p>}
+                <div style={{ maxHeight: 260, overflow: 'auto' }}>
+                  <table className="table">
+                    <thead><tr><th>Date</th><th>Type</th><th>Points</th><th>Balance</th><th>Notes</th></tr></thead>
+                    <tbody>
+                      {detail.transactions.length === 0 ? (
+                        <tr><td colSpan={5} className="empty-state">No transactions yet</td></tr>
+                      ) : detail.transactions.map(t => (
+                        <tr key={t.id}>
+                          <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{new Date(t.created_at).toLocaleDateString()}</td>
+                          <td><span className={`badge ${t.points >= 0 ? 'badge-green' : 'badge-red'}`}>{t.type}</span></td>
+                          <td style={{ fontWeight: 600, color: t.points >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                            {t.points >= 0 ? '+' : ''}{t.points}
+                          </td>
+                          <td>{t.balance_after.toLocaleString()}</td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t.notes}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {detailTab === 'invoices' && (
+              <div style={{ maxHeight: 320, overflow: 'auto' }}>
+                {invoices.length === 0 ? (
+                  <div className="empty-state">No invoices for this customer</div>
+                ) : (
+                  <table className="table">
+                    <thead>
+                      <tr><th>Invoice #</th><th>Receipt</th><th>Date</th><th>Total</th><th>Status</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map(inv => (
+                        <tr key={inv.id}>
+                          <td style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{inv.invoice_number}</td>
+                          <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{inv.receipt_number || '—'}</td>
+                          <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                            {inv.created_at ? new Date(inv.created_at).toLocaleDateString('en-KE') : '—'}
+                          </td>
+                          <td style={{ fontWeight: 600 }}>{fmt(inv.total)}</td>
+                          <td>
+                            <span style={{
+                              padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
+                              background: inv.status === 'issued' ? '#dcfce7' : '#fee2e2',
+                              color: inv.status === 'issued' ? '#15803d' : '#dc2626',
+                            }}>{inv.status}</span>
+                          </td>
+                          <td>
+                            <button className="btn btn-ghost btn-sm" onClick={() => handleReprintInvoice(inv)}>
+                              Reprint
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
             <button className="btn btn-ghost" style={{ width: '100%', marginTop: 16 }} onClick={() => setModal(null)}>Close</button>
           </div>
         </div>

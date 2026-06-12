@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer, getStoreConfig } from '../api'
+import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer, getStoreConfig, createSaleInvoice } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
-import { printDoc, RECEIPT_CSS } from '../utils/print'
+import { printDoc, RECEIPT_CSS, printTaxInvoice } from '../utils/print'
 
 function newUUID() {
   try { return crypto.randomUUID() }
@@ -136,6 +136,24 @@ export default function PaymentModal({
       setPrintMsg('Drawer opened')
     } catch (e) { setPrintMsg('Drawer unavailable') }
     setTimeout(() => setPrintMsg(''), 3000)
+  }
+
+  async function handlePrintInvoice() {
+    if (!completedSale?.id) return
+    setPrintMsg('Generating invoice...')
+    try {
+      let store = {}
+      try { const r = await getStoreConfig(); store = r.data || {} } catch {}
+      const r = await createSaleInvoice(completedSale.id, {
+        customer_pin: customer?.tax_pin || '',
+        customer_address: customer?.address || '',
+        payment_terms: 'Cash on delivery',
+      })
+      const inv = r.data
+      printTaxInvoice(inv, store)
+      setPrintMsg(`Invoice ${inv.invoice_number}`)
+    } catch (e) { setPrintMsg('Invoice error: ' + e.message) }
+    setTimeout(() => setPrintMsg(''), 4000)
   }
 
   // ── Cash ─────────────────────────────────────────────────────────────────
@@ -320,6 +338,11 @@ export default function PaymentModal({
                 💰 Drawer
               </button>
             )}
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={handlePrintInvoice}>
+              Invoice (A4)
+            </button>
           </div>
 
           <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={onClose}>

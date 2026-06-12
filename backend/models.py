@@ -1145,3 +1145,123 @@ class ReportPrintEvent(db.Model):
             'copy_number': self.copy_number,
         }
 
+
+# ── Phase 19 Models ─────────────────────────────────────────────────────────────
+
+class Invoice(db.Model):
+    """
+    KRA-compliant A4 tax invoice — one per sale (created on demand).
+    Sequential numbering: INV-YYYY-NNNN.
+    """
+    __tablename__ = 'invoices'
+
+    id             = db.Column(db.Integer, primary_key=True)
+    invoice_number = db.Column(db.String(30), unique=True, index=True)
+    sale_id        = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=False)
+    receipt_number = db.Column(db.String(30))       # denormalised for easy lookup
+
+    # Buyer details (B2B optional)
+    customer_id    = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
+    customer_name  = db.Column(db.String(150))
+    customer_pin   = db.Column(db.String(30))       # KRA PIN of buyer if B2B
+    customer_address = db.Column(db.Text)
+
+    # Financials (denormalised snapshot from sale)
+    subtotal       = db.Column(db.Float, nullable=False)
+    discount_total = db.Column(db.Float, default=0.0)
+    tax_amount     = db.Column(db.Float, default=0.0)
+    total          = db.Column(db.Float, nullable=False)
+
+    # Terms
+    payment_terms  = db.Column(db.String(50), default='Cash on delivery')
+    due_date       = db.Column(db.Date, nullable=True)
+    notes          = db.Column(db.Text)
+
+    # Status: draft | issued | voided
+    status         = db.Column(db.String(20), default='issued')
+
+    # Issued by
+    issued_by_id   = db.Column(db.Integer, nullable=True)
+    issued_by_name = db.Column(db.String(100))
+
+    # Items snapshot (JSON) — copied from SaleItems at invoice creation time
+    items_json     = db.Column(db.Text)   # list of {product_name, qty, unit_price, discount, tax_rate, line_total}
+
+    created_at     = db.Column(db.DateTime, default=datetime.utcnow)
+
+    credit_notes   = db.relationship('CreditNote', backref='invoice', lazy=True)
+
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'invoice_number': self.invoice_number,
+            'sale_id': self.sale_id,
+            'receipt_number': self.receipt_number,
+            'customer_id': self.customer_id,
+            'customer_name': self.customer_name,
+            'customer_pin': self.customer_pin,
+            'customer_address': self.customer_address,
+            'subtotal': self.subtotal,
+            'discount_total': self.discount_total,
+            'tax_amount': self.tax_amount,
+            'total': self.total,
+            'payment_terms': self.payment_terms,
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'notes': self.notes,
+            'status': self.status,
+            'issued_by_name': self.issued_by_name,
+            'items': json.loads(self.items_json) if self.items_json else [],
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class CreditNote(db.Model):
+    """
+    Issued when goods from an invoiced sale are returned.
+    Links back to the original invoice. Sequential: CN-YYYY-NNNN.
+    """
+    __tablename__ = 'credit_notes'
+
+    id                  = db.Column(db.Integer, primary_key=True)
+    credit_note_number  = db.Column(db.String(30), unique=True, index=True)
+    invoice_id          = db.Column(db.Integer, db.ForeignKey('invoices.id'), nullable=True)
+    invoice_number      = db.Column(db.String(30))      # denormalised
+    return_id           = db.Column(db.Integer, db.ForeignKey('returns.id'), nullable=True)
+    return_number       = db.Column(db.String(30))      # denormalised
+    original_sale_id    = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=True)
+    original_receipt    = db.Column(db.String(30))
+
+    customer_id         = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
+    customer_name       = db.Column(db.String(150))
+
+    reason              = db.Column(db.String(200))
+    items_json          = db.Column(db.Text)   # list of {product_name, qty, unit_price, line_refund}
+    total_credit        = db.Column(db.Float, nullable=False)
+    refund_method       = db.Column(db.String(20))  # cash | card | store_credit
+
+    issued_by_id        = db.Column(db.Integer, nullable=True)
+    issued_by_name      = db.Column(db.String(100))
+    created_at          = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'credit_note_number': self.credit_note_number,
+            'invoice_id': self.invoice_id,
+            'invoice_number': self.invoice_number,
+            'return_id': self.return_id,
+            'return_number': self.return_number,
+            'original_sale_id': self.original_sale_id,
+            'original_receipt': self.original_receipt,
+            'customer_id': self.customer_id,
+            'customer_name': self.customer_name,
+            'reason': self.reason,
+            'items': json.loads(self.items_json) if self.items_json else [],
+            'total_credit': self.total_credit,
+            'refund_method': self.refund_method,
+            'issued_by_name': self.issued_by_name,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+

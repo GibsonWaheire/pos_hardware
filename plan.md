@@ -85,6 +85,8 @@ Every feature gating decision must follow this table.
 | 15 | Professional printouts: POS receipt (80mm), quote/invoice, purchase order, shift report — all with store header + signature blocks | ✅ |
 | 16 | Role logic & access control cleanup — nav/route guards, role-scoped Inventory, role-gated Reports tabs, read-only Products for purchasing, backend 403 enforcement on all sensitive endpoints | ✅ |
 | 17 | Inventory operations & GRN system — StockMovement unified log, GoodsReceivedNote (auto on PO receive), DamageReport workflow (raise→approve→write-off), physical count sheet print, movement report print | ✅ |
+| 18 | Role-gated reports with per-department A4 printouts — purchasing tab, inventory tab hides prices from inventory role, Print Report button per tab | ✅ |
+| 19 | Tax Invoice & B2B Documents — KRA-compliant INV-YYYY-NNNN invoices, credit notes (CN-YYYY-NNNN) auto-generated on returns, invoice history on customer detail, Print Invoice on POS completion screen | ✅ |
 
 ---
 
@@ -175,7 +177,35 @@ Every feature gating decision must follow this table.
 
 ---
 
-### Phase 19 — Tax Invoice & B2B Documents
+### Phase 19 — Tax Invoice & B2B Documents ✅ COMPLETE
+
+**Implemented:**
+
+#### 19A — Tax Invoice from Completed Sale
+- `Invoice` model (`invoices` table): INV-YYYY-NNNN sequential numbering, linked to sale_id, customer details, items JSON snapshot, KRA PIN fields, payment_terms, status (issued/voided)
+- `GET /api/sales/<id>/invoice` — fetch existing invoice for a sale
+- `POST /api/sales/<id>/invoice` — idempotent create (returns existing if already issued)
+- `GET /api/invoices` — list all (manager/admin)
+- `GET /api/invoices/<id>` — single invoice
+- `POST /api/invoices/<id>/void` — void invoice (manager/admin)
+- `PaymentModal.jsx`: "Invoice (A4)" button on sale success screen — calls POST then opens `printTaxInvoice()`
+- `printTaxInvoice()` in `utils/print.js`: full KRA-compliant A4 — seller name + PIN, buyer + KRA PIN, line items with VAT%, VAT summary table, totals, 3-party signature block
+
+#### 19B — Customer Invoice History
+- `GET /api/customers/<id>/invoices` — invoices per customer (manager/admin)
+- `Customers.jsx`: detail modal now has "Invoices" tab (manager/admin only) listing all invoices with reprint button
+- Fixed `$` currency bug in Customers.jsx → uses `fmt()` from CurrencyContext throughout
+
+#### 19C — Credit Note
+- `CreditNote` model (`credit_notes` table): CN-YYYY-NNNN, links to Invoice + Return + original Sale
+- `routes/returns.py`: `create_return()` auto-generates credit note on every return — links to invoice if one exists for the original sale
+- `GET /api/credit-notes` — list (manager/admin)
+- `GET /api/credit-notes/<id>` — single
+- `printCreditNote()` in `utils/print.js`: A4 credit note with original invoice reference, returned items, total credit, 2-party signature
+
+---
+
+### Phase 19 — Tax Invoice & B2B Documents (original spec)
 
 **Goal:** Proper KRA-compliant invoicing for business customers.
 

@@ -513,6 +513,41 @@ export const getDashboard = () => withLocal(
   () => local.lsGetDashboard()
 )
 
+// ── Phase 19: Invoices & Credit Notes ─────────────────────────────────────────
+
+export const getSaleInvoice = (saleId) => withLocal(
+  () => api.get(`/sales/${saleId}/invoice`),
+  () => local.lsStub(null)
+)
+export const createSaleInvoice = (saleId, data) => withLocal(
+  () => api.post(`/sales/${saleId}/invoice`, data),
+  () => local.lsStub({})
+)
+export const getInvoices = (params) => withLocal(
+  () => api.get('/invoices', { params }),
+  () => local.lsStub([])
+)
+export const getInvoice = (id) => withLocal(
+  () => api.get(`/invoices/${id}`),
+  () => local.lsStub({})
+)
+export const voidInvoice = (id) => withLocal(
+  () => api.post(`/invoices/${id}/void`),
+  () => local.lsStub({})
+)
+export const getCustomerInvoices = (customerId) => withLocal(
+  () => api.get(`/customers/${customerId}/invoices`),
+  () => local.lsStub([])
+)
+export const getCreditNotes = (params) => withLocal(
+  () => api.get('/credit-notes', { params }),
+  () => local.lsStub([])
+)
+export const getCreditNote = (id) => withLocal(
+  () => api.get(`/credit-notes/${id}`),
+  () => local.lsStub({})
+)
+
 // ── Extended Reports ──────────────────────────────────────────────────────────
 
 export const getPurchasingReport = (params) => withLocal(

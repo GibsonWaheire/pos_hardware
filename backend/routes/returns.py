@@ -1,8 +1,9 @@
 from flask import Blueprint, jsonify, request
 from db import db
-from models import Return, ReturnItem, Sale, Product, StockAdjustment
+from models import Return, ReturnItem, Sale, Product, StockAdjustment, Invoice, CreditNote
 from auth_utils import get_current_user
-from datetime import date
+from datetime import date, datetime
+import json
 
 bp = Blueprint('returns', __name__, url_prefix='/api/returns')
 
@@ -118,5 +119,70 @@ def create_return():
     )
     ret.items = return_items
     db.session.add(ret)
+    db.session.flush()   # assigns ret.id before generating credit note
+
+    # Auto-generate credit note
+    cn = _create_credit_note(ret, return_items, original_sale, user)
+    if cn:
+        db.session.add(cn)
+
     db.session.commit()
-    return jsonify(ret.to_dict()), 201
+    result = ret.to_dict()
+    if cn:
+        result['credit_note'] = cn.to_dict()
+    return jsonify(result), 201
+
+
+def _gen_cn_number():
+    year = datetime.utcnow().year
+    prefix = f'CN-{year}-'
+    last = (CreditNote.query
+            .filter(CreditNote.credit_note_number.like(f'{prefix}%'))
+            .order_by(CreditNote.credit_note_number.desc())
+            .first())
+    seq = (int(last.credit_note_number.split('-')[-1]) + 1) if last else 1
+    return f'{prefix}{seq:04d}'
+
+
+def _create_credit_note(ret, return_items, original_sale, user):
+    """Build a CreditNote for a return. Links to invoice if one exists."""
+    items_snapshot = [
+        {
+            'product_name': ri.product_name,
+            'qty': ri.qty,
+            'unit_price': ri.unit_price,
+            'line_refund': ri.line_refund,
+        }
+        for ri in return_items
+    ]
+
+    # Try to find linked invoice
+    invoice_id     = None
+    invoice_number = None
+    customer_id    = None
+    customer_name  = ret.cashier_name  # fallback
+    if original_sale:
+        customer_id   = original_sale.customer_id
+        customer_name = original_sale.customer_name or ''
+        inv = Invoice.query.filter_by(sale_id=original_sale.id).first()
+        if inv:
+            invoice_id     = inv.id
+            invoice_number = inv.invoice_number
+
+    return CreditNote(
+        credit_note_number = _gen_cn_number(),
+        invoice_id         = invoice_id,
+        invoice_number     = invoice_number,
+        return_id          = ret.id,
+        return_number      = ret.return_number,
+        original_sale_id   = ret.original_sale_id,
+        original_receipt   = ret.original_receipt,
+        customer_id        = customer_id,
+        customer_name      = customer_name,
+        reason             = ret.reason,
+        items_json         = json.dumps(items_snapshot),
+        total_credit       = ret.total_refund,
+        refund_method      = ret.refund_method,
+        issued_by_id       = user['id']   if user else None,
+        issued_by_name     = user['name'] if user else 'Unknown',
+    )

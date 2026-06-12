@@ -529,6 +529,191 @@ export function printPurchasingReport(data, dateFrom, dateTo, store = {}, showCo
   printDoc(`Purchasing Report ${dateFrom} – ${dateTo}`, html)
 }
 
+/** Print A4 KRA-compliant Tax Invoice */
+export function printTaxInvoice(invoice, store = {}) {
+  const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const items = invoice.items || []
+  const itemRows = items.map(i => `<tr>
+    <td>${i.product_name}${i.item_type === 'service' ? ' <em style="font-size:8pt;color:#666">(service)</em>' : ''}</td>
+    <td class="right">${i.qty}</td>
+    <td class="right">${fmt2(i.unit_price)}</td>
+    <td class="right">${i.discount > 0 ? fmt2(i.discount) : '—'}</td>
+    <td class="right">${((i.tax_rate || 0) * 100).toFixed(0)}%</td>
+    <td class="right bold">${fmt2(i.line_total)}</td>
+  </tr>`).join('')
+
+  const vatRows = (() => {
+    const grouped = {}
+    items.forEach(i => {
+      const rate = (i.tax_rate || 0)
+      const label = rate > 0 ? `VAT ${(rate * 100).toFixed(0)}%` : 'Exempt'
+      const taxable = i.line_total - (i.discount || 0)
+      const vat = taxable * rate
+      if (!grouped[label]) grouped[label] = { taxable: 0, vat: 0 }
+      grouped[label].taxable += taxable
+      grouped[label].vat += vat
+    })
+    return Object.entries(grouped).map(([label, v]) =>
+      `<tr><td>${label}</td><td class="right">${fmt2(v.taxable)}</td><td class="right">${fmt2(v.vat)}</td></tr>`
+    ).join('')
+  })()
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}
+    .inv-meta { display:grid; grid-template-columns:1fr 1fr; gap:12pt; margin-bottom:14pt; }
+    .inv-box  { border:1pt solid #ccc; border-radius:3pt; padding:8pt 10pt; }
+    .inv-box .title { font-size:8pt; text-transform:uppercase; color:#666; margin-bottom:4pt; letter-spacing:.5pt; }
+    .inv-box .val   { font-size:10pt; font-weight:600; }
+    .vat-table { margin-top:10pt; }
+    .badge { display:inline-block; padding:2pt 8pt; border-radius:10pt; font-size:8pt; font-weight:700;
+      background:#dcfce7; color:#15803d; }
+    .badge.voided { background:#fee2e2; color:#dc2626; }
+  </style></head><body>
+    <div class="letterhead flex sb ac">
+      <div>
+        <div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}</div>
+        <div class="store-sub">${[store.phone, store.email].filter(Boolean).join(' | ')}${store.tax_number ? ' | KRA PIN: ' + store.tax_number : ''}</div>
+      </div>
+      <div class="right">
+        <div style="font-size:16pt;font-weight:700;text-transform:uppercase;letter-spacing:2pt">TAX INVOICE</div>
+        <div class="small muted" style="margin-top:3pt">${invoice.invoice_number}</div>
+        <div class="small muted">${invoice.created_at ? new Date(invoice.created_at).toLocaleDateString('en-KE') : ''}</div>
+        ${invoice.status === 'voided' ? '<div class="badge voided" style="margin-top:4pt">VOIDED</div>' : '<div class="badge" style="margin-top:4pt">ISSUED</div>'}
+      </div>
+    </div>
+
+    <div class="inv-meta">
+      <div class="inv-box">
+        <div class="title">Bill To</div>
+        <div class="val">${invoice.customer_name || 'Cash Customer'}</div>
+        ${invoice.customer_pin ? `<div class="small muted">KRA PIN: ${invoice.customer_pin}</div>` : ''}
+        ${invoice.customer_address ? `<div class="small muted">${invoice.customer_address}</div>` : ''}
+      </div>
+      <div class="inv-box">
+        <div class="title">Invoice Details</div>
+        <div class="small">Invoice No: <strong>${invoice.invoice_number}</strong></div>
+        <div class="small">Receipt No: ${invoice.receipt_number || '—'}</div>
+        <div class="small">Date: ${invoice.created_at ? new Date(invoice.created_at).toLocaleDateString('en-KE') : '—'}</div>
+        <div class="small">Payment Terms: ${invoice.payment_terms || 'Cash on delivery'}</div>
+        ${invoice.due_date ? `<div class="small">Due: ${invoice.due_date}</div>` : ''}
+        <div class="small">Issued By: ${invoice.issued_by_name || '—'}</div>
+      </div>
+    </div>
+
+    <table><thead><tr>
+      <th>Description</th><th class="right">Qty</th><th class="right">Unit Price</th>
+      <th class="right">Discount</th><th class="right">VAT</th><th class="right">Line Total</th>
+    </tr></thead><tbody>${itemRows}</tbody></table>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16pt;margin-top:10pt">
+      <div>
+        <div class="bold gap" style="font-size:9pt;text-transform:uppercase;letter-spacing:.5pt">VAT Summary</div>
+        <table class="vat-table"><thead><tr><th>Rate</th><th class="right">Taxable</th><th class="right">VAT</th></tr></thead>
+        <tbody>${vatRows}</tbody></table>
+        ${invoice.notes ? `<div style="margin-top:8pt;font-size:9pt;border:1pt solid #ddd;padding:6pt;border-radius:3pt"><strong>Notes:</strong> ${invoice.notes}</div>` : ''}
+      </div>
+      <div>
+        <table><tbody>
+          <tr><td>Subtotal</td><td class="right">${fmt2(invoice.subtotal)}</td></tr>
+          ${invoice.discount_total > 0 ? `<tr><td>Discounts</td><td class="right" style="color:#dc2626">−${fmt2(invoice.discount_total)}</td></tr>` : ''}
+          <tr><td>VAT</td><td class="right">${fmt2(invoice.tax_amount)}</td></tr>
+          <tr style="border-top:2pt solid #111">
+            <td class="bold" style="font-size:13pt;padding-top:4pt">TOTAL</td>
+            <td class="right bold" style="font-size:13pt;padding-top:4pt">${fmt2(invoice.total)}</td>
+          </tr>
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="sig-section" style="margin-top:20pt"><div class="sig-title">Authorisation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Issued By</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Received By (Customer)</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Manager</div></div>
+      </div>
+    </div>
+    <div class="doc-footer">
+      ${store.name || ''} ${store.tax_number ? '| KRA PIN: ' + store.tax_number : ''} | Generated ${new Date().toLocaleString('en-KE')}
+      <br>This is a computer-generated tax invoice. No signature required unless stated above.
+    </div>
+  </body></html>`
+  printDoc(invoice.invoice_number, html)
+}
+
+
+/** Print A4 Credit Note */
+export function printCreditNote(cn, store = {}) {
+  const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const items = cn.items || []
+  const itemRows = items.map(i => `<tr>
+    <td>${i.product_name}</td>
+    <td class="right">${i.qty}</td>
+    <td class="right">${fmt2(i.unit_price)}</td>
+    <td class="right bold">${fmt2(i.line_refund)}</td>
+  </tr>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}
+    .cn-header { background:#fff3f3; border:2pt solid #dc2626; border-radius:4pt; padding:10pt 14pt; margin-bottom:14pt; }
+  </style></head><body>
+    <div class="letterhead flex sb ac">
+      <div>
+        <div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}</div>
+        <div class="store-sub">${[store.phone, store.email].filter(Boolean).join(' | ')}${store.tax_number ? ' | KRA PIN: ' + store.tax_number : ''}</div>
+      </div>
+      <div class="right">
+        <div style="font-size:16pt;font-weight:700;text-transform:uppercase;letter-spacing:2pt;color:#dc2626">CREDIT NOTE</div>
+        <div class="small muted" style="margin-top:3pt">${cn.credit_note_number}</div>
+        <div class="small muted">${cn.created_at ? new Date(cn.created_at).toLocaleDateString('en-KE') : ''}</div>
+      </div>
+    </div>
+
+    <div class="cn-header">
+      <div class="flex sb">
+        <div><span class="small muted">Credit Note No:</span> <strong>${cn.credit_note_number}</strong></div>
+        <div><span class="small muted">Original Invoice:</span> <strong>${cn.invoice_number || '—'}</strong></div>
+        <div><span class="small muted">Return No:</span> <strong>${cn.return_number || '—'}</strong></div>
+        <div><span class="small muted">Receipt No:</span> <strong>${cn.original_receipt || '—'}</strong></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12pt;margin-bottom:14pt">
+      <div style="border:1pt solid #ccc;border-radius:3pt;padding:8pt 10pt">
+        <div style="font-size:8pt;text-transform:uppercase;color:#666;margin-bottom:4pt">Customer</div>
+        <div style="font-weight:600">${cn.customer_name || 'Cash Customer'}</div>
+      </div>
+      <div style="border:1pt solid #ccc;border-radius:3pt;padding:8pt 10pt">
+        <div style="font-size:8pt;text-transform:uppercase;color:#666;margin-bottom:4pt">Reason for Credit</div>
+        <div style="font-weight:600">${cn.reason || '—'}</div>
+        <div class="small muted">Refund Method: ${cn.refund_method || '—'}</div>
+        <div class="small muted">Issued By: ${cn.issued_by_name || '—'}</div>
+        <div class="small muted">Date: ${cn.created_at ? new Date(cn.created_at).toLocaleDateString('en-KE') : '—'}</div>
+      </div>
+    </div>
+
+    <table><thead><tr>
+      <th>Product / Service</th><th class="right">Qty</th><th class="right">Unit Price</th><th class="right">Credit</th>
+    </tr></thead><tbody>${itemRows}</tbody></table>
+
+    <div style="text-align:right;margin-top:10pt;padding-top:8pt;border-top:2pt solid #111">
+      <span class="bold" style="font-size:14pt;color:#dc2626">TOTAL CREDIT: ${fmt2(cn.total_credit)}</span>
+    </div>
+
+    <div class="sig-section" style="margin-top:20pt"><div class="sig-title">Authorisation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Issued By (${cn.issued_by_name || '—'})</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Manager Sign-off</div></div>
+      </div>
+    </div>
+    <div class="doc-footer">
+      ${store.name || ''} | Generated ${new Date().toLocaleString('en-KE')}
+      <br>This credit note is valid for 30 days from date of issue.
+    </div>
+  </body></html>`
+  printDoc(cn.credit_note_number, html)
+}
+
+
 /** Shared receipt CSS (80mm thermal width) */
 export const RECEIPT_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
