@@ -692,5 +692,3 @@ function StatCard({ label, value, sub, color }) {
     </div>
   )
 }
-
-function fmtDate(iso) { return iso ? new Date(iso).toLocaleString('en-KE') : '—' }
