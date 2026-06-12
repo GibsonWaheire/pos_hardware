@@ -524,6 +524,10 @@ export const getDashboard = () => withLocal(
   () => api.get('/dashboard'),
   () => local.lsGetDashboard()
 )
+export const getManagerDashboard = () => withLocal(
+  () => api.get('/dashboard/manager'),
+  () => local.lsStub({ pending_approvals: { total: 0, returns: [], purchase_orders: [], grns: [], damage_reports: [] }, shift: null, alerts: { unprinted_shift_reports: 0, unfiled_shift_reports: 0, over_limit_accounts: 0, over_limit_details: [] }, last_sync: null })
+)
 
 // ── Phase 19: Invoices & Credit Notes ─────────────────────────────────────────
 

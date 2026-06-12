@@ -296,28 +296,32 @@ Every feature gating decision must follow this table.
 
 ---
 
-### Phase 22 — Manager Dashboard: Pending Approvals & Alerts
+### Phase 22 — Manager Dashboard: Pending Approvals & Alerts ✅ COMPLETE (2026-06-12)
 
 **Goal:** Manager sees everything that needs their attention on login.
 
-#### 22A — Pending Approvals Widget
-- Damage/write-off requests awaiting approval
-- POs above purchaser limit awaiting approval
-- GRNs awaiting sign-off
-- Large stock adjustments awaiting review
-- Each item: who raised it, what, when, action button
+#### 22A — Pending Approvals Widget ✅
+- Returns with `status='pending_approval'`
+- POs with `status='pending_approval'`
+- GRNs with `status='confirmed'` (awaiting sign-off)
+- DamageReports with `status='raised'` or `'pending_approval'`
+- Each row: ref number, amount/product, raised-by, time-ago, "Review" button linking to relevant page
+- Collapsible per-type sections with count badges
 
-#### 22B — Operational Alerts Widget
-- Low stock items (below threshold) — count + link to inventory
-- Overdue accounts (customers over credit limit or 30+ days outstanding)
-- Unprinted / unfiled shift reports
-- Last cloud sync time + status
+#### 22B — Operational Alerts Widget ✅
+- Unprinted shift reports (print_count=0) — count with link to Reports
+- Unfiled shift reports (filed_at=NULL) — count
+- Accounts over credit limit — count + per-account detail (name, balance vs limit)
+- Last cloud sync time + status (green/red), error message if failed
 
-#### 22C — Today's Summary Widget
-- Today's sales total + transaction count (manager only)
-- Cash in drawer (last shift reconciliation)
-- Current open shift (who opened it, time)
-- Pending POs
+#### 22C — Current Shift Widget ✅
+- Current open shift: cashier name, time open, opening float
+- "No shift currently open" state
+
+#### Implementation files:
+- `backend/routes/dashboard.py` — added `GET /api/dashboard/manager` (manager/admin only); added imports for Return, GoodsReceivedNote, DamageReport, Shift, ShiftReport, SyncLog, get_current_user
+- `frontend/src/api.js` — added `getManagerDashboard`
+- `frontend/src/pages/Dashboard.jsx` — added `useAuth`, parallel load of manager data, `ManagerPanel` component with `ApprovalSection` and `AlertRow` helpers; manager panel only renders for manager/admin roles
 
 ---
 

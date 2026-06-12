@@ -1,6 +1,9 @@
 from flask import Blueprint, jsonify
 from db import db
-from models import Sale, SaleItem, Customer, Product, PurchaseOrder, CustomerAccount
+from models import (Sale, SaleItem, Customer, Product, PurchaseOrder, CustomerAccount,
+                    Return, GoodsReceivedNote, DamageReport, Shift, ShiftReport,
+                    SyncLog)
+from auth_utils import get_current_user
 from datetime import datetime, date, timedelta
 from sqlalchemy import func
 
@@ -151,4 +154,76 @@ def dashboard():
             'total_debt': round(total_debt, 2),
             'accounts_in_debt': accounts_in_debt,
         },
+    })
+
+
+@bp.route('/api/dashboard/manager')
+def manager_dashboard():
+    user = get_current_user()
+    if not user or user.get('role') not in ('manager', 'admin'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    # ── Pending Approvals ─────────────────────────────────────────────────────
+    pending_returns = Return.query.filter_by(status='pending_approval').order_by(Return.created_at).all()
+    pending_pos     = PurchaseOrder.query.filter_by(status='pending_approval').order_by(PurchaseOrder.created_at).all()
+    pending_grns    = GoodsReceivedNote.query.filter_by(status='confirmed').order_by(GoodsReceivedNote.received_at).all()
+    # raised = needs first review; pending_approval = escalated for manager sign-off
+    pending_damage  = DamageReport.query.filter(
+        DamageReport.status.in_(['raised', 'pending_approval'])
+    ).order_by(DamageReport.raised_at).all()
+
+    # ── Shift status ──────────────────────────────────────────────────────────
+    open_shift = Shift.query.filter_by(status='open').order_by(Shift.opened_at.desc()).first()
+
+    # ── Shift reports needing attention (not yet printed) ────────────────────
+    unprinted_count  = ShiftReport.query.filter_by(print_count=0).count()
+    unfiled_count    = ShiftReport.query.filter(ShiftReport.filed_at == None).count()
+
+    # ── Overdue / over-limit accounts ────────────────────────────────────────
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    all_accts = CustomerAccount.query.filter_by(is_active=True).all()
+    over_limit_accts = [
+        {'id': a.id, 'name': a.customer_name, 'balance': a.balance, 'credit_limit': a.credit_limit,
+         'excess': round(-a.balance - a.credit_limit, 2)}
+        for a in all_accts if a.credit_limit > 0 and -a.balance > a.credit_limit
+    ]
+
+    # ── Last cloud sync ───────────────────────────────────────────────────────
+    last_sync = SyncLog.query.order_by(SyncLog.created_at.desc()).first()
+
+    def _ret(r):
+        return {'id': r.id, 'ref': r.return_number, 'amount': r.total_refund,
+                'by': r.cashier_name, 'when': r.created_at.isoformat() if r.created_at else None}
+    def _po(p):
+        return {'id': p.id, 'ref': p.po_number, 'amount': p.total_cost,
+                'supplier': p.supplier_name, 'by': p.created_by_name or p.created_by,
+                'when': p.created_at.isoformat() if p.created_at else None}
+    def _grn(g):
+        return {'id': g.id, 'ref': g.grn_number, 'supplier': g.supplier_name,
+                'po': g.po_number, 'by': g.received_by_name,
+                'when': g.received_at.isoformat() if g.received_at else None}
+    def _dmg(d):
+        return {'id': d.id, 'ref': d.report_number, 'product': d.product_name,
+                'qty': d.qty, 'value': d.estimated_value, 'by': d.raised_by_name,
+                'status': d.status,
+                'when': d.raised_at.isoformat() if d.raised_at else None}
+
+    total_pending = len(pending_returns) + len(pending_pos) + len(pending_grns) + len(pending_damage)
+
+    return jsonify({
+        'pending_approvals': {
+            'total': total_pending,
+            'returns':       [_ret(r) for r in pending_returns],
+            'purchase_orders': [_po(p) for p in pending_pos],
+            'grns':          [_grn(g) for g in pending_grns],
+            'damage_reports': [_dmg(d) for d in pending_damage],
+        },
+        'shift': open_shift.to_dict() if open_shift else None,
+        'alerts': {
+            'unprinted_shift_reports': unprinted_count,
+            'unfiled_shift_reports':   unfiled_count,
+            'over_limit_accounts': len(over_limit_accts),
+            'over_limit_details':  over_limit_accts,
+        },
+        'last_sync': last_sync.to_dict() if last_sync else None,
     })

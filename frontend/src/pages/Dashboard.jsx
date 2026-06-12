@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { getDashboard } from '../api'
+import { getDashboard, getManagerDashboard } from '../api'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 
 function fmt(n) {
   if (n == null) return '—'
@@ -29,6 +30,235 @@ function BarChart({ data, valueKey, labelKey, color = 'var(--accent)', height = 
   )
 }
 
+function fmtAgo(iso) {
+  if (!iso) return 'Never'
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+  if (diff < 60)  return `${diff}s ago`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
+
+function ApprovalSection({ title, items, color = 'var(--warning)', renderRow }) {
+  const [open, setOpen] = useState(true)
+  if (items.length === 0) return null
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: open ? 6 : 0 }}
+      >
+        <span style={{ background: color, color: '#fff', borderRadius: 10, fontSize: 11, padding: '1px 8px', fontWeight: 700 }}>
+          {items.length}
+        </span>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>{title}</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>{open ? 'hide' : 'show'}</span>
+      </div>
+      {open && (
+        <table className="table" style={{ fontSize: 12 }}>
+          <tbody>{items.map(renderRow)}</tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+function ManagerPanel({ mgr, nav }) {
+  const pa = mgr.pending_approvals || {}
+  const alerts = mgr.alerts || {}
+  const shift = mgr.shift
+  const sync = mgr.last_sync
+
+  const totalPending = pa.total || 0
+  const hasAlerts = alerts.unprinted_shift_reports > 0 || alerts.over_limit_accounts > 0
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      {/* Section header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>Manager Attention</div>
+        {(totalPending > 0 || hasAlerts) && (
+          <span style={{ background: 'var(--danger)', color: '#fff', borderRadius: 12, fontSize: 11, padding: '2px 9px', fontWeight: 700 }}>
+            {totalPending + (hasAlerts ? 1 : 0)} items
+          </span>
+        )}
+        {totalPending === 0 && !hasAlerts && (
+          <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 600 }}>All clear</span>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+
+        {/* 22A — Pending Approvals */}
+        <div className="card" style={{ gridColumn: '1 / 3' }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
+            Pending Approvals
+            {totalPending > 0 && (
+              <span style={{ marginLeft: 8, background: 'var(--danger)', color: '#fff', borderRadius: 10, fontSize: 11, padding: '1px 7px', fontWeight: 700 }}>
+                {totalPending}
+              </span>
+            )}
+          </div>
+
+          {totalPending === 0 ? (
+            <div style={{ color: 'var(--success)', fontSize: 13, fontWeight: 500 }}>No pending approvals</div>
+          ) : (
+            <>
+              <ApprovalSection
+                title="Returns awaiting approval"
+                items={pa.returns || []}
+                color="var(--danger)"
+                renderRow={r => (
+                  <tr key={r.id}>
+                    <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{r.ref}</td>
+                    <td>{fmt(r.amount)}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{r.by}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{fmtAgo(r.when)}</td>
+                    <td><button className="btn btn-ghost btn-sm" onClick={() => nav('/returns')}>Review</button></td>
+                  </tr>
+                )}
+              />
+              <ApprovalSection
+                title="Purchase orders awaiting approval"
+                items={pa.purchase_orders || []}
+                color="var(--warning)"
+                renderRow={p => (
+                  <tr key={p.id}>
+                    <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{p.ref}</td>
+                    <td>{fmt(p.amount)}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{p.supplier}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{p.by}</td>
+                    <td><button className="btn btn-ghost btn-sm" onClick={() => nav('/purchase-orders')}>Review</button></td>
+                  </tr>
+                )}
+              />
+              <ApprovalSection
+                title="GRNs awaiting sign-off"
+                items={pa.grns || []}
+                color="var(--accent)"
+                renderRow={g => (
+                  <tr key={g.id}>
+                    <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{g.ref}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{g.supplier}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 11 }}>PO: {g.po}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{fmtAgo(g.when)}</td>
+                    <td><button className="btn btn-ghost btn-sm" onClick={() => nav('/inventory')}>Review</button></td>
+                  </tr>
+                )}
+              />
+              <ApprovalSection
+                title="Damage reports to review"
+                items={pa.damage_reports || []}
+                color="var(--text-muted)"
+                renderRow={d => (
+                  <tr key={d.id}>
+                    <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{d.ref}</td>
+                    <td>{d.product} × {d.qty}</td>
+                    <td>{fmt(d.value)}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{d.by}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{fmtAgo(d.when)}</td>
+                  </tr>
+                )}
+              />
+            </>
+          )}
+        </div>
+
+        {/* 22B + 22C — Alerts + Shift status stacked */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* 22C — Current shift */}
+          <div className="card" style={{ borderColor: shift ? 'var(--success)' : 'var(--surface2)' }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Current Shift</div>
+            {shift ? (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{shift.cashier_name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  Opened {fmtAgo(shift.opened_at)}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Float: {fmt(shift.opening_float)}
+                </div>
+              </>
+            ) : (
+              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No shift currently open</div>
+            )}
+          </div>
+
+          {/* 22B — Operational Alerts */}
+          <div className="card" style={{ borderColor: hasAlerts ? 'var(--warning)' : undefined }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Operational Alerts</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+              {alerts.unprinted_shift_reports > 0 && (
+                <AlertRow
+                  label="Unprinted shift reports"
+                  value={alerts.unprinted_shift_reports}
+                  color="var(--warning)"
+                  onClick={() => nav('/reports')}
+                />
+              )}
+              {alerts.unfiled_shift_reports > 0 && (
+                <AlertRow
+                  label="Unfiled shift reports"
+                  value={alerts.unfiled_shift_reports}
+                  color="var(--warning)"
+                  onClick={() => nav('/reports')}
+                />
+              )}
+              {alerts.over_limit_accounts > 0 && (
+                <div>
+                  <AlertRow
+                    label="Accounts over credit limit"
+                    value={alerts.over_limit_accounts}
+                    color="var(--danger)"
+                    onClick={() => nav('/accounts')}
+                  />
+                  {(alerts.over_limit_details || []).map(a => (
+                    <div key={a.id} style={{ fontSize: 11, color: 'var(--danger)', marginTop: 2, paddingLeft: 8 }}>
+                      {a.name}: {fmt(-a.balance)} / limit {fmt(a.credit_limit)}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!hasAlerts && (
+                <div style={{ fontSize: 13, color: 'var(--success)', fontWeight: 500 }}>No operational alerts</div>
+              )}
+
+              <div style={{ borderTop: '1px solid var(--surface2)', paddingTop: 8, marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  Last cloud sync:{' '}
+                  <span style={{ color: sync?.status === 'success' ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                    {sync ? fmtAgo(sync.created_at) : 'Never'}
+                  </span>
+                  {sync?.status === 'error' && (
+                    <div style={{ color: 'var(--danger)', fontSize: 10, marginTop: 2 }}>{sync.error_message}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
+function AlertRow({ label, value, color, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+               cursor: onClick ? 'pointer' : 'default', padding: '4px 0' }}
+    >
+      <span style={{ fontSize: 13 }}>{label}</span>
+      <span style={{ background: color, color: '#fff', borderRadius: 10, fontSize: 11,
+                     padding: '1px 8px', fontWeight: 700 }}>{value}</span>
+    </div>
+  )
+}
+
 function KpiCard({ label, value, sub, color, icon, onClick, alert }) {
   return (
     <div className="card" onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default', position: 'relative' }}>
@@ -52,16 +282,22 @@ function KpiCard({ label, value, sub, color, icon, onClick, alert }) {
 
 export default function Dashboard() {
   const [data, setData] = useState(null)
+  const [mgr, setMgr] = useState(null)
   const [loading, setLoading] = useState(true)
   const nav = useNavigate()
+  const { user } = useAuth()
+  const isManager = user && ['manager', 'admin'].includes(user.role)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
     try {
-      const r = await getDashboard()
+      const calls = [getDashboard()]
+      if (isManager) calls.push(getManagerDashboard())
+      const [r, mr] = await Promise.all(calls)
       setData(r.data)
+      if (mr) setMgr(mr.data)
     } catch (e) { console.error(e) } finally { setLoading(false) }
   }
 
@@ -246,6 +482,9 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* ── Manager-only sections ── */}
+        {isManager && mgr && <ManagerPanel mgr={mgr} nav={nav} />}
 
       </div>
     </div>
