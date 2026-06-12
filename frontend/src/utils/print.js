@@ -1079,3 +1079,67 @@ export const RECEIPT_CSS = `
   .sig-label{ font-size: 8pt; color: #444; }
   .footer   { text-align: center; font-size: 8pt; color: #444; margin-top: 4mm; line-height: 1.5; }
 `
+
+/**
+ * Print a browser-window receipt from a Sale dict (from backend to_dict).
+ * Uses the sale's own created_at for the date — safe for both fresh sales and reprints.
+ */
+export function printSaleReceipt(sale, store = {}) {
+  const currency = store.currency || 'KES'
+  function fmt(v) {
+    return `${currency} ${Number(v || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  }
+  const storeSub = [store.phone, store.email].filter(Boolean).join(' | ')
+  const pm = sale.payment_method || ''
+  const receiptNum = sale.receipt_number || `SALE-${sale.id}`
+  const saleDate = sale.created_at
+    ? new Date(sale.created_at).toLocaleString('en-KE')
+    : new Date().toLocaleString('en-KE')
+  const items = sale.items || []
+
+  printDoc(receiptNum, `<!DOCTYPE html><html><head><meta charset="utf-8">
+    <title>${receiptNum}</title><style>${RECEIPT_CSS}</style></head><body>
+    <div class="store-name">${store.name || 'STORE'}</div>
+    ${store.address ? `<div class="store-sub">${store.address}</div>` : ''}
+    ${storeSub ? `<div class="store-sub">${storeSub}</div>` : ''}
+    ${store.tax_number ? `<div class="store-sub">PIN: ${store.tax_number}</div>` : ''}
+    <div class="solid-div"></div>
+    <div class="center bold" style="font-size:11pt;letter-spacing:1pt">TAX INVOICE</div>
+    <div class="solid-div"></div>
+    <div class="row"><span>Receipt:</span><span>${receiptNum}</span></div>
+    <div class="row"><span>Date:</span><span>${saleDate}</span></div>
+    <div class="row"><span>Cashier:</span><span>${sale.cashier_name || '—'}</span></div>
+    ${sale.customer_name ? `<div class="row"><span>Customer:</span><span>${sale.customer_name}</span></div>` : ''}
+    <div class="divider"></div>
+    ${items.map(item => `
+      <div class="item-name">${item.product_name}</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div class="item-calc">${fmt(item.unit_price)} &times; ${item.qty}${item.discount > 0 ? `  &minus; disc ${fmt(item.discount)}` : ''}</div>
+        <div class="item-total">${fmt(item.line_total)}</div>
+      </div>`).join('')}
+    <div class="divider"></div>
+    <div class="row"><span>Subtotal</span><span>${fmt(sale.subtotal)}</span></div>
+    ${(sale.discount_total || 0) > 0 ? `<div class="row"><span>Discounts</span><span>&minus;${fmt(sale.discount_total)}</span></div>` : ''}
+    ${(sale.loyalty_discount || 0) > 0 ? `<div class="row"><span>Points Discount</span><span>&minus;${fmt(sale.loyalty_discount)}</span></div>` : ''}
+    ${(sale.tax_amount || 0) > 0 ? `<div class="row"><span>VAT</span><span>${fmt(sale.tax_amount)}</span></div>` : ''}
+    <div class="solid-div"></div>
+    <div class="row" style="margin:2mm 0">
+      <span class="total-label">TOTAL</span><span class="total-val">${fmt(sale.total)}</span>
+    </div>
+    <div class="solid-div"></div>
+    <div class="row"><span>Payment:</span><span style="text-transform:capitalize">${pm.replace(/_/g, ' ')}</span></div>
+    ${pm === 'cash' ? `
+      <div class="row"><span>Tendered</span><span>${fmt(sale.cash_tendered)}</span></div>
+      <div class="row bold"><span>Change</span><span>${fmt(sale.change_given)}</span></div>` : ''}
+    ${pm === 'mpesa' && sale.mpesa_ref ? `<div class="row"><span>M-Pesa Ref:</span><span>${sale.mpesa_ref}</span></div>` : ''}
+    <div class="divider"></div>
+    <div style="margin:3mm 0 1mm;font-size:8.5pt">Customer Signature</div>
+    <div class="sig-line"></div>
+    <div class="sig-label">Name: ___________________________</div>
+    <div class="footer">
+      ${store.receipt_footer || 'Thank you for your business!'}
+      <br>All goods sold are not returnable without receipt.
+      <br>${currency} ${new Date(sale.created_at || Date.now()).getFullYear()} &mdash; ${store.name || ''}
+    </div>
+  </body></html>`)
+}

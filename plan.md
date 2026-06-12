@@ -418,6 +418,29 @@ Every feature gating decision must follow this table.
 
 ---
 
+### Phase 27 — Sale History & Receipt Date Fix ✅ COMPLETE (2026-06-12)
+
+**Goal:** Cashier can look up and reprint any sale from today's shift; receipt date always reflects the original transaction time, not the print time.
+
+#### 27A — Immutable receipt date ✅
+- `utils/print.js`: new `printSaleReceipt(sale, store)` function — uses `sale.created_at` for the date line, never `new Date()`; handles all payment methods, loyalty discount, items from sale dict
+- `PaymentModal.jsx`: `printBrowserReceipt()` now calls `printSaleReceipt(completedSale, store)` — fixes the date bug on both fresh prints and reprints from success screen
+- Removes ~45 lines of duplicated receipt HTML from PaymentModal
+
+#### 27B — Cashier sale history panel ✅
+- "History" button added to POS status bar (next to Price Check)
+- Loads today's sales for the current cashier (`GET /api/sales?cashier_id=X&date_from=today&limit=50`)
+- Modal table: time, receipt#, customer, total (with VOID badge), payment method
+- Per-row: ESC (ESC/POS printer reprint) + Print (browser window reprint) buttons
+- Voided sales shown at 50% opacity with buttons disabled
+
+#### Implementation files:
+- `frontend/src/utils/print.js` — added `printSaleReceipt(sale, store)`
+- `frontend/src/components/PaymentModal.jsx` — replaced inline receipt HTML with `printSaleReceipt`; removed unused `printDoc`, `RECEIPT_CSS` imports
+- `frontend/src/pages/POS.jsx` — added `getSales`, `getStoreConfig`, `printReceipt`, `printSaleReceipt` imports; added history state + `openHistory`, `handleHistoryEscReprint`, `handleHistoryBrowserReprint` functions; added History button + modal
+
+---
+
 ### Phase 12 — Multi-Branch (Backlog)
 
 _Not started. Deferred until all above phases are complete._
@@ -466,7 +489,7 @@ Every document the system must be able to produce:
 - Phase 17: Damage report "Raise" button in Inventory only sets status to `raised`; manager must navigate to Inventory → Damage Reports tab to approve. Phase 22 (Dashboard Approvals) will surface pending items to the manager on login
 - Phase 17: Count sheet has no session/reference number linking back to count corrections — future improvement
 - Appointments/Services pages are scaffolded but unfinished — Phase 25
-- **POS receipt — supplier details & receipt timestamp:** The printed receipt must include supplier/vendor details (name, contact) where applicable. The `received_at` timestamp on the receipt must always reflect when the transaction was **first recorded**, not when it was printed or reprinted. Backend must store `received_at` at creation time (immutable); all reprint flows must pass this original timestamp to the print function rather than generating a new `Date()`. Implement as part of receipt/print phase.
+- **POS receipt — supplier details on receipt:** For B2B/trade sales, include buyer's KRA PIN and address on the receipt where applicable (currently only on the full tax invoice). Low priority — the tax invoice covers this for formal transactions.
 
 ---
 

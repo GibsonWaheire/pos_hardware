@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer, getStoreConfig, createSaleInvoice, earnPoints } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
-import { printDoc, RECEIPT_CSS, printTaxInvoice } from '../utils/print'
+import { printSaleReceipt, printTaxInvoice } from '../utils/print'
 
 function newUUID() {
   try { return crypto.randomUUID() }
@@ -86,54 +86,7 @@ export default function PaymentModal({
     if (!completedSale) return
     let store = {}
     try { const r = await getStoreConfig(); store = r.data || {} } catch {}
-    const storeSub = [store.phone, store.email].filter(Boolean).join(' | ')
-    const pm = completedSale.payment_method || ''
-    const receiptNum = completedSale.receipt_number || ''
-    printDoc(receiptNum, `<!DOCTYPE html><html><head><meta charset="utf-8">
-      <title>${receiptNum}</title><style>${RECEIPT_CSS}</style></head><body>
-      <div class="store-name">${store.name || 'STORE'}</div>
-      ${store.address ? `<div class="store-sub">${store.address}</div>` : ''}
-      ${storeSub ? `<div class="store-sub">${storeSub}</div>` : ''}
-      ${store.tax_number ? `<div class="store-sub">PIN: ${store.tax_number}</div>` : ''}
-      <div class="solid-div"></div>
-      <div class="center bold" style="font-size:11pt;letter-spacing:1pt">TAX INVOICE</div>
-      <div class="solid-div"></div>
-      <div class="row"><span>Receipt:</span><span>${receiptNum}</span></div>
-      <div class="row"><span>Date:</span><span>${new Date().toLocaleString('en-KE')}</span></div>
-      <div class="row"><span>Cashier:</span><span>${user?.name || '—'}</span></div>
-      ${customer ? `<div class="row"><span>Customer:</span><span>${customer.name}</span></div>` : ''}
-      ${customer?.phone ? `<div class="row"><span>Phone:</span><span>${customer.phone}</span></div>` : ''}
-      <div class="divider"></div>
-      ${items.map(item => `
-        <div class="item-name">${item.product_name}</div>
-        <div style="display:flex;justify-content:space-between;align-items:flex-start">
-          <div class="item-calc">${KES(item.unit_price)} &times; ${item.qty}${item.discount > 0 ? `  &minus; disc ${KES(item.discount)}` : ''}</div>
-          <div class="item-total">${KES(item.line_total)}</div>
-        </div>`).join('')}
-      <div class="divider"></div>
-      <div class="row"><span>Subtotal</span><span>${KES(subtotal)}</span></div>
-      ${discountTotal > 0 ? `<div class="row"><span>Discounts</span><span>&minus;${KES(discountTotal)}</span></div>` : ''}
-      ${taxAmount > 0 ? `<div class="row"><span>VAT</span><span>${KES(taxAmount)}</span></div>` : ''}
-      <div class="solid-div"></div>
-      <div class="row" style="margin:2mm 0">
-        <span class="total-label">TOTAL</span><span class="total-val">${KES(total)}</span>
-      </div>
-      <div class="solid-div"></div>
-      <div class="row"><span>Payment:</span><span style="text-transform:capitalize">${pm.replace(/_/g, ' ')}</span></div>
-      ${pm === 'cash' ? `
-        <div class="row"><span>Tendered</span><span>${KES(completedSale.cash_tendered)}</span></div>
-        <div class="row bold"><span>Change</span><span>${KES(completedSale.change_given)}</span></div>` : ''}
-      ${pm === 'mpesa' && completedSale.mpesa_ref ? `<div class="row"><span>M-Pesa Ref:</span><span>${completedSale.mpesa_ref}</span></div>` : ''}
-      <div class="divider"></div>
-      <div style="margin:3mm 0 1mm;font-size:8.5pt">Customer Signature</div>
-      <div class="sig-line"></div>
-      <div class="sig-label">Name: ___________________________</div>
-      <div class="footer">
-        ${store.receipt_footer || 'Thank you for your business!'}
-        <br>All goods sold are not returnable without receipt.
-        <br>${currency} ${new Date().getFullYear()} &mdash; ${store.name || ''}
-      </div>
-    </body></html>`)
+    printSaleReceipt(completedSale, store)
   }
 
   async function handleOpenDrawer() {

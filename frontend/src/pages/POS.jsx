@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getProducts, getDailyTotals, getProductByBarcode, getProductByPlu, lookupCustomer, readScale, getCurrentShift, openShift, getCategories, getAccountByCustomer, getLoyaltyConfig } from '../api'
+import { getProducts, getDailyTotals, getProductByBarcode, getProductByPlu, lookupCustomer, readScale, getCurrentShift, openShift, getCategories, getAccountByCustomer, getLoyaltyConfig, getSales, getStoreConfig, printReceipt } from '../api'
 import { useAuth } from '../context/AuthContext'
+import { printSaleReceipt } from '../utils/print'
 import Cart from '../components/Cart'
 import BarcodeInput from '../components/BarcodeInput'
 import PaymentModal from '../components/PaymentModal'
@@ -96,6 +97,12 @@ export default function POS() {
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState(null)
+
+  // Sales history panel
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [salesHistory, setSalesHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyReprintMsg, setHistoryReprintMsg] = useState('')
 
   // Loyalty config (cents_per_point from backend)
   const [loyaltyConfig, setLoyaltyConfig] = useState({ cents_per_point: 1 })
@@ -273,6 +280,33 @@ export default function POS() {
     } catch (e) { setCustomerLookupMsg(e.message) }
   }
 
+  // ── Sales history ─────────────────────────────────────────────────────────
+
+  async function openHistory() {
+    setHistoryOpen(true)
+    setHistoryLoading(true)
+    setHistoryReprintMsg('')
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const res = await getSales({ cashier_id: user.id, date_from: today, limit: 50 })
+      setSalesHistory(res.data || [])
+    } catch (e) { console.error(e) }
+    finally { setHistoryLoading(false) }
+  }
+
+  async function handleHistoryEscReprint(sale) {
+    setHistoryReprintMsg('Printing...')
+    try { await printReceipt(sale.id); setHistoryReprintMsg('Sent to printer') }
+    catch { setHistoryReprintMsg('Printer unavailable') }
+    setTimeout(() => setHistoryReprintMsg(''), 3000)
+  }
+
+  async function handleHistoryBrowserReprint(sale) {
+    let store = {}
+    try { const r = await getStoreConfig(); store = r.data || {} } catch {}
+    printSaleReceipt(sale, store)
+  }
+
   // ── Cart totals ───────────────────────────────────────────────────────────
 
   const cartSubtotal = cartItems.reduce((s, i) => s + i.unit_price * i.qty, 0)
@@ -373,6 +407,9 @@ export default function POS() {
               onClick={() => { setPriceCheckMode(m => !m); setPriceCheckResult(null) }}
             >
               {priceCheckMode ? '✓ Price Check ON' : '🔍 Price Check'}
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={openHistory}>
+              History
             </button>
           </div>
         </div>
@@ -653,6 +690,65 @@ export default function POS() {
           onAuthorize={() => { removeItem(removeAuthTarget.id); setRemoveAuthTarget(null) }}
           onCancel={() => setRemoveAuthTarget(null)}
         />
+      )}
+
+      {/* ── Sales History modal ─── */}
+      {historyOpen && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setHistoryOpen(false)}>
+          <div className="modal" style={{ width: 680, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="modal-title" style={{ marginBottom: 0 }}>Today's Sales</div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setHistoryOpen(false)}>✕</button>
+            </div>
+            {historyReprintMsg && (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{historyReprintMsg}</div>
+            )}
+            {historyLoading ? (
+              <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>Loading...</div>
+            ) : salesHistory.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>No sales recorded today</div>
+            ) : (
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Time</th><th>Receipt</th><th>Customer</th>
+                      <th>Total</th><th>Method</th><th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salesHistory.map(s => (
+                      <tr key={s.id} style={{ opacity: s.status === 'voided' ? 0.5 : 1 }}>
+                        <td style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                          {new Date(s.created_at).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{s.receipt_number}</td>
+                        <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{s.customer_name || '—'}</td>
+                        <td style={{ fontWeight: 600 }}>
+                          KES {Number(s.total).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
+                          {s.status === 'voided' && <span className="badge badge-red" style={{ marginLeft: 6, fontSize: 9 }}>VOID</span>}
+                        </td>
+                        <td style={{ fontSize: 12, textTransform: 'capitalize', color: 'var(--text-muted)' }}>
+                          {(s.payment_method || '').replace(/_/g, ' ')}
+                        </td>
+                        <td style={{ display: 'flex', gap: 4 }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => handleHistoryEscReprint(s)}
+                            disabled={s.status === 'voided'} title="ESC/POS printer">
+                            ESC
+                          </button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => handleHistoryBrowserReprint(s)}
+                            disabled={s.status === 'voided'} title="Browser print">
+                            Print
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── Payment modal ─── */}
