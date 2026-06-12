@@ -438,6 +438,7 @@ Every document the system must be able to produce:
 - Phase 17: Damage report "Raise" button in Inventory only sets status to `raised`; manager must navigate to Inventory → Damage Reports tab to approve. Phase 22 (Dashboard Approvals) will surface pending items to the manager on login
 - Phase 17: Count sheet has no session/reference number linking back to count corrections — future improvement
 - Appointments/Services pages are scaffolded but unfinished — Phase 25
+- **POS receipt — supplier details & receipt timestamp:** The printed receipt must include supplier/vendor details (name, contact) where applicable. The `received_at` timestamp on the receipt must always reflect when the transaction was **first recorded**, not when it was printed or reprinted. Backend must store `received_at` at creation time (immutable); all reprint flows must pass this original timestamp to the print function rather than generating a new `Date()`. Implement as part of receipt/print phase.
 
 ---
 
