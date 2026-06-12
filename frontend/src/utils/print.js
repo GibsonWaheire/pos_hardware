@@ -863,6 +863,200 @@ export function printAccountStatement(account, transactions, openingBalance, clo
 }
 
 
+/** Print A4 Delivery Note / Packing List (supplier-side document) */
+export function printDeliveryNote(po, store = {}) {
+  const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const dd = po.dispatch_details || {}
+  const dispatchItems = (dd.items || [])
+  // Build a map of qty_dispatched by po_item_id
+  const qtyMap = {}
+  dispatchItems.forEach(i => { qtyMap[i.po_item_id] = i.qty_dispatched })
+
+  const rows = (po.items || []).map((item, i) => {
+    const qtyDisp = qtyMap[item.id] ?? item.qty_ordered
+    return `<tr>
+      <td>${i + 1}</td>
+      <td style="font-weight:600">${item.product_name}</td>
+      <td class="right">${item.qty_ordered}</td>
+      <td class="right bold">${qtyDisp}</td>
+      <td class="right">${qtyDisp !== item.qty_ordered ? `<span style="color:#dc2626">${qtyDisp - item.qty_ordered > 0 ? '+' : ''}${qtyDisp - item.qty_ordered}</span>` : '—'}</td>
+    </tr>`
+  }).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}
+    .dn-header { background:#f0fdf4; border:1pt solid #16a34a; border-radius:4pt; padding:10pt 14pt; margin-bottom:14pt; }
+  </style></head><body>
+    <div class="letterhead flex sb ac">
+      <div>
+        <div class="store-name">${store.name || 'Supplier'}</div>
+        <div class="store-sub">${store.address || ''}</div>
+        <div class="store-sub">${[store.phone, store.email].filter(Boolean).join(' | ')}</div>
+      </div>
+      <div class="right">
+        <div style="font-size:14pt;font-weight:700;text-transform:uppercase;letter-spacing:2pt">Delivery Note</div>
+        <div class="small muted">PO Ref: ${po.po_number}</div>
+        <div class="small muted">${po.dispatched_at ? new Date(po.dispatched_at).toLocaleDateString('en-KE') : new Date().toLocaleDateString('en-KE')}</div>
+      </div>
+    </div>
+
+    <div class="dn-header">
+      <div class="flex sb">
+        <div>
+          <div class="small muted">Deliver To</div>
+          <div style="font-weight:700">${dd.deliver_to || (store.name ? 'Attn: ' + store.name : 'Customer Store')}</div>
+          <div class="small muted">${store.address || ''}</div>
+        </div>
+        <div>
+          <div class="small muted">Dispatch Date</div>
+          <div style="font-weight:600">${dd.delivery_date || '—'}</div>
+        </div>
+        <div>
+          <div class="small muted">Driver / Vehicle</div>
+          <div style="font-weight:600">${dd.driver_name || '—'}</div>
+          <div class="small muted">${dd.vehicle_ref || ''}</div>
+        </div>
+        <div>
+          <div class="small muted">Tracking Ref</div>
+          <div style="font-weight:600;font-family:monospace">${dd.tracking_ref || '—'}</div>
+        </div>
+      </div>
+    </div>
+
+    <table><thead><tr>
+      <th>#</th>
+      <th>Product / Description</th>
+      <th class="right">Qty Ordered</th>
+      <th class="right">Qty Dispatched</th>
+      <th class="right">Variance</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+    </table>
+
+    <div class="sig-section" style="margin-top:20pt"><div class="sig-title">Delivery Confirmation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Dispatched By (Supplier)</div><div class="role">${dd.driver_name || '________________'}</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Received By (Store)</div><div class="role">Date: ________________</div></div>
+      </div>
+    </div>
+    <div class="doc-footer">
+      PO: ${po.po_number} | Generated ${new Date().toLocaleString('en-KE')}
+      <br>This delivery note must be signed by the receiver. Retain a copy for your records.
+    </div>
+  </body></html>`
+  printDoc(`DN-${po.po_number}`, html)
+}
+
+
+/** Print A4 Purchase Order — Supplier-facing version with acknowledgement block */
+export function printPOForSupplier(po, store = {}) {
+  const fmt2 = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  const rows = (po.items || []).map((item, i) => `<tr>
+    <td>${i + 1}</td>
+    <td style="font-weight:600">${item.product_name}</td>
+    <td class="right">${item.qty_ordered}</td>
+    <td class="right">${fmt2(item.unit_cost)}</td>
+    <td class="right bold">${fmt2(item.qty_ordered * item.unit_cost)}</td>
+  </tr>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${A4_CSS}
+    .terms { background:#fffbeb; border:1pt solid #fbbf24; border-radius:3pt; padding:8pt 12pt; margin:12pt 0; font-size:9pt; }
+    .ack-box { border:1pt solid #ccc; border-radius:3pt; padding:10pt 14pt; margin-top:12pt; }
+  </style></head><body>
+    <div class="letterhead flex sb ac">
+      <div>
+        <div class="store-name">${store.name || 'Store'}</div>
+        <div class="store-sub">${store.address || ''}</div>
+        <div class="store-sub">${[store.phone, store.email].filter(Boolean).join(' | ')}${store.tax_number ? ' | KRA PIN: ' + store.tax_number : ''}</div>
+      </div>
+      <div class="right">
+        <div style="font-size:14pt;font-weight:700;text-transform:uppercase;letter-spacing:2pt">Purchase Order</div>
+        <div style="font-family:monospace;font-size:11pt;font-weight:700">${po.po_number}</div>
+        <div class="small muted">${po.created_at ? new Date(po.created_at).toLocaleDateString('en-KE') : new Date().toLocaleDateString('en-KE')}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12pt;margin-bottom:14pt">
+      <div style="border:1pt solid #ccc;border-radius:3pt;padding:8pt 10pt">
+        <div style="font-size:8pt;text-transform:uppercase;color:#666;margin-bottom:4pt">Bill To / Buyer</div>
+        <div style="font-weight:700">${store.name || '—'}</div>
+        <div class="small muted">${store.address || ''}</div>
+        ${store.tax_number ? `<div class="small muted">KRA PIN: ${store.tax_number}</div>` : ''}
+        ${store.phone ? `<div class="small muted">Tel: ${store.phone}</div>` : ''}
+      </div>
+      <div style="border:1pt solid #ccc;border-radius:3pt;padding:8pt 10pt">
+        <div style="font-size:8pt;text-transform:uppercase;color:#666;margin-bottom:4pt">Supplier</div>
+        <div style="font-weight:700">${po.supplier_name || '—'}</div>
+        <div class="small muted">PO Number: <strong>${po.po_number}</strong></div>
+        <div class="small muted">Prepared by: ${po.created_by_name || '—'}</div>
+        ${po.notes ? `<div class="small muted" style="margin-top:4pt">Notes: ${po.notes}</div>` : ''}
+      </div>
+    </div>
+
+    <table><thead><tr>
+      <th>#</th><th>Product / Description</th>
+      <th class="right">Qty</th><th class="right">Unit Price (KES)</th><th class="right">Total (KES)</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr style="font-weight:700;background:#f5f5f5">
+      <td colspan="4" class="right">ORDER TOTAL</td>
+      <td class="right">${fmt2(po.total_cost)}</td>
+    </tr></tfoot>
+    </table>
+
+    <div class="terms">
+      <strong>Terms &amp; Conditions:</strong>
+      1. Please deliver to the address above by the agreed delivery date.
+      2. All goods must match the specifications listed and be in good condition.
+      3. Invoice must quote this PO number: <strong>${po.po_number}</strong>.
+      4. Partial deliveries are acceptable — please advise quantities in advance.
+      5. Payment terms as per supplier agreement.
+    </div>
+
+    <div class="sig-section"><div class="sig-title">Authorisation</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sig-box"><div class="line"></div><div class="name">Authorised by (Buyer)</div><div class="role">${po.created_by_name || '________________'}</div><div class="role">Date: ________________</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Approved by (Manager)</div><div class="role">Date: ________________</div></div>
+      </div>
+    </div>
+
+    <div style="page-break-before:always"></div>
+
+    <div class="ack-box">
+      <div style="font-size:13pt;font-weight:700;text-align:center;margin-bottom:12pt;text-transform:uppercase;letter-spacing:1pt">
+        Purchase Order Acknowledgement
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10pt;margin-bottom:12pt;font-size:10pt">
+        <div><span class="muted">PO Number:</span> <strong>${po.po_number}</strong></div>
+        <div><span class="muted">Date:</span> ${po.created_at ? new Date(po.created_at).toLocaleDateString('en-KE') : ''}</div>
+        <div><span class="muted">Buyer:</span> ${store.name || '—'}</div>
+        <div><span class="muted">Supplier:</span> ${po.supplier_name || '—'}</div>
+        <div><span class="muted">Order Value:</span> ${fmt2(po.total_cost)}</div>
+      </div>
+      <div style="font-size:10pt;margin-bottom:14pt">
+        We, <strong>${po.supplier_name || '____________________'}</strong>, hereby acknowledge receipt of Purchase Order
+        <strong>${po.po_number}</strong> dated ${po.created_at ? new Date(po.created_at).toLocaleDateString('en-KE') : '________________'}
+        and confirm acceptance of all items and terms as stated therein.
+      </div>
+      <div style="margin-bottom:8pt;font-size:10pt">Estimated delivery date: ________________________________</div>
+      <div class="sig-grid" style="grid-template-columns:1fr 1fr;margin-top:16pt">
+        <div class="sig-box"><div class="line"></div><div class="name">Supplier Signature</div><div class="role">Name &amp; Designation</div><div class="role">Date: ________________</div></div>
+        <div class="sig-box"><div class="line"></div><div class="name">Supplier Stamp</div></div>
+      </div>
+      <div style="font-size:9pt;color:#666;margin-top:14pt;text-align:center">
+        Please sign and return this acknowledgement to ${store.name || 'the buyer'} within 2 working days.
+        ${store.email ? 'Email: ' + store.email : ''}
+      </div>
+    </div>
+
+    <div class="doc-footer">
+      ${store.name || ''} | PO: ${po.po_number} | Generated ${new Date().toLocaleString('en-KE')}
+    </div>
+  </body></html>`
+  printDoc(`PO-SUPPLIER-${po.po_number}`, html)
+}
+
+
 /** Shared receipt CSS (80mm thermal width) */
 export const RECEIPT_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }

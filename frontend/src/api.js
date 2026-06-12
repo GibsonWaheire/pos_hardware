@@ -201,8 +201,8 @@ export const confirmPO = (id) => withLocal(
   () => api.post(`/purchase-orders/${id}/confirm`),
   () => local.lsStub({})
 )
-export const markPODispatched = (id) => withLocal(
-  () => api.post(`/purchase-orders/${id}/mark-dispatched`),
+export const markPODispatched = (id, data) => withLocal(
+  () => api.post(`/purchase-orders/${id}/mark-dispatched`, data),
   () => local.lsStub({})
 )
 

@@ -304,11 +304,20 @@ class PurchaseOrder(db.Model):
     ordered_at = db.Column(db.DateTime)
     received_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Phase 23B — dispatch details (set by supplier when marking dispatched)
+    dispatched_at       = db.Column(db.DateTime, nullable=True)
+    dispatched_by_name  = db.Column(db.String(100), nullable=True)
+    dispatch_details    = db.Column(db.Text, nullable=True)  # JSON blob
 
     items = db.relationship('PurchaseOrderItem', backref='purchase_order', lazy=True,
                             cascade='all, delete-orphan')
 
     def to_dict(self):
+        import json as _json
+        dd = None
+        if self.dispatch_details:
+            try: dd = _json.loads(self.dispatch_details)
+            except Exception: dd = None
         return {
             'id': self.id, 'po_number': self.po_number, 'supplier_id': self.supplier_id,
             'supplier_name': self.supplier_name, 'status': self.status, 'notes': self.notes,
@@ -319,6 +328,9 @@ class PurchaseOrder(db.Model):
             'ordered_at': self.ordered_at.isoformat() if self.ordered_at else None,
             'received_at': self.received_at.isoformat() if self.received_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'dispatched_at': self.dispatched_at.isoformat() if self.dispatched_at else None,
+            'dispatched_by_name': self.dispatched_by_name,
+            'dispatch_details': dd,
             'items': [i.to_dict() for i in self.items],
         }
 

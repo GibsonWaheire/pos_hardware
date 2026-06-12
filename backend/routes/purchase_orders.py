@@ -387,8 +387,8 @@ def supplier_confirm(po_id):
 
 @bp.route('/<int:po_id>/mark-dispatched', methods=['POST'])
 def supplier_mark_dispatched(po_id):
-    """Supplier marks the order as dispatched (triggers 'ordered' → still 'ordered' with dispatch note)."""
-    role, staff_id, _ = _session_role()
+    """Supplier marks the order as dispatched with delivery details."""
+    role, staff_id, staff_name = _session_role()
     po = PurchaseOrder.query.get_or_404(po_id)
 
     if role == 'supplier':
@@ -401,6 +401,18 @@ def supplier_mark_dispatched(po_id):
     if po.status != 'ordered':
         return jsonify({'error': f'Can only mark dispatched on ordered POs (status: {po.status})'}), 400
 
-    po.notes = (po.notes or '') + f'\nDispatched by supplier on {datetime.utcnow().strftime("%Y-%m-%d %H:%M")}'
+    data = request.json or {}
+    dispatch = {
+        'delivery_date':  data.get('delivery_date', ''),
+        'driver_name':    data.get('driver_name', ''),
+        'vehicle_ref':    data.get('vehicle_ref', ''),
+        'tracking_ref':   data.get('tracking_ref', ''),
+        'items': data.get('items', []),  # [{po_item_id, qty_dispatched}]
+    }
+
+    po.dispatched_at      = datetime.utcnow()
+    po.dispatched_by_name = data.get('dispatched_by') or staff_name
+    po.dispatch_details   = json.dumps(dispatch)
+    po.notes = (po.notes or '') + f'\nDispatched by {po.dispatched_by_name} on {po.dispatched_at.strftime("%Y-%m-%d %H:%M")}'
     db.session.commit()
     return jsonify(po.to_dict())

@@ -325,26 +325,38 @@ Every feature gating decision must follow this table.
 
 ---
 
-### Phase 23 — Supplier Portal Improvements
+### Phase 23 — Supplier Portal Improvements ✅ COMPLETE (2026-06-12)
 
 **Goal:** Suppliers have a clean, professional portal to manage their deliveries.
 
-#### 23A — Supplier Data Isolation
-- Backend: supplier role can ONLY see POs where `supplier_id` matches their staff record's `supplier_id`
-- Currently partially enforced — confirm and harden
+#### 23A — Supplier Data Isolation ✅ (already enforced, confirmed)
+- `list_pos()`: supplier role filters `PurchaseOrder.supplier_id == staff.supplier_id`
+- `get_po()`: 403 if supplier's linked `supplier_id` doesn't match PO
+- Create/receive/cancel/mark-ordered: all return 403 for supplier role
+- Confirm/mark-dispatched: verify supplier_id match before allowing
 
-#### 23B — Supplier Delivery Note
-- When supplier marks PO as "Dispatched", they can enter:
-  - Delivery date (estimated)
-  - Driver name / vehicle
-  - Tracking reference
-  - Line item quantities they are actually sending (may differ from PO)
-- **Printout (Supplier):** Delivery Note / Packing List — what they are sending, for their records
+#### 23B — Supplier Delivery Note ✅
+- `mark-dispatched` endpoint extended to accept: `delivery_date`, `driver_name`, `vehicle_ref`, `tracking_ref`, per-item `qty_dispatched`
+- Stored in new `dispatched_at`, `dispatched_by_name`, `dispatch_details` (JSON) columns on `purchase_orders`
+- Schema columns added via `_ensure_columns()` startup helper in `app.py` (SQLite ALTER TABLE with try/except)
+- Dispatch modal in PurchaseOrders.jsx: 4 delivery fields + per-item dispatch qty inputs
+- After confirming dispatch, user offered to print delivery note
+- "Delivery Note" button appears on any PO that has been dispatched
+- `printDeliveryNote(po, store)` in `utils/print.js`: A4 with dispatch header (date/driver/vehicle/tracking), items table with ordered vs dispatched quantities and variance column, 2-party signature block
 
-#### 23C — Purchase Order Printout for Supplier
-- "Send to Supplier" button on PO: opens print dialog
-- Supplier-facing PO document: store contact, delivery address, items, required delivery date, PO terms
-- Also generates a PO Acknowledgement for supplier to sign and return
+#### 23C — Purchase Order Printout for Supplier ✅
+- "Send to Supplier" button on ordered POs (purchasing/manager/admin only)
+- `printPOForSupplier(po, store)` in `utils/print.js`: two-page A4 document —
+  - Page 1: buyer details, supplier details, items table with qty+price+total, T&C block (5 standard terms), 2-party authorisation signatures
+  - Page 2 (page-break-before:always): PO Acknowledgement form — supplier fills in estimated delivery date, signs, stamps, returns to buyer
+
+#### Implementation files:
+- `backend/models.py` — added `dispatched_at`, `dispatched_by_name`, `dispatch_details` to PurchaseOrder; updated `to_dict()`
+- `backend/app.py` — added `_ensure_columns()` startup schema upgrade helper
+- `backend/routes/purchase_orders.py` — extended `mark-dispatched` to accept + store dispatch details JSON
+- `frontend/src/api.js` — `markPODispatched(id, data)` now passes dispatch body
+- `frontend/src/utils/print.js` — added `printDeliveryNote()`, `printPOForSupplier()`
+- `frontend/src/pages/PurchaseOrders.jsx` — added `dispatchData`/`dispatchForm` state, `openDispatch()`/`handleDispatch()`, `handleSendToSupplier()`, dispatch modal, "Send to Supplier" + "Delivery Note" buttons
 
 ---
 

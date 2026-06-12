@@ -80,6 +80,26 @@ app.register_blueprint(grn_bp)
 app.register_blueprint(invoices_bp)
 
 
+def _ensure_columns():
+    """Add any new columns that don't yet exist in the live SQLite DB."""
+    cols_to_add = [
+        ('purchase_orders', 'dispatched_at',      'DATETIME'),
+        ('purchase_orders', 'dispatched_by_name',  'VARCHAR(100)'),
+        ('purchase_orders', 'dispatch_details',    'TEXT'),
+    ]
+    with db.engine.connect() as conn:
+        for table, col, col_type in cols_to_add:
+            try:
+                conn.execute(db.text(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}'))
+                conn.commit()
+            except Exception:
+                pass  # column already exists
+
+
+with app.app_context():
+    _ensure_columns()
+
+
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok', 'service': 'POS Hardware API'})
