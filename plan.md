@@ -32,7 +32,7 @@ Every feature gating decision must follow this table.
 
 | Page / Feature | cashier | inventory | purchasing | supplier | manager | admin |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Checkout (POS)** | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Checkout (POS)** | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | **Quotes** | ✅ create | ❌ | ❌ | ❌ | ✅ full | ✅ full |
 | **Dashboard** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
 | **Products** | ❌ | ✅ full | 👁 view only | ❌ | ✅ full | ✅ full |
@@ -100,6 +100,428 @@ Every feature gating decision must follow this table.
 ---
 
 ## Remaining Phases
+
+---
+
+### Phase 39 — Shift Reconciliation Gate (Mandatory Close Flow)
+
+**Goal:** Shift close is impossible without a full tender reconciliation. Managers reconcile in Reports; cashiers never close shifts. Admin retains checkout access and can bypass reconciliation (logged).
+
+**Builds on (read first):**
+- `Shift` model — `opening_float`, `expected_cash`, `variance`, `status` (currently `open` → `closed`; extend lifecycle)
+- `Sale` model — `payment_method` (`cash` | `card` | `mpesa` | `split` | `account`), `status` (`completed` | `voided` | `refunded`), `cash_tendered`, `mpesa_ref`, `shift_id`
+- `Return` model — `refund_method` (`cash` | `card` | `store_credit`), `total_refund`, `status` (`completed` only counts), linked via `original_sale_id` → sale in shift window
+- `OverrideApproval` model — `action` (`ADJUST_QTY` | `REMOVE_COMMITTED_ITEM`), `original_qty`, `new_qty`, `item_name`, `cashier_id`, `manager_name`, `created_at`, `sale_id`
+- `ShiftReport` model — immutable `content` JSON, lifecycle `GENERATED → PRINTED → FILED`, `filed_by_*`, `print_count`
+- Existing routes: `POST /api/shifts/<id>/close` (auto-generates report), `GET/POST /api/shift-reports/*` (print/file)
+
+**Supersedes:** Phase 14 cash-only close flow. Phase 14 filing gate (must FILED before next shift open) remains — reconciliation is the new mandatory step _before_ close.
+
+---
+
+#### 39A — Remove Checkout from Manager Dashboard
+
+- `App.jsx`: remove `manager` from Checkout nav entry — only `cashier` + `admin` see Checkout
+- Remove any Checkout/POS import or route from manager-only views (Dashboard, Reports, Shifts)
+- `HOME_BY_ROLE.manager` stays `/dashboard` — manager never lands on POS
+- **Idle/attract screen** (`POS.jsx` / `IdleScreen.jsx`): remove sales-total / today's revenue widget from idle background
+- Idle screen shows only: store name, time/date, tips carousel, branding/promo slides
+- Today's sales stats live exclusively in **Reports → Shift History** — not on the POS idle screen
+- Admin keeps full Checkout access unchanged
+
+---
+
+#### 39B — Reconciliation Flow on Shift Close
+
+**Location:** Reports section (manager terminal only).  
+**Entry point:** "Close Shift" button inside the active shift view (`Reports.jsx` Shifts tab or dedicated reconciliation modal — not on POS).
+
+The shift **cannot close** without completing reconciliation. No bypass except admin (admin bypass logged to audit).
+
+##### Step 1 — System calculates expected totals
+
+When manager clicks **Close Shift**, `GET /api/shifts/:id/reconciliation` computes and returns expected figures from shift window (`shift.opened_at` → now):
+
+For each tender type with activity:
+
+| Tender | Expected formula |
+|---|---|
+| **CASH** | `opening_float` + Σ cash sales (`status=completed`, `payment_method=cash`) + Σ cash portion of split sales (`cash_tendered`) − Σ cash refunds (`Return.status=completed`, `refund_method=cash`, original sale in shift) |
+| **M-PESA** | Σ M-Pesa sales (`status=completed`, `payment_method=mpesa`, `mpesa_ref` present) − Σ M-Pesa refunds (if refund_method supports mpesa; else 0) |
+| **CARD** | Σ card sales (`payment_method=card`) + card portion of split (`card_amount`) − Σ card refunds |
+| **OTHER** | account / store_credit / cheque if applicable — same pattern |
+
+**TOTAL EXPECTED REVENUE** = sum across all tender types (completed sales only).
+
+From `OverrideApproval` for this shift window + cashier:
+
+| Metric | Source |
+|---|---|
+| `override_count` | count of override records |
+| `voided_value` | sum of line value removed via `REMOVE_COMMITTED_ITEM` (or `REMOVE_ITEM` after rename) |
+| `adjusted_items` | count of `ADJUST_QTY` overrides |
+| `override_total_value` | sum of absolute value impact per override |
+
+M-Pesa UI note: *"M-Pesa totals are verifiable against Daraja / phone statement."*
+
+##### Step 2 — Manager entry screen
+
+Two-column reconciliation form:
+
+| Left (read-only) | Right (manager input) |
+|---|---|
+| Expected cash | Cash counted in drawer [KES] |
+| Expected M-Pesa | M-Pesa confirmed from phone/statement [KES] |
+| Expected card/other | Other tender counted [KES] |
+
+Inline variance per tender (updates as manager types):
+
+```
+variance = actual − expected
+  = 0  → "Balanced ✓" (green)
+  < 0  → "SHORT by KES X" (red)
+  > 0  → "OVER by KES X" (amber)
+```
+
+Overall banner:
+- All balanced → green **"Ready to close"**
+- Any variance → red **"Discrepancies found — review before closing"**
+- Manager **may still close** with variance — shift must end — variance permanently recorded
+
+##### Step 3 — Overrides summary (collapsible)
+
+Table of every manager card override today:
+
+| Time | Cashier | Action | Item | Old qty | New qty | Value impact |
+
+Action types (normalize naming in `OverrideApproval.action`):
+- `REMOVE_ITEM` (rename from `REMOVE_COMMITTED_ITEM`)
+- `ADJUST_QTY`
+- `SHIFT_OPEN`
+- `VOID`
+
+Value impact = KES difference the override caused (negative for removals).
+
+Summary row: total override value impact.
+
+Flag if `override_total_value / total_expected_revenue > 0.05`:
+> "Override activity is X% of today's sales — review recommended"
+
+##### Step 4 — Transaction breakdown (collapsible)
+
+Full transaction list grouped by tender:
+
+| Time | Receipt no. | Items count | Tender | Amount |
+
+Subtotal per tender group. Audit trail for manager review (round numbers, receipt gaps, etc.).
+
+##### Step 5 — Close and generate report
+
+Buttons:
+- **[Print & Close Shift]** — primary
+- **[Close Without Printing]** — secondary; confirm dialog; logs `closed_without_print`
+
+**Print & Close Shift flow:**
+1. `POST /api/shifts/:id/close` with `reconciliation_submitted: true` + actual counts → creates `ShiftReport` (`status=GENERATED`) with full immutable JSON snapshot
+2. `window.print()` on clean A4 layout (`printShiftReconciliation()` in `utils/print.js`)
+3. After print dialog: prompt *"Confirm hardcopy printed and filed?"*
+4. On confirm: report `status → FILED`, shift `status → closed`, redirect to Reports → Shift History
+
+**Close Without Printing flow:**
+1. Confirm: *"Closing without printing means no hardcopy. This will be flagged in the admin report. Continue?"*
+2. Shift closes; report stays `GENERATED`; `closed_without_print: true` on report content + shift record
+3. Visible flag in admin Shift History
+
+---
+
+#### 39C — Shift History Page (Reports)
+
+Rename/extend existing **Reports → Shift Reports** tab to **Shift History**.
+
+List all closed shifts for this store:
+
+| Date | Cashier | Open | Close | Total sales | Cash var. | M-Pesa var. | Override count | Status |
+
+**Status column (computed display):**
+| Status | Condition |
+|---|---|
+| **FILED** (green) | report `status=FILED` |
+| **CLOSED** (amber) | closed with `closed_without_print=true` |
+| **DISCREPANCY** (red) | any non-zero tender variance (even if filed) |
+| **OVERDUE** (red) | shift still `open` past midnight local time |
+
+Row click → expand full reconciliation report inline (same layout as print view, read-only).
+
+Filter bar: date range, cashier, status.
+
+**Visibility:**
+| Role | Sees |
+|---|---|
+| Admin | all shifts (all stores when multi-store) |
+| Manager | own store's shifts — full reconciliation |
+| Cashier | own shifts only — transaction list + total only; **no variance figures** |
+
+---
+
+#### 39D — Print Layout (A4)
+
+Single A4 page (page 2 if transaction list long). `@media print` CSS.
+
+**Header:**
+```
+Store name + logo | "Daily Shift Reconciliation"
+Report ID: SR-[YYYYMMDD]-[shift_id padded 4]
+Cashier: [name] | Manager: [name] | Date: [date]
+Shift: [open_time] → [close_time]
+```
+
+**Section 1 — Tender reconciliation:**
+
+| Tender | Expected | Actual (counted) | Variance | Status |
+
+Bold variance column; highlight non-zero variances.
+
+**Section 2 — Override summary:**
+Total overrides: N | Total value impacted: KES X  
+Table: Time | Action | Item | Value impact
+
+**Section 3 — Transaction summary:**
+Total transactions: N  
+Per tender: Cash [n txns / KES x] | M-Pesa [n txns / KES x] | …
+
+**Footer — signature block:**
+```
+Cashier: _____________ Signature: _____________ Date: _____
+Manager: _____________ Signature: _____________ Date: _____
+"This report was generated by [POS name] and constitutes an official record of shift activity."
+```
+
+Print hint in UI: *"Print in portrait, A4, no margins"*
+
+```css
+@page { size: A4 portrait; margin: 18mm; }
+```
+
+---
+
+#### 39E — Server-Side Enforcement
+
+| Route | Method | Guard | Behaviour |
+|---|---|---|---|
+| `/api/shifts/:id/reconciliation` | GET | manager, admin | Returns expected + override + transaction preview |
+| `/api/shifts/:id/close` | POST | manager, admin | Requires `reconciliation_submitted: true` in body else **400** `"Reconciliation required before closing shift"` |
+| `/api/shifts/:id/close` | POST | cashier | **403** always |
+| `/api/shifts/:id/close` | POST | admin + `admin_bypass: true` | Allows close without reconciliation; audit log entry required |
+| `/api/shift-reports/:id` | PUT/PATCH | — | **404/405** — content is write-once after GENERATED |
+| `/api/shift-reports` | GET | role-scoped | Cashier sees redacted content (no variance) |
+
+---
+
+#### 39F — New / Changed Schema
+
+**`shifts` table — new columns:**
+
+| Column | Type | Notes |
+|---|---|---|
+| `actual_cash` | Float | manager counted |
+| `actual_mpesa` | Float | manager confirmed |
+| `actual_card` | Float | manager confirmed |
+| `actual_other` | Float | other tenders |
+| `variance_cash` | Float | actual − expected |
+| `variance_mpesa` | Float | |
+| `variance_card` | Float | |
+| `variance_other` | Float | |
+| `reconciled_by_id` | Integer FK staff | manager who closed |
+| `reconciled_by_name` | String | |
+| `reconciled_at` | DateTime | |
+| `closed_without_print` | Boolean default false | |
+| `admin_bypass` | Boolean default false | admin skipped reconciliation |
+| `status` values | | `open` → `pending_reconciliation` → `closed` (drop bare `closed` without reconciliation path) |
+
+**`override_approvals` table — new columns:**
+
+| Column | Type | Notes |
+|---|---|---|
+| `value_impact` | Float | KES impact at time of override |
+| `shift_id` | Integer FK | denormalised for fast shift queries |
+| `unit_price` | Float | snapshot for value calc |
+
+Rename action `REMOVE_COMMITTED_ITEM` → `REMOVE_ITEM` (migrate existing rows).
+
+**`shift_reports` table — new columns:**
+
+| Column | Type | Notes |
+|---|---|---|
+| `closed_without_print` | Boolean | mirrors shift flag |
+| `has_discrepancy` | Boolean | any non-zero variance |
+| `report_number` prefix | | `SR-YYYYMMDD-NNNN` (keep `RPT-*` for backward compat on old rows) |
+
+**`returns` table — optional:**
+
+| Column | Type | Notes |
+|---|---|---|
+| `shift_id` | Integer FK | denormalised at refund time for shift window queries |
+
+---
+
+#### 39G — Reconciliation Content JSON Shape
+
+Stored in `ShiftReport.content` (immutable after creation). Example:
+
+```json
+{
+  "report_id": "SR-20260611-0003",
+  "generated_at": "2026-06-11T18:45:00Z",
+  "store": { "name": "...", "address": "...", "kra_pin": "..." },
+  "shift": {
+    "id": 3,
+    "cashier_id": 3,
+    "cashier_name": "Cashier 1",
+    "opened_at": "2026-06-11T08:00:00Z",
+    "closed_at": "2026-06-11T18:45:00Z",
+    "opening_float": 5000.00
+  },
+  "reconciled_by": { "id": 2, "name": "Manager", "role": "manager" },
+  "closed_without_print": false,
+  "admin_bypass": false,
+  "overall_status": "DISCREPANCY",
+  "tenders": [
+    {
+      "tender": "cash",
+      "expected": 42500.00,
+      "actual": 42080.00,
+      "variance": -420.00,
+      "status": "SHORT",
+      "formula_notes": "opening_float + cash_sales + split_cash − cash_refunds"
+    },
+    {
+      "tender": "mpesa",
+      "expected": 18300.00,
+      "actual": 18300.00,
+      "variance": 0,
+      "status": "BALANCED",
+      "daraja_note": "Verifiable against M-Pesa statement"
+    },
+    {
+      "tender": "card",
+      "expected": 6200.00,
+      "actual": 6200.00,
+      "variance": 0,
+      "status": "BALANCED"
+    }
+  ],
+  "total_expected_revenue": 67000.00,
+  "total_actual_revenue": 66580.00,
+  "total_variance": -420.00,
+  "overrides": {
+    "count": 4,
+    "voided_value": 850.00,
+    "adjusted_items": 2,
+    "total_value_impact": 1250.00,
+    "pct_of_sales": 1.86,
+    "flagged": false,
+    "details": [
+      {
+        "time": "2026-06-11T10:22:00Z",
+        "cashier_name": "Cashier 1",
+        "manager_name": "Manager",
+        "action": "REMOVE_ITEM",
+        "item_name": "Cement 50kg",
+        "original_qty": 2,
+        "new_qty": 0,
+        "value_impact": -850.00
+      }
+    ]
+  },
+  "transactions": {
+    "total_count": 47,
+    "by_tender": {
+      "cash":   { "count": 28, "total": 37500.00 },
+      "mpesa":  { "count": 15, "total": 18300.00 },
+      "card":   { "count": 4,  "total": 6200.00 }
+    },
+    "list": [
+      {
+        "time": "2026-06-11T08:15:00Z",
+        "receipt_number": "RCP-20260611-0001",
+        "items_count": 3,
+        "tender": "cash",
+        "amount": 2450.00,
+        "status": "completed"
+      }
+    ]
+  },
+  "refunds": {
+    "cash": 0.00,
+    "card": 0.00,
+    "mpesa": 0.00
+  },
+  "notes": ""
+}
+```
+
+Cashier-redacted view omits: `tenders[].expected`, `tenders[].variance`, `total_variance`, `overall_status`, variance columns.
+
+---
+
+#### 39H — Variance Calculation Rules (server-side only)
+
+All expected totals use **`Sale.status = 'completed'`** only. Exclude:
+- `voided` sales
+- `refunded` sales (original sale status becomes `refunded` — excluded from revenue)
+- Pending / incomplete M-Pesa (no `mpesa_ref` or status ≠ completed)
+
+**Cash expected:**
+```
+opening_float
++ SUM(sale.total WHERE payment_method='cash' AND status='completed')
++ SUM(sale.cash_tendered WHERE payment_method='split' AND status='completed')
+− SUM(return.total_refund WHERE refund_method='cash' AND status='completed'
+      AND original_sale.shift_id = this_shift)
+```
+
+**M-Pesa expected:**
+```
+SUM(sale.total WHERE payment_method='mpesa' AND status='completed' AND mpesa_ref IS NOT NULL)
+− SUM(mpesa refunds in shift window)
+```
+
+**Card / other:** same pattern per `payment_method`.
+
+**Override value impact:**
+- `REMOVE_ITEM`: `−(original_qty × unit_price)` (use snapshotted `unit_price` on override record)
+- `ADJUST_QTY`: `(new_qty − original_qty) × unit_price`
+
+Variance per tender: `actual_counted − expected` (computed server-side; frontend displays only).
+
+---
+
+#### 39I — Implementation Files
+
+| Area | Files |
+|---|---|
+| Backend models | `backend/models.py` — Shift, OverrideApproval, ShiftReport, Return columns |
+| Backend routes | `backend/routes/shifts.py` — reconciliation GET, close POST guards; `backend/routes/shift_reports.py` — Shift History list with filters |
+| Backend init | `backend/init_db.py` — column migrations |
+| Frontend Reports | `frontend/src/pages/Reports.jsx` — Shift History tab, reconciliation modal, close flow |
+| Frontend Shifts | `frontend/src/pages/Shifts.jsx` — remove close from cashier; link to Reports reconciliation |
+| Frontend App | `frontend/src/App.jsx` — remove manager from Checkout nav |
+| Frontend POS | `frontend/src/pages/POS.jsx` — idle screen: remove sales stats widget |
+| Frontend print | `frontend/src/utils/print.js` — `printShiftReconciliation()` A4 layout |
+| Frontend API | `frontend/src/api.js` — `getShiftReconciliation`, updated `closeShift` |
+
+---
+
+#### 39J — Post-Implementation Checklist (for developer handoff)
+
+After building, confirm and document:
+
+1. **Reconciliation content JSON shape** — matches §39G above; stored write-once in `ShiftReport.content`
+2. **New shift fields** — §39F `actual_*`, `variance_*`, `reconciled_by_*`, `closed_without_print`, `admin_bypass`
+3. **API routes + guards** — §39E table; cashier 403 on close; admin bypass audited
+4. **Variance uses completed only** — §39H; voided/refunded/pending excluded; refunds subtracted by tender
+
+---
 
 ---
 
@@ -477,7 +899,7 @@ Every document the system must be able to produce:
 | Damage / Write-off Report | Inventory | Raised by + Approved by (Manager) | A4 |
 | Inventory Count Sheet | Manager / Inventory | Counter + Supervisor | A4 |
 | Stock Movement Report | Inventory / Manager | Manager | A4 |
-| Shift Daily Report | Manager | Cashier + Manager | A4 |
+| Shift Daily Report / Reconciliation | Manager | Cashier + Manager | A4 |
 | Inventory Status Report | Inventory / Manager | Manager | A4 |
 | Purchasing / PO Report | Purchasing / Manager | Manager | A4 |
 | Sales & Revenue Report | Manager | Manager | A4 |
@@ -504,6 +926,8 @@ Every document the system must be able to produce:
 - No Hold Sale / parked transactions — Phase 32
 - No reorder point / auto-PO suggestions — Phase 33
 - No bulk CSV product import — Phase 34
+- **Manager has Checkout nav** — remove in Phase 39A (managers do not sell)
+- **Shift close is cash-only** — no multi-tender reconciliation gate — Phase 39
 - **POS receipt — supplier details:** B2B buyer KRA PIN on receipt (low priority — tax invoice covers it)
 
 ---
@@ -537,7 +961,8 @@ Every document the system must be able to produce:
 
 #### 29D — Idle / Attract Screen
 - After 90 seconds of no cashier activity (no mouse/touch/keyboard), POS enters idle mode
-- Full-screen slide show: store logo, promotional images, today's offers
+- Full-screen slide show: store logo, promotional images, tips carousel, branding slides
+- Shows: store name, current time/date — **no sales totals or revenue stats** (those live in Reports → Shift History only — see Phase 39A)
 - Promotions managed from Settings (upload up to 5 images + caption)
 - Any keypress, tap, or barcode scan instantly exits idle mode
 - Idle screen doubles as customer-facing display if screen is visible to customer
@@ -809,6 +1234,7 @@ _Deferred — implement after all single-branch phases are complete._
 | Priority | Phase | Reason |
 |---|---|---|
 | **IMMEDIATE** | 30 — Security Hardening | Plain-text PINs + no rate limiting = critical risk before any live use |
+| **HIGH** | 39 — Shift Reconciliation Gate | Mandatory close flow — cash control + audit trail before live operations |
 | **HIGH** | 29 — POS Terminal Overhaul | Core UX improvement — cashier productivity + customer experience |
 | **HIGH** | 37 — eTIMS / KRA | Legal compliance — mandatory for VAT-registered businesses |
 | **HIGH** | 31 — Product Images | Speeds up cashier product identification |
