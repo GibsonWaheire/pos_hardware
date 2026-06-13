@@ -1,11 +1,75 @@
 """
-auth_utils.py — session helpers, audit logging, and manager authorization.
+auth_utils.py — session helpers, audit logging, manager authorization, and security helpers.
 """
 import json
+import re
 import uuid
+import bcrypt
 from datetime import datetime, timedelta
 from flask import session
 from db import db
+
+# ── PIN Hashing ───────────────────────────────────────────────────────────────
+
+def hash_pin(plain: str) -> str:
+    """Return a bcrypt hash of the given PIN string."""
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+
+
+def check_pin(plain: str, stored: str) -> bool:
+    """
+    Verify a PIN against a stored value.
+    Handles both bcrypt hashes ($2b$...) and legacy plain-text PINs.
+    """
+    if not plain or not stored:
+        return False
+    if stored.startswith('$2b$') or stored.startswith('$2a$'):
+        return bcrypt.checkpw(plain.encode(), stored.encode())
+    # Legacy plain-text comparison (migration path)
+    return plain == stored
+
+
+def needs_hashing(stored: str) -> bool:
+    """Return True if the stored PIN is plain-text and should be re-hashed."""
+    if not stored:
+        return False
+    return not (stored.startswith('$2b$') or stored.startswith('$2a$'))
+
+
+# ── Input Validation ──────────────────────────────────────────────────────────
+
+def validate_str(val, max_len: int, field_name: str = 'field'):
+    """Return an error message string if val is invalid, else None."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if len(s) > max_len:
+        return f'{field_name} must be {max_len} characters or fewer'
+    # Basic HTML tag stripping check
+    if re.search(r'<[^>]+>', s):
+        return f'{field_name} must not contain HTML'
+    return None
+
+
+def validate_positive(val, field_name: str = 'value'):
+    """Return an error message string if val is not a positive number, else None."""
+    try:
+        if float(val) < 0:
+            return f'{field_name} must not be negative'
+    except (TypeError, ValueError):
+        return f'{field_name} must be a number'
+    return None
+
+
+def validate_email(val: str):
+    """Return an error message string if email format is invalid, else None."""
+    if not val:
+        return None
+    pattern = r'^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    if not re.match(pattern, str(val).strip()):
+        return 'Invalid email address'
+    return None
+
 
 # ── In-memory token store (single process) ────────────────────────────────────
 # { token_str: { 'authorizer': {...}, 'expires_at': datetime, 'used': bool } }

@@ -2,9 +2,11 @@ flask==3.0.3
 flask-sqlalchemy==3.1.1
 flask-cors==4.0.1
 flask-migrate==4.0.7
+flask-limiter==3.7.0
 python-dotenv==1.0.1
 stripe==10.5.0
 python-escpos==3.1
 pyserial==3.5
 requests==2.32.3
 psycopg2-binary==2.9.9
+bcrypt==4.2.0

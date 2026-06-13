@@ -1,8 +1,11 @@
+import { useState, useCallback, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { CurrencyProvider } from './context/CurrencyContext'
 import { OnlineStatusProvider, useOnlineStatus } from './context/OnlineStatusContext'
+import { useIdleTimeout } from './hooks/useIdleTimeout'
+import { login as apiLogin, getStoreConfig } from './api'
 
 import POS from './pages/POS'
 import Products from './pages/Products'
@@ -73,12 +76,102 @@ const ROLE_COLOUR = {
   admin:      '#ef4444',
 }
 
+// ── Lock screen shown when session is idle ────────────────────────────────────
+
+function LockScreen({ user, onUnlock }) {
+  const [pin, setPin]     = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy]   = useState(false)
+
+  async function handleUnlock(e) {
+    e.preventDefault()
+    if (!pin) return
+    setBusy(true)
+    setError('')
+    try {
+      const res = await apiLogin(pin, user.id, user.role)
+      if (res.data?.staff) {
+        onUnlock()
+        setPin('')
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || 'Invalid PIN')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9999,
+      background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(8px)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      gap: 16,
+    }}>
+      <div style={{ fontSize: 40, marginBottom: 8 }}>🔒</div>
+      <div style={{ color: '#fff', fontSize: 22, fontWeight: 700 }}>Session Locked</div>
+      <div style={{ color: '#aaa', fontSize: 14, marginBottom: 8 }}>
+        {user.name} — enter your PIN to resume
+      </div>
+      <form onSubmit={handleUnlock} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, width: 240 }}>
+        <input
+          type="password"
+          inputMode="numeric"
+          placeholder="PIN"
+          value={pin}
+          onChange={e => setPin(e.target.value)}
+          autoFocus
+          style={{
+            width: '100%', padding: '12px 16px', fontSize: 18, letterSpacing: 6,
+            borderRadius: 8, border: '1px solid #555', background: '#1a1a1a',
+            color: '#fff', textAlign: 'center', outline: 'none',
+          }}
+        />
+        {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
+        <button
+          type="submit"
+          disabled={busy || !pin}
+          style={{
+            width: '100%', padding: '12px', background: 'var(--accent)',
+            border: 'none', borderRadius: 8, color: '#fff',
+            fontSize: 15, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer',
+            opacity: busy || !pin ? 0.6 : 1,
+          }}
+        >
+          {busy ? 'Checking…' : 'Unlock'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
 // ── Inner app (has access to Auth + Theme context) ────────────────────────────
 
 function AppInner() {
   const { user, logout, checking } = useAuth()
   const { theme, toggleTheme }     = useTheme()
   const navigate = useNavigate()
+  const [locked, setLocked]             = useState(false)
+  const [idleTimeoutMs, setIdleTimeoutMs] = useState(10 * 60 * 1000)
+
+  // Load session timeout from store config once on login
+  useEffect(() => {
+    if (!user) return
+    getStoreConfig().then(res => {
+      const mins = res.data?.session_timeout_minutes || 10
+      setIdleTimeoutMs(mins * 60 * 1000)
+    }).catch(() => {})
+  }, [user?.id])
+
+  const onIdle   = useCallback(() => setLocked(true),  [])
+  const onActive = useCallback(() => setLocked(false), [])
+
+  useIdleTimeout({
+    timeoutMs: idleTimeoutMs,
+    onIdle,
+    onActive,
+    enabled: !!user,
+  })
 
   if (checking) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'var(--bg)', color:'var(--text-muted)' }}>
@@ -98,6 +191,8 @@ function AppInner() {
   const { isBackendUp, pendingCount, syncResult } = useOnlineStatus()
 
   return (
+    <>
+    {locked && <LockScreen user={user} onUnlock={() => setLocked(false)} />}
     <div className="app-layout">
       <nav className="sidebar">
         <div className="sidebar-logo">POS</div>
@@ -199,6 +294,7 @@ function AppInner() {
         </main>
       </div>
     </div>
+    </>
   )
 }
 

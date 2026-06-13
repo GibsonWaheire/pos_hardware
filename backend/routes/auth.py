@@ -1,19 +1,46 @@
 import uuid
+from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session
 from db import db
 from models import Staff
-from auth_utils import log_action, issue_auth_token, consume_auth_token
+from auth_utils import (
+    log_action, issue_auth_token, consume_auth_token,
+    get_current_user, check_pin, hash_pin, needs_hashing,
+)
 
 bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
-# Default department PINs by role (overridable per-staff via department_pin field)
-DEFAULT_DEPT_PINS = {
-    'admin':      '0000',
-    'manager':    '1111',
-    'cashier':    '2222',
-    'inventory':  '3333',
-    'purchasing': '4444',
-}
+# Lockout settings
+_MAX_ATTEMPTS  = 5
+_LOCKOUT_MINS  = 30
+
+
+def _check_lockout(member):
+    """Return (is_locked, minutes_remaining) for the given staff member."""
+    if not member.locked_until:
+        return False, 0
+    if datetime.utcnow() < member.locked_until:
+        remaining = int((member.locked_until - datetime.utcnow()).total_seconds() / 60) + 1
+        return True, remaining
+    # Lock expired — clear it
+    member.locked_until = None
+    member.login_attempts = 0
+    return False, 0
+
+
+def _record_failure(member):
+    """Increment failure counter; lock account after _MAX_ATTEMPTS."""
+    member.login_attempts = (member.login_attempts or 0) + 1
+    if member.login_attempts >= _MAX_ATTEMPTS:
+        member.locked_until = datetime.utcnow() + timedelta(minutes=_LOCKOUT_MINS)
+    db.session.commit()
+
+
+def _record_success(member):
+    """Reset failure counter on successful login; re-hash plain-text PIN if needed."""
+    member.login_attempts = 0
+    member.locked_until   = None
+    db.session.commit()
 
 
 @bp.route('/department', methods=['POST'])
@@ -28,21 +55,27 @@ def verify_department():
     if not dept_pin:
         return jsonify({'error': 'Department PIN is required'}), 400
 
-    # Check against default role mappings first, then individual staff department_pin
-    role = next((r for r, p in DEFAULT_DEPT_PINS.items() if p == dept_pin), None)
+    # Find any active staff member whose department_pin matches
+    candidates = Staff.query.filter_by(is_active=True).filter(
+        Staff.department_pin.isnot(None)
+    ).all()
 
-    if not role:
-        # Also allow custom department_pin set on any active staff member
-        member = Staff.query.filter_by(department_pin=dept_pin, is_active=True).first()
-        role = member.role if member else None
+    matched_role = None
+    for m in candidates:
+        if check_pin(dept_pin, m.department_pin):
+            # Re-hash if plain-text
+            if needs_hashing(m.department_pin):
+                m.department_pin = hash_pin(dept_pin)
+            matched_role = m.role
+            break
 
-    if not role:
+    db.session.commit()
+
+    if not matched_role:
         return jsonify({'error': 'Invalid department PIN'}), 401
 
-    # Count staff in this department to tell the frontend how many to show
-    staff_count = Staff.query.filter_by(role=role, is_active=True).count()
-
-    return jsonify({'role': role, 'staff_count': staff_count})
+    staff_count = Staff.query.filter_by(role=matched_role, is_active=True).count()
+    return jsonify({'role': matched_role, 'staff_count': staff_count})
 
 
 @bp.route('/login', methods=['POST'])
@@ -50,31 +83,60 @@ def login():
     """
     Step 2 — verify personal PIN within a known department/role.
     Creates the session.
-
-    Also supports legacy single-step login: { pin } without department_pin.
     """
     data = request.json or {}
-    role     = data.get('role', '').strip()        # set by Step 1
+    role     = data.get('role', '').strip()
     pers_pin = str(data.get('personal_pin', data.get('pin', ''))).strip()
     staff_id = data.get('staff_id')
 
     if not pers_pin:
         return jsonify({'error': 'Personal PIN is required'}), 400
 
-    # Build query
     query = Staff.query.filter_by(is_active=True)
     if role:
         query = query.filter_by(role=role)
     if staff_id:
-        query = query.filter_by(id=int(staff_id))
+        try:
+            query = query.filter_by(id=int(staff_id))
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid staff_id'}), 400
 
-    # Try personal_pin first, then legacy pin field
-    member = query.filter_by(personal_pin=pers_pin).first()
-    if not member:
-        member = query.filter_by(pin=pers_pin).first()
+    candidates = query.all()
+    member = None
+    matched_field = None
+
+    for m in candidates:
+        if m.personal_pin and check_pin(pers_pin, m.personal_pin):
+            member = m
+            matched_field = 'personal_pin'
+            break
+        if m.pin and check_pin(pers_pin, m.pin):
+            member = m
+            matched_field = 'pin'
+            break
 
     if not member:
+        # Still increment attempt counter on the specific staff if they identified themselves
+        if staff_id:
+            target = Staff.query.get(int(staff_id))
+            if target:
+                locked, _ = _check_lockout(target)
+                if not locked:
+                    _record_failure(target)
         return jsonify({'error': 'Invalid PIN'}), 401
+
+    # Check lockout
+    locked, mins_left = _check_lockout(member)
+    if locked:
+        return jsonify({'error': f'Account locked. Try again in {mins_left} minute{"s" if mins_left != 1 else ""}'}), 403
+
+    # Re-hash plain-text PIN on successful login
+    if matched_field == 'personal_pin' and needs_hashing(member.personal_pin):
+        member.personal_pin = hash_pin(pers_pin)
+    elif matched_field == 'pin' and needs_hashing(member.pin):
+        member.pin = hash_pin(pers_pin)
+
+    _record_success(member)
 
     session.permanent = True
     session['staff_id']   = member.id
@@ -134,9 +196,6 @@ def authorize():
     """
     Sudo-style manager authorization. Accepts card_code OR pin.
     Does NOT change the session — returns a short-lived single-use token.
-
-    Body: { card_code? | pin?, action?, context? }
-    Returns: { token, authorizer: { id, name, role }, expires_in: 30 }
     """
     data = request.json or {}
     card_code = data.get('card_code', '').strip()
@@ -150,15 +209,20 @@ def authorize():
         method = 'card'
 
     if not member and pin:
-        # Accept any manager/admin PIN
-        m = Staff.query.filter(
+        candidates = Staff.query.filter(
             Staff.is_active == True,
             Staff.role.in_(['manager', 'admin'])
-        ).filter(
-            db.or_(Staff.personal_pin == pin, Staff.pin == pin)
-        ).first()
-        member = m
-        method = 'pin'
+        ).all()
+        for m in candidates:
+            if (m.personal_pin and check_pin(pin, m.personal_pin)) or \
+               (m.pin and check_pin(pin, m.pin)):
+                member = m
+                method = 'pin'
+                # Re-hash if plain-text
+                if m.personal_pin and needs_hashing(m.personal_pin):
+                    m.personal_pin = hash_pin(pin)
+                    db.session.commit()
+                break
 
     if not member:
         return jsonify({'error': 'Invalid card or PIN'}), 401
@@ -192,7 +256,11 @@ def consume_token():
 
 @bp.route('/generate-card/<int:staff_id>', methods=['POST'])
 def generate_card(staff_id):
-    """Generate a new auth card code for a manager/admin staff member."""
+    """Generate a new auth card code for a manager/admin staff member. Requires admin session."""
+    caller = get_current_user()
+    if not caller or caller['role'] != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+
     member = Staff.query.get_or_404(staff_id)
     if member.role not in ('manager', 'admin'):
         return jsonify({'error': 'Auth cards are only for manager/admin roles'}), 400
@@ -201,24 +269,32 @@ def generate_card(staff_id):
     member.auth_card_code = code
     db.session.commit()
 
+    log_action(caller, 'generate_card', 'staff', member.id, member.name)
+    db.session.commit()
+
     return jsonify({'auth_card_code': code, 'staff': member.to_dict()})
 
 
 @bp.route('/revoke-card/<int:staff_id>', methods=['POST'])
 def revoke_card(staff_id):
-    """Revoke a staff member's auth card — immediately stops it working."""
+    """Revoke a staff member's auth card. Requires admin session."""
+    caller = get_current_user()
+    if not caller or caller['role'] != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+
     member = Staff.query.get_or_404(staff_id)
     member.auth_card_code = None
     db.session.commit()
+
+    log_action(caller, 'revoke_card', 'staff', member.id, member.name)
+    db.session.commit()
+
     return jsonify({'message': 'Card revoked', 'staff': member.to_dict()})
 
 
 @bp.route('/current-shift', methods=['GET'])
 def current_shift():
-    """
-    Check if the currently logged-in cashier has an open shift.
-    Used by the POS gate on login.
-    """
+    """Check if the currently logged-in cashier has an open shift."""
     staff_id = session.get('staff_id')
     if not staff_id:
         return jsonify({'error': 'Not authenticated'}), 401

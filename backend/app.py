@@ -1,6 +1,9 @@
+import sys
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_migrate import Migrate
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 import os
 
@@ -10,14 +13,36 @@ load_dotenv()
 
 app = Flask(__name__)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///pos_hardware.db')
+# ── Security settings ─────────────────────────────────────────────────────────
+
+_secret = os.getenv('SECRET_KEY', 'dev-secret-change-in-production')
+_env    = os.getenv('FLASK_ENV', 'development')
+
+if _secret == 'dev-secret-change-in-production':
+    print('\n[SECURITY WARNING] SECRET_KEY is the default dev value. Set a strong SECRET_KEY in .env before going live.\n', file=sys.stderr)
+
+if _env == 'production':
+    app.config['SESSION_COOKIE_SECURE']   = True    # HTTPS-only cookies
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Strict'
+else:
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+app.config['SQLALCHEMY_DATABASE_URI']    = os.getenv('DATABASE_URL', 'sqlite:///pos_hardware.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-in-production')
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SECRET_KEY']                 = _secret
+app.config['SESSION_COOKIE_HTTPONLY']    = True
 
 db.init_app(app)
 migrate = Migrate(app, db)
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=['300 per minute'],
+    storage_uri='memory://',
+)
 
 from models import *  # noqa: F401,F403 — registers models with SQLAlchemy
 
@@ -79,15 +104,24 @@ app.register_blueprint(shift_reports_bp)
 app.register_blueprint(grn_bp)
 app.register_blueprint(invoices_bp)
 
+# Apply tighter rate limits to auth endpoints
+limiter.limit('10 per minute')(auth_bp)
+# Login is the most sensitive — override to 5/minute
+from routes.auth import login as _login_view
+limiter.limit('5 per minute')(_login_view)
+
 
 def _ensure_columns():
     """Add any new columns that don't yet exist in the live SQLite DB."""
     cols_to_add = [
-        ('purchase_orders', 'dispatched_at',                'DATETIME'),
-        ('purchase_orders', 'dispatched_by_name',            'VARCHAR(100)'),
-        ('purchase_orders', 'dispatch_details',              'TEXT'),
-        ('stores',          'default_tax_rate',              'REAL'),
-        ('stores',          'default_low_stock_threshold',   'INTEGER'),
+        ('purchase_orders', 'dispatched_at',               'DATETIME'),
+        ('purchase_orders', 'dispatched_by_name',           'VARCHAR(100)'),
+        ('purchase_orders', 'dispatch_details',             'TEXT'),
+        ('stores',          'default_tax_rate',             'REAL'),
+        ('stores',          'default_low_stock_threshold',  'INTEGER'),
+        ('stores',          'session_timeout_minutes',      'INTEGER'),
+        ('staff',           'login_attempts',               'INTEGER DEFAULT 0'),
+        ('staff',           'locked_until',                 'DATETIME'),
     ]
     with db.engine.connect() as conn:
         for table, col, col_type in cols_to_add:
@@ -107,7 +141,19 @@ def health():
     return jsonify({'status': 'ok', 'service': 'POS Hardware API'})
 
 
-# CORS
+# ── Security headers ──────────────────────────────────────────────────────────
+
+@app.after_request
+def add_security_headers(response):
+    if _env == 'production':
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options']        = 'SAMEORIGIN'
+    return response
+
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
+
 allowed_origins_raw = os.getenv('CORS_ORIGINS', '')
 allowed_origins = [o.strip() for o in allowed_origins_raw.split(',') if o.strip()] or [
     'http://localhost:5173',
@@ -126,16 +172,21 @@ CORS(app,
 def add_cors_headers(response):
     origin = request.headers.get('Origin')
     if origin and (origin in allowed_origins or '*' in allowed_origins):
-        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Origin']      = origin
         response.headers['Access-Control-Allow-Credentials'] = 'true'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response.headers['Access-Control-Allow-Methods']     = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+        response.headers['Access-Control-Allow-Headers']     = 'Content-Type, Authorization, X-Requested-With'
     return response
 
 
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({'error': 'Not found'}), 404
+
+
+@app.errorhandler(429)
+def rate_limited(e):
+    return jsonify({'error': 'Too many requests. Please wait and try again.'}), 429
 
 
 @app.errorhandler(500)
@@ -151,7 +202,7 @@ def _start_auto_sync():
     interval = int(os.getenv('SYNC_INTERVAL_MINUTES', 15)) * 60
 
     def _loop():
-        time.sleep(30)   # wait for app to fully start
+        time.sleep(30)
         while True:
             try:
                 _do_sync(app)

@@ -76,13 +76,15 @@ class Staff(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    pin = db.Column(db.String(10))             # legacy — kept for backwards compat
-    personal_pin = db.Column(db.String(10))    # unique per individual (Step 2 login)
-    department_pin = db.Column(db.String(10))  # shared by all staff in the same role (Step 1)
+    pin = db.Column(db.String(100))              # legacy — kept for backwards compat (bcrypt hash)
+    personal_pin = db.Column(db.String(100))     # unique per individual (Step 2 login, bcrypt hash)
+    department_pin = db.Column(db.String(100))   # shared by all staff in same role (Step 1, bcrypt hash)
     auth_card_code = db.Column(db.String(100), unique=True, nullable=True)  # manager auth card
     role = db.Column(db.String(20), default='cashier')  # admin/cashier/manager/inventory/purchasing/supplier
     supplier_id = db.Column(db.Integer, db.ForeignKey('suppliers.id'), nullable=True)  # for supplier-role staff
     is_active = db.Column(db.Boolean, default=True)
+    login_attempts = db.Column(db.Integer, default=0)   # consecutive failed logins
+    locked_until = db.Column(db.DateTime, nullable=True)  # account locked until this time
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     shifts = db.relationship('Shift', backref='cashier', lazy=True)
@@ -749,6 +751,7 @@ class Store(db.Model):
     returns_approval_threshold = db.Column(db.Float, default=5000.0)  # refunds above this need manager OK
     default_tax_rate = db.Column(db.Float, default=0.16)              # 16% Kenya standard VAT
     default_low_stock_threshold = db.Column(db.Integer, default=5)    # global low-stock alert level
+    session_timeout_minutes = db.Column(db.Integer, default=10)       # idle timeout before lock screen
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
@@ -760,6 +763,7 @@ class Store(db.Model):
             'returns_approval_threshold': self.returns_approval_threshold or 5000.0,
             'default_tax_rate': self.default_tax_rate if self.default_tax_rate is not None else 0.16,
             'default_low_stock_threshold': self.default_low_stock_threshold or 5,
+            'session_timeout_minutes': self.session_timeout_minutes or 10,
         }
 
 
