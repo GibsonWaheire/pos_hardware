@@ -37,6 +37,8 @@ class Product(db.Model):
     low_stock_threshold = db.Column(db.Integer, default=5)
     reorder_point = db.Column(db.Integer, default=0)
     reorder_qty   = db.Column(db.Integer, default=0)
+    supplier_id   = db.Column(db.Integer, db.ForeignKey('suppliers.id'), nullable=True)
+    supplier_name = db.Column(db.String(200), nullable=True)
     image_url = db.Column(db.String(500), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
@@ -63,6 +65,7 @@ class Product(db.Model):
             'age_restriction_type': self.age_restriction_type, 'min_age': self.min_age,
             'stock_qty': self.stock_qty, 'low_stock_threshold': self.low_stock_threshold,
             'reorder_point': self.reorder_point or 0, 'reorder_qty': self.reorder_qty or 0,
+            'supplier_id': self.supplier_id, 'supplier_name': self.supplier_name,
             'image_url': self.image_url,
             'category_id': self.category_id,
             'category_name': self.category_obj.name if self.category_obj else None,
@@ -826,9 +829,14 @@ class Store(db.Model):
     default_tax_rate = db.Column(db.Float, default=0.16)              # 16% Kenya standard VAT
     default_low_stock_threshold = db.Column(db.Integer, default=5)    # global low-stock alert level
     session_timeout_minutes = db.Column(db.Integer, default=10)       # idle timeout before lock screen
+    notification_config = db.Column(db.Text, nullable=True)           # JSON blob — AT + SMTP + event toggles
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
+        import json as _json
+        notif = {}
+        try: notif = _json.loads(self.notification_config) if self.notification_config else {}
+        except: pass
         return {
             'id': self.id, 'name': self.name, 'address': self.address,
             'phone': self.phone, 'email': self.email, 'currency': self.currency,
@@ -838,6 +846,30 @@ class Store(db.Model):
             'default_tax_rate': self.default_tax_rate if self.default_tax_rate is not None else 0.16,
             'default_low_stock_threshold': self.default_low_stock_threshold or 5,
             'session_timeout_minutes': self.session_timeout_minutes or 10,
+            'notification_config': notif,
+        }
+
+
+class Notification(db.Model):
+    """Log of every notification sent (or attempted) by the system."""
+    __tablename__ = 'notifications'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    event_type    = db.Column(db.String(50), nullable=False)   # reorder_alert, daily_summary, etc.
+    channel       = db.Column(db.String(10), nullable=False)   # sms | email
+    recipient     = db.Column(db.String(200))                  # phone number or email address
+    recipient_name = db.Column(db.String(100))
+    message       = db.Column(db.Text)
+    status        = db.Column(db.String(20), default='pending')  # sent | failed | pending
+    error         = db.Column(db.Text)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'event_type': self.event_type, 'channel': self.channel,
+            'recipient': self.recipient, 'recipient_name': self.recipient_name,
+            'message': self.message, 'status': self.status, 'error': self.error,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getDashboard, getManagerDashboard } from '../api'
+import { getDashboard, getManagerDashboard, getProductsBelowReorder } from '../api'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
@@ -63,7 +63,72 @@ function ApprovalSection({ title, items, color = 'var(--warning)', renderRow }) 
   )
 }
 
-function ManagerPanel({ mgr, nav }) {
+function ReorderWidget({ items, nav }) {
+  const [open, setOpen] = useState(true)
+  if (!items || items.length === 0) return (
+    <div style={{ fontSize: 13, color: 'var(--success)', fontWeight: 500 }}>No products need reordering</div>
+  )
+
+  // Group by supplier
+  const groups = {}
+  items.forEach(p => {
+    const key = p.supplier_id || '__none__'
+    if (!groups[key]) groups[key] = { supplier_id: p.supplier_id || null, supplier_name: p.supplier_name || 'No Supplier', items: [] }
+    groups[key].items.push(p)
+  })
+
+  function createDraftPO(group) {
+    nav('/purchase-orders', {
+      state: {
+        draft: {
+          supplier_id: group.supplier_id,
+          supplier_name: group.supplier_name,
+          items: group.items.map(p => ({
+            product_id: String(p.id),
+            product_name: p.name,
+            qty_ordered: p.reorder_qty > 0 ? p.reorder_qty : 1,
+            unit_cost: 0,
+          })),
+        },
+      },
+    })
+  }
+
+  return (
+    <div>
+      <div onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: open ? 10 : 0 }}>
+        <span style={{ background: 'var(--danger)', color: '#fff', borderRadius: 10, fontSize: 11, padding: '1px 8px', fontWeight: 700 }}>{items.length}</span>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>products need reordering</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>{open ? 'hide' : 'show'}</span>
+      </div>
+      {open && Object.values(groups).map(group => (
+        <div key={group.supplier_id || '__none__'} style={{ marginBottom: 12, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--surface2)' }}>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>{group.supplier_name}</span>
+            <button className="btn btn-primary btn-sm" onClick={() => createDraftPO(group)}>Create Draft PO</button>
+          </div>
+          <table className="table" style={{ fontSize: 12, margin: 0 }}>
+            <thead>
+              <tr><th>Product</th><th>Stock</th><th>Reorder At</th><th>Suggest Qty</th></tr>
+            </thead>
+            <tbody>
+              {group.items.map(p => (
+                <tr key={p.id}>
+                  <td style={{ fontWeight: 500 }}>{p.name}</td>
+                  <td style={{ color: p.stock_qty <= 0 ? 'var(--danger)' : 'var(--warning)', fontWeight: 600 }}>{p.stock_qty}</td>
+                  <td style={{ color: 'var(--text-muted)' }}>{p.reorder_point}</td>
+                  <td style={{ fontWeight: 600 }}>{p.reorder_qty > 0 ? p.reorder_qty : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ManagerPanel({ mgr, nav, reorderItems }) {
   const pa = mgr.pending_approvals || {}
   const alerts = mgr.alerts || {}
   const shift = mgr.shift
@@ -86,6 +151,19 @@ function ManagerPanel({ mgr, nav }) {
           <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 600 }}>All clear</span>
         )}
       </div>
+
+      {/* Reorder Alerts */}
+      {reorderItems && reorderItems.length > 0 && (
+        <div className="card" style={{ marginBottom: 14, borderColor: 'var(--danger)' }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10 }}>
+            Reorder Alerts
+            <span style={{ marginLeft: 8, background: 'var(--danger)', color: '#fff', borderRadius: 10, fontSize: 11, padding: '1px 7px', fontWeight: 700 }}>
+              {reorderItems.length}
+            </span>
+          </div>
+          <ReorderWidget items={reorderItems} nav={nav} />
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
 
@@ -283,6 +361,7 @@ function KpiCard({ label, value, sub, color, icon, onClick, alert }) {
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [mgr, setMgr] = useState(null)
+  const [reorderItems, setReorderItems] = useState([])
   const [loading, setLoading] = useState(true)
   const nav = useNavigate()
   const { user } = useAuth()
@@ -294,10 +373,11 @@ export default function Dashboard() {
     setLoading(true)
     try {
       const calls = [getDashboard()]
-      if (isManager) calls.push(getManagerDashboard())
-      const [r, mr] = await Promise.all(calls)
+      if (isManager) calls.push(getManagerDashboard(), getProductsBelowReorder())
+      const [r, mr, rr] = await Promise.all(calls)
       setData(r.data)
       if (mr) setMgr(mr.data)
+      if (rr) setReorderItems(rr.data || [])
     } catch (e) { console.error(e) } finally { setLoading(false) }
   }
 
@@ -484,7 +564,7 @@ export default function Dashboard() {
         </div>
 
         {/* ── Manager-only sections ── */}
-        {isManager && mgr && <ManagerPanel mgr={mgr} nav={nav} />}
+        {isManager && mgr && <ManagerPanel mgr={mgr} nav={nav} reorderItems={reorderItems} />}
 
       </div>
     </div>

@@ -63,6 +63,8 @@ export const deleteProduct = (id) => withLocal(
 export const uploadProductImage = (id, formData) =>
   api.post(`/products/${id}/image`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
 export const deleteProductImage = (id) => api.delete(`/products/${id}/image`)
+export const importProductsCSV = (formData) =>
+  api.post('/products/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
 export const getProductsBelowReorder = () => withLocal(
   () => api.get('/products/below-reorder'),
   () => local.lsStub([])
@@ -645,6 +647,11 @@ export const updateStoreConfig = (data) => withLocal(
   () => api.put('/stores/config', data),
   () => local.lsUpdateStoreConfig(data)
 )
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+export const getNotificationLog = (params) => api.get('/notifications/log', { params })
+export const testNotification   = (data)   => api.post('/notifications/test', data)
 
 // ── Quotes / Proforma Invoices ────────────────────────────────────────────────
 

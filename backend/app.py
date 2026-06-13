@@ -75,6 +75,7 @@ from routes.shift_reports import bp as shift_reports_bp
 from routes.grn import bp as grn_bp
 from routes.invoices import bp as invoices_bp
 from routes.overrides import bp as overrides_bp
+from routes.notifications import bp as notifications_bp
 
 app.register_blueprint(products_bp)
 app.register_blueprint(sales_bp)
@@ -105,6 +106,7 @@ app.register_blueprint(shift_reports_bp)
 app.register_blueprint(grn_bp)
 app.register_blueprint(invoices_bp)
 app.register_blueprint(overrides_bp)
+app.register_blueprint(notifications_bp)
 
 # Apply tighter rate limits to auth endpoints
 limiter.limit('10 per minute')(auth_bp)

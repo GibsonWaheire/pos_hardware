@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   getProducts, createProduct, updateProduct, deleteProduct,
-  getCategories, createCategory, getStoreConfig,
-  uploadProductImage, deleteProductImage,
+  getCategories, createCategory, getStoreConfig, getSuppliers,
+  uploadProductImage, deleteProductImage, importProductsCSV,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
@@ -13,6 +13,7 @@ const EMPTY_FORM = {
   tax_class: 'standard', stock_qty: '0',
   low_stock_threshold: '5', category_id: '',
   reorder_point: '0', reorder_qty: '0',
+  supplier_id: '', supplier_name: '',
 }
 
 export default function Products() {
@@ -21,6 +22,7 @@ export default function Products() {
   const readOnly = user?.role === 'purchasing'
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
+  const [suppliers, setSuppliers] = useState([])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(null)  // null | { mode: 'add'|'edit', data: {} }
   const [form, setForm] = useState(EMPTY_FORM)
@@ -30,10 +32,18 @@ export default function Products() {
   const [imgUploading, setImgUploading] = useState(false)
   const [editProduct, setEditProduct] = useState(null) // product being edited (for image)
   const fileInputRef = useRef(null)
+  const csvInputRef = useRef(null)
+
+  // CSV import state
+  const [importModal, setImportModal] = useState(false)
+  const [importPreview, setImportPreview] = useState(null)  // { rows, errors }
+  const [importCommitting, setImportCommitting] = useState(false)
+  const [importResult, setImportResult] = useState(null)  // { created, updated }
 
   useEffect(() => {
     loadProducts()
     loadCategories()
+    getSuppliers().then(r => setSuppliers(r.data || [])).catch(() => {})
     getStoreConfig().then(r => { if (r.data) setStoreDefaults(r.data) }).catch(() => {})
   }, [])
 
@@ -78,6 +88,8 @@ export default function Products() {
       category_id: product.category_id ? String(product.category_id) : '',
       reorder_point: String(product.reorder_point || 0),
       reorder_qty: String(product.reorder_qty || 0),
+      supplier_id: product.supplier_id ? String(product.supplier_id) : '',
+      supplier_name: product.supplier_name || '',
     })
     setEditProduct(product)
     setError('')
@@ -141,6 +153,89 @@ export default function Products() {
     }
   }
 
+  function handleExportCSV() {
+    window.location.href = '/api/products/export-csv'
+  }
+
+  function openImportModal() {
+    setImportPreview(null)
+    setImportResult(null)
+    setImportModal(true)
+  }
+
+  async function handleCSVPreview(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('preview', '1')
+    try {
+      const res = await importProductsCSV(fd)
+      setImportPreview(res.data)
+      setImportResult(null)
+    } catch (err) {
+      alert(err.message || 'Failed to parse CSV')
+    } finally {
+      e.target.value = ''
+    }
+  }
+
+  async function handleCSVCommit() {
+    if (!importPreview) return
+    if (!confirm(`Import ${importPreview.rows.length} products? This will create new or update existing by barcode/PLU.`)) return
+    setImportCommitting(true)
+    try {
+      // Re-upload with preview=0 — need the file again; workaround: store as blob
+      const res = await importProductsCSV(importPreview._fd)
+      setImportResult({ created: res.data.created, updated: res.data.updated })
+      setImportPreview(null)
+      loadProducts(search)
+    } catch (err) {
+      alert(err.message || 'Import failed')
+    } finally {
+      setImportCommitting(false)
+    }
+  }
+
+  // Store file for commit step
+  async function handleCSVFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('preview', '1')
+    try {
+      const res = await importProductsCSV(fd)
+      // Also keep a commit-ready FormData
+      const fd2 = new FormData()
+      fd2.append('file', file)
+      fd2.append('preview', '0')
+      res.data._fd = fd2
+      setImportPreview(res.data)
+      setImportResult(null)
+    } catch (err) {
+      alert(err.message || 'Failed to parse CSV')
+    } finally {
+      e.target.value = ''
+    }
+  }
+
+  async function handleCSVFinalCommit() {
+    if (!importPreview?._fd) return
+    if (!confirm(`Import ${importPreview.rows.length} products?`)) return
+    setImportCommitting(true)
+    try {
+      const res = await importProductsCSV(importPreview._fd)
+      setImportResult({ created: res.data.created, updated: res.data.updated })
+      setImportPreview(null)
+      loadProducts(search)
+    } catch (err) {
+      alert(err.message || 'Import failed')
+    } finally {
+      setImportCommitting(false)
+    }
+  }
+
   async function handleImageDelete() {
     if (!modal?.id) return
     if (!confirm('Remove product image?')) return
@@ -157,7 +252,15 @@ export default function Products() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <div className="page-header">
         <span className="page-title">Products</span>
-        {!readOnly && <button className="btn btn-primary" onClick={openAdd}>+ Add Product</button>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {(user?.role === 'manager' || user?.role === 'admin') && (
+            <button className="btn btn-ghost" onClick={handleExportCSV}>Export CSV</button>
+          )}
+          {user?.role === 'admin' && (
+            <button className="btn btn-ghost" onClick={openImportModal}>Import CSV</button>
+          )}
+          {!readOnly && <button className="btn btn-primary" onClick={openAdd}>+ Add Product</button>}
+        </div>
       </div>
 
       <div className="page-body" style={{ flex: 1, overflow: 'auto' }}>
@@ -241,6 +344,118 @@ export default function Products() {
         </div>
       </div>
 
+      {/* ── CSV Import modal ─── */}
+      {importModal && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setImportModal(false)}>
+          <div className="modal" style={{ width: 680, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div className="modal-title">Import Products from CSV</div>
+
+            {importResult ? (
+              <div>
+                <div style={{ padding: '20px 0', textAlign: 'center' }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--success)', marginBottom: 8 }}>
+                    Import complete
+                  </div>
+                  <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>
+                    {importResult.created} products created &nbsp;·&nbsp; {importResult.updated} updated
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="btn btn-primary" onClick={() => setImportModal(false)}>Done</button>
+                </div>
+              </div>
+            ) : !importPreview ? (
+              <div>
+                <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: 16, marginBottom: 16, fontSize: 13 }}>
+                  <strong>Instructions:</strong>
+                  <ol style={{ margin: '8px 0 0 16px', lineHeight: 1.8 }}>
+                    <li>Download the template CSV below</li>
+                    <li>Fill in your products (one per row)</li>
+                    <li>Upload the filled CSV — you will see a preview before committing</li>
+                    <li>Products are matched by <strong>barcode</strong> or <strong>PLU code</strong> — matching rows update existing; non-matching rows create new products</li>
+                  </ol>
+                </div>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+                  <a
+                    href="/api/products/import-template"
+                    className="btn btn-ghost"
+                    download="products_template.csv"
+                  >
+                    Download Template
+                  </a>
+                  <button className="btn btn-primary" onClick={() => csvInputRef.current?.click()}>
+                    Choose CSV File
+                  </button>
+                  <input ref={csvInputRef} type="file" accept=".csv,text/csv"
+                    style={{ display: 'none' }} onChange={handleCSVFile} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="btn btn-ghost" onClick={() => setImportModal(false)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{importPreview.rows.length} rows parsed</span>
+                  {importPreview.errors.length > 0 && (
+                    <span style={{ background: 'var(--danger)', color: '#fff', borderRadius: 10, fontSize: 11, padding: '1px 8px', fontWeight: 700 }}>
+                      {importPreview.errors.length} errors
+                    </span>
+                  )}
+                  <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }}
+                    onClick={() => { setImportPreview(null); csvInputRef.current?.click() }}>
+                    Choose different file
+                  </button>
+                </div>
+
+                {importPreview.errors.length > 0 && (
+                  <div style={{ background: 'var(--danger-muted, #fee)', border: '1px solid var(--danger)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, color: 'var(--danger)', marginBottom: 6, fontSize: 13 }}>Errors (rows with errors will be skipped)</div>
+                    {importPreview.errors.map((e, i) => (
+                      <div key={i} style={{ fontSize: 12, color: 'var(--danger)', marginBottom: 2 }}>
+                        Row {e.row} — {e.field}: {e.message}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="card" style={{ padding: 0, marginBottom: 16, maxHeight: 320, overflowY: 'auto' }}>
+                  <table className="table" style={{ fontSize: 12 }}>
+                    <thead>
+                      <tr><th>Action</th><th>Name</th><th>Barcode</th><th>Price</th><th>Stock</th><th>Category</th></tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.rows.map((r, i) => (
+                        <tr key={i}>
+                          <td>
+                            <span className={`badge ${r.action === 'updated' ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: 10 }}>
+                              {r.action === 'updated' ? 'update' : 'create'}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 500 }}>{r.name}</td>
+                          <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{r.barcode || '—'}</td>
+                          <td>KES {Number(r.price).toLocaleString()}</td>
+                          <td>{r.stock_qty}</td>
+                          <td style={{ color: 'var(--text-muted)' }}>{r.category || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button className="btn btn-ghost" onClick={() => setImportModal(false)}>Cancel</button>
+                  <button className="btn btn-primary" disabled={importCommitting || importPreview.rows.length === 0}
+                    onClick={handleCSVFinalCommit}>
+                    {importCommitting ? 'Importing...' : `Import ${importPreview.rows.length} Products`}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Add / Edit modal ─── */}
       {modal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
@@ -312,6 +527,16 @@ export default function Products() {
                 <label className="label">Suggested Reorder Qty</label>
                 <input className="input" type="number" min="0" placeholder="0"
                   value={form.reorder_qty} onChange={e => setForm({ ...form, reorder_qty: e.target.value })} />
+              </div>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label className="label">Primary Supplier</label>
+                <select className="input" value={form.supplier_id} onChange={e => {
+                  const sup = suppliers.find(s => String(s.id) === e.target.value)
+                  setForm({ ...form, supplier_id: e.target.value, supplier_name: sup ? sup.name : '' })
+                }}>
+                  <option value="">— None —</option>
+                  {suppliers.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+                </select>
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

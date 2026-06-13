@@ -1,5 +1,7 @@
 import os
-from flask import Blueprint, jsonify, request, session
+import csv
+import io
+from flask import Blueprint, jsonify, request, session, Response
 from werkzeug.utils import secure_filename
 from db import db
 from models import Product, Category
@@ -136,6 +138,8 @@ def create_product():
         low_stock_threshold=int(data.get('low_stock_threshold', 5)),
         reorder_point=int(data.get('reorder_point', 0)),
         reorder_qty=int(data.get('reorder_qty', 0)),
+        supplier_id=data.get('supplier_id') or None,
+        supplier_name=data.get('supplier_name') or None,
         category_id=data.get('category_id'),
     )
     user = get_current_user()
@@ -195,6 +199,15 @@ def update_product(product_id):
         product.reorder_point = int(data['reorder_point'] or 0)
     if 'reorder_qty' in data:
         product.reorder_qty = int(data['reorder_qty'] or 0)
+    if 'supplier_id' in data:
+        product.supplier_id = data['supplier_id'] or None
+        # auto-fetch supplier name if id provided and name not in payload
+        if product.supplier_id and 'supplier_name' not in data:
+            from ..models import Supplier
+            sup = Supplier.query.get(product.supplier_id)
+            product.supplier_name = sup.name if sup else None
+    if 'supplier_name' in data:
+        product.supplier_name = data['supplier_name'] or None
     if 'category_id' in data:
         product.category_id = data['category_id']
     if 'is_active' in data:
@@ -241,6 +254,171 @@ def below_reorder():
         Product.stock_qty <= Product.reorder_point,
     ).all()
     return jsonify([p.to_dict() for p in products])
+
+
+_CSV_FIELDS = ['name', 'barcode', 'plu_code', 'price', 'tax_rate', 'tax_class',
+               'stock_qty', 'low_stock_threshold', 'reorder_point', 'reorder_qty',
+               'category', 'supplier', 'is_active']
+
+
+@bp.route('/products/export-csv', methods=['GET'])
+def export_csv():
+    role = session.get('role', '')
+    if role not in ('manager', 'admin', 'inventory'):
+        return jsonify({'error': 'Access denied'}), 403
+    products = Product.query.filter_by(is_active=True).order_by(Product.name).all()
+    output = io.StringIO()
+    w = csv.DictWriter(output, fieldnames=_CSV_FIELDS)
+    w.writeheader()
+    for p in products:
+        w.writerow({
+            'name': p.name, 'barcode': p.barcode or '', 'plu_code': p.plu_code or '',
+            'price': p.price, 'tax_rate': p.tax_rate, 'tax_class': p.tax_class,
+            'stock_qty': p.stock_qty, 'low_stock_threshold': p.low_stock_threshold,
+            'reorder_point': p.reorder_point or 0, 'reorder_qty': p.reorder_qty or 0,
+            'category': p.category_obj.name if p.category_obj else '',
+            'supplier': p.supplier_name or '',
+            'is_active': '1' if p.is_active else '0',
+        })
+    csv_bytes = output.getvalue().encode('utf-8-sig')  # BOM for Excel compatibility
+    return Response(csv_bytes, mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=products.csv'})
+
+
+@bp.route('/products/import-template', methods=['GET'])
+def import_template():
+    role = session.get('role', '')
+    if role not in ('manager', 'admin'):
+        return jsonify({'error': 'Access denied'}), 403
+    output = io.StringIO()
+    w = csv.DictWriter(output, fieldnames=_CSV_FIELDS)
+    w.writeheader()
+    # Example row
+    w.writerow({
+        'name': 'Example Product', 'barcode': '1234567890123', 'plu_code': 'P001',
+        'price': '100.00', 'tax_rate': '0.16', 'tax_class': 'standard',
+        'stock_qty': '50', 'low_stock_threshold': '10', 'reorder_point': '20', 'reorder_qty': '50',
+        'category': 'Hardware & Tools', 'supplier': '', 'is_active': '1',
+    })
+    csv_bytes = output.getvalue().encode('utf-8-sig')
+    return Response(csv_bytes, mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=products_template.csv'})
+
+
+@bp.route('/products/import', methods=['POST'])
+def import_csv():
+    role = session.get('role', '')
+    if role not in ('manager', 'admin'):
+        return jsonify({'error': 'Access denied'}), 403
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    try:
+        text = f.read().decode('utf-8-sig')
+    except Exception:
+        return jsonify({'error': 'Could not decode file — save as UTF-8 CSV'}), 400
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames or 'name' not in reader.fieldnames or 'price' not in reader.fieldnames:
+        return jsonify({'error': 'CSV must have at least "name" and "price" columns'}), 400
+
+    # Build category map (case-insensitive)
+    cats = {c.name.lower(): c for c in Category.query.all()}
+
+    preview_only = request.form.get('preview', '1') == '1'
+    rows, errors = [], []
+    created = updated = 0
+
+    for i, row in enumerate(reader, start=2):  # row 1 = header
+        name = (row.get('name') or '').strip()
+        price_str = (row.get('price') or '').strip()
+        if not name:
+            errors.append({'row': i, 'field': 'name', 'message': 'Name is required'})
+            continue
+        try:
+            price = float(price_str)
+            if price < 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            errors.append({'row': i, 'field': 'price', 'message': f'Invalid price: {price_str!r}'}); continue
+
+        barcode = (row.get('barcode') or '').strip() or None
+        plu     = (row.get('plu_code') or '').strip() or None
+        cat_name = (row.get('category') or '').strip().lower()
+        cat_obj  = cats.get(cat_name) if cat_name else None
+
+        def safe_int(v, default=0):
+            try: return int(float(v))
+            except: return default
+        def safe_float(v, default=0.0):
+            try: return float(v)
+            except: return default
+
+        rows.append({
+            'row': i, 'name': name, 'barcode': barcode, 'plu_code': plu,
+            'price': price,
+            'tax_rate': safe_float(row.get('tax_rate'), 0.0),
+            'tax_class': (row.get('tax_class') or 'standard').strip(),
+            'stock_qty': safe_int(row.get('stock_qty'), 0),
+            'low_stock_threshold': safe_int(row.get('low_stock_threshold'), 5),
+            'reorder_point': safe_int(row.get('reorder_point'), 0),
+            'reorder_qty': safe_int(row.get('reorder_qty'), 0),
+            'category_id': cat_obj.id if cat_obj else None,
+            'category': row.get('category', ''),
+            'supplier_name': (row.get('supplier') or '').strip() or None,
+            'is_active': str(row.get('is_active', '1')).strip() not in ('0', 'false', 'False', 'no'),
+            'action': 'new',  # default; updated below if barcode matches
+        })
+
+    if not preview_only and not errors:
+        user = get_current_user()
+        for r in rows:
+            existing = None
+            if r['barcode']:
+                existing = Product.query.filter_by(barcode=r['barcode']).first()
+            if not existing and r['plu_code']:
+                existing = Product.query.filter_by(plu_code=r['plu_code']).first()
+
+            if existing:
+                existing.name = r['name']
+                existing.price = r['price']
+                existing.tax_rate = r['tax_rate']
+                existing.tax_class = r['tax_class']
+                existing.low_stock_threshold = r['low_stock_threshold']
+                existing.reorder_point = r['reorder_point']
+                existing.reorder_qty = r['reorder_qty']
+                if r['category_id'] is not None:
+                    existing.category_id = r['category_id']
+                if r['supplier_name']:
+                    existing.supplier_name = r['supplier_name']
+                existing.is_active = r['is_active']
+                stamp(existing, user, is_create=False)
+                r['action'] = 'updated'
+                updated += 1
+            else:
+                p = Product(
+                    name=r['name'], barcode=r['barcode'], plu_code=r['plu_code'],
+                    price=r['price'], tax_rate=r['tax_rate'], tax_class=r['tax_class'],
+                    stock_qty=r['stock_qty'], low_stock_threshold=r['low_stock_threshold'],
+                    reorder_point=r['reorder_point'], reorder_qty=r['reorder_qty'],
+                    category_id=r['category_id'], supplier_name=r['supplier_name'],
+                    is_active=r['is_active'],
+                )
+                stamp(p, user, is_create=True)
+                db.session.add(p)
+                r['action'] = 'created'
+                created += 1
+        db.session.commit()
+        log_action(user, 'csv_import', 'product', None, None,
+                   {'created': created, 'updated': updated})
+
+    return jsonify({
+        'preview': preview_only,
+        'rows': rows,
+        'errors': errors,
+        'created': created,
+        'updated': updated,
+    })
 
 
 @bp.route('/products/<int:product_id>/image', methods=['POST'])

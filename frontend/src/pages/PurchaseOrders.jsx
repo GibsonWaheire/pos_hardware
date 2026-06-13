@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
 import {
@@ -22,6 +23,7 @@ export default function PurchaseOrders() {
   const { user } = useAuth()
   const role = user?.role || ''
   const { currency, fmt } = useCurrency()
+  const location = useLocation()
 
   const [pos, setPOs] = useState([])
   const [pendingPos, setPendingPOs] = useState([])
@@ -37,6 +39,20 @@ export default function PurchaseOrders() {
   const [error, setError] = useState('')
 
   useEffect(() => { load() }, [])
+
+  // Pre-fill from reorder widget navigation
+  useEffect(() => {
+    const draft = location.state?.draft
+    if (!draft) return
+    setCreateForm({
+      supplier_id: draft.supplier_id ? String(draft.supplier_id) : '',
+      notes: `Auto-generated from reorder alerts — ${draft.supplier_name}`,
+      items: draft.items,
+    })
+    setModal('create')
+    // Clear state so refresh doesn't re-open the modal
+    window.history.replaceState({}, '')
+  }, [location.state])
 
   async function load() {
     try {

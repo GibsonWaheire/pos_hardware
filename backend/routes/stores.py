@@ -1,4 +1,5 @@
-from flask import Blueprint, jsonify, request
+import json
+from flask import Blueprint, jsonify, request, session
 from db import db
 from models import Store
 
@@ -29,6 +30,10 @@ def update_config():
                   'default_low_stock_threshold'):
         if field in d:
             setattr(store, field, d[field])
+
+    # Notification config — only admin can update; stored as JSON blob
+    if 'notification_config' in d and session.get('role') == 'admin':
+        store.notification_config = json.dumps(d['notification_config'])
 
     db.session.commit()
     return jsonify(store.to_dict())

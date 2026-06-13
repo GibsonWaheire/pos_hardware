@@ -945,7 +945,7 @@ Every document the system must be able to produce:
 - **CRITICAL — No session idle timeout:** A logged-in cashier session never expires on inactivity — Phase 30
 - No product images on POS tiles — Phase 29
 - No Hold Sale / parked transactions — Phase 32
-- No reorder point / auto-PO suggestions — Phase 33
+- No reorder point / auto-PO suggestions — Phase 33 ✅ done
 - No bulk CSV product import — Phase 34
 - **Manager has Checkout nav** — remove in Phase 39A (managers do not sell)
 - **Shift close is cash-only** — no multi-tender reconciliation gate — Phase 39
@@ -1168,63 +1168,50 @@ Every document the system must be able to produce:
 
 ---
 
-### Phase 33 — Reorder Points & Auto-PO Suggestions
+### Phase 33 — Reorder Points & Auto-PO Suggestions ✅ COMPLETE
 
 **Goal:** When products fall below their reorder point, the system surfaces this to the manager and can suggest or draft a Purchase Order.
 
-#### What to build:
-- `GET /api/products/below-reorder` — products where `stock_qty <= reorder_point > 0`, joined with supplier info
-- **Dashboard widget** (manager/admin): "X products need reordering" — grouped by supplier, shows product + current stock + reorder point + suggested qty
-- "Create Draft PO" button per supplier group — pre-fills a new PO with all products from that supplier at `reorder_qty` each
-- Auto-email/SMS option (Phase 35): notify purchasing officer when products go below reorder point
-- `Inventory.jsx`: "Reorder Alerts" tab showing same data as dashboard widget
-- Files: `backend/routes/products.py`, `frontend/src/pages/Dashboard.jsx`, `frontend/src/pages/Inventory.jsx`, `frontend/src/pages/PurchaseOrders.jsx`
+#### What was built:
+- `GET /api/products/below-reorder` — products where `stock_qty <= reorder_point > 0`
+- `supplier_id` + `supplier_name` fields added to Product model + migration; Products.jsx form has Supplier dropdown
+- **Dashboard widget** (`ReorderWidget` in `ManagerPanel`): grouped by supplier, shows stock/reorder/suggest qty, "Create Draft PO" button
+- **Inventory.jsx**: "Reorder" tab showing same data, grouped by supplier with "Create Draft PO"
+- **PurchaseOrders.jsx**: reads `location.state.draft` on mount to pre-fill create modal with supplier + items
+- Files: `backend/models.py`, `backend/init_db.py`, `backend/routes/products.py`, `frontend/src/pages/Dashboard.jsx`, `frontend/src/pages/Inventory.jsx`, `frontend/src/pages/PurchaseOrders.jsx`, `frontend/src/pages/Products.jsx`
 
 ---
 
-### Phase 34 — Bulk CSV Product Import / Export
+### Phase 34 — Bulk CSV Product Import / Export ✅ COMPLETE
 
 **Goal:** Import hundreds of products at once from a spreadsheet — critical for initial store setup and price updates.
 
-#### 34A — CSV Export
-- "Export CSV" button on Products page (manager/admin)
-- Downloads all products as CSV: name, barcode, PLU, price, tax_rate, tax_class, stock_qty, reorder_point, category, unit, is_active
-- Files: `frontend/src/pages/Products.jsx`, `backend/routes/products.py`
+#### 34A — CSV Export ✅
+- "Export CSV" button (manager/admin) → `GET /api/products/export-csv` → downloads `products.csv` (UTF-8 BOM for Excel)
+- Columns: name, barcode, plu_code, price, tax_rate, tax_class, stock_qty, low_stock_threshold, reorder_point, reorder_qty, category, supplier, is_active
 
-#### 34B — CSV Import
-- "Import CSV" button (admin only) — opens import modal
-- Step 1: Download template (pre-formatted CSV with column headers)
-- Step 2: Upload CSV → backend parses and validates every row
-- Step 3: Preview table — shows parsed rows, flags errors (missing name, invalid price, unknown category)
-- Step 4: Commit — upsert by barcode (update existing, create new); returns summary (X created, Y updated, Z errors)
-- Backend: `POST /api/products/import` — multipart CSV; returns `{ created, updated, errors: [{row, field, message}] }`
-- Files: `backend/routes/products.py`, `frontend/src/pages/Products.jsx`
+#### 34B — CSV Import ✅
+- "Import CSV" button (admin only) → modal with 3-step flow
+- Step 1: Download template (`GET /api/products/import-template`) + Choose CSV file
+- Step 2: Preview table — parsed rows with action (create/update), errors listed above table
+- Step 3: Commit → `POST /api/products/import?preview=0` — upsert by barcode/PLU, returns `{ created, updated }`
+- Files: `backend/routes/products.py`, `frontend/src/pages/Products.jsx`, `frontend/src/api.js`
 
 ---
 
-### Phase 35 — SMS & Email Notifications
+### Phase 35 — SMS & Email Notifications ✅ COMPLETE
 
 **Goal:** Key business events trigger notifications to the right person without them having to log in.
 
-#### Notification events:
-| Event | Recipient | Channel |
-|---|---|---|
-| Product below reorder point | Purchasing officer | SMS |
-| Daily sales summary (end of day) | Owner / Admin | SMS + Email |
-| Shift not closed by 10pm | Manager | SMS |
-| Unfiled shift reports (> 2 days) | Manager | Email |
-| Return pending approval (> 1hr) | Manager | SMS |
-| Customer account over credit limit | Manager | SMS |
-| Cloud sync failure (> 2 attempts) | Admin | Email |
-| New staff account created | New staff member | SMS (PIN delivery) |
-
-#### Implementation:
-- SMS: **Africa's Talking API** (Kenyan provider, KES billing) — `pip install africastalking`
-- Email: SMTP via `Flask-Mail` — supports Gmail, Zoho, custom SMTP
-- `Notification` model: `event_type`, `recipient_id`, `channel`, `message`, `status`, `sent_at`, `error`
-- `POST /api/notifications/test` — admin can test SMS/email delivery
-- Settings page: Notifications tab — enter Africa's Talking API key, SMTP config, per-event toggles
-- Files: `backend/notifications.py` (new), `backend/models.py`, `backend/routes/stores.py`, `frontend/src/pages/Settings.jsx`
+#### What was built:
+- `Notification` model: `event_type`, `channel`, `recipient`, `recipient_name`, `message`, `status` (sent/failed), `error`, `created_at`
+- `Store.notification_config` — JSON blob column storing AT credentials, SMTP config, per-event toggles
+- `backend/notifications.py`: `send_sms()` (Africa's Talking), `send_email()` (SMTP/TLS), `notify()` (dispatches + logs)
+- `GET /api/notifications/log` — manager/admin view recent 50 notifications
+- `POST /api/notifications/test` — admin can test SMS or email to any address; logged to Notification table
+- Settings page (admin only): AT username/API key/sender ID, SMTP host/port/user/password/from address, per-event toggle table (7 events × channel + recipient), Test Delivery panel, recent notification log
+- `pip install africastalking` required for SMS; email uses stdlib `smtplib` (no extra package)
+- Files: `backend/notifications.py`, `backend/routes/notifications.py`, `backend/models.py`, `backend/routes/stores.py`, `backend/app.py`, `backend/init_db.py`, `frontend/src/api.js`, `frontend/src/pages/Settings.jsx`
 
 ---
 

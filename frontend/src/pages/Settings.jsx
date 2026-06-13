@@ -6,6 +6,7 @@ import {
   getStoreConfig, updateStoreConfig,
   getSuppliers,
   generateAuthCard, revokeAuthCard,
+  getNotificationLog, testNotification,
 } from '../api'
 
 const ROLES = ['cashier', 'inventory', 'purchasing', 'manager', 'admin', 'supplier']
@@ -50,7 +51,35 @@ export default function Settings() {
   const [saving, setSaving]     = useState(false)
   const [error, setError]       = useState('')
 
+  // Notification config state
+  const EMPTY_NOTIF = {
+    at_api_key: '', at_username: '', at_sender: '',
+    smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '',
+    events: {
+      reorder_alert:   { enabled: false, channel: 'sms',   recipient: '' },
+      daily_summary:   { enabled: false, channel: 'email', recipient: '' },
+      shift_overdue:   { enabled: false, channel: 'sms',   recipient: '' },
+      unfiled_reports: { enabled: false, channel: 'email', recipient: '' },
+      return_pending:  { enabled: false, channel: 'sms',   recipient: '' },
+      account_over_limit: { enabled: false, channel: 'sms', recipient: '' },
+      sync_failure:    { enabled: false, channel: 'email', recipient: '' },
+    },
+  }
+  const [notifForm, setNotifForm]   = useState(EMPTY_NOTIF)
+  const [notifSaving, setNotifSaving] = useState(false)
+  const [notifMsg, setNotifMsg]     = useState('')
+  const [notifLog, setNotifLog]     = useState([])
+  const [testChannel, setTestChannel] = useState('sms')
+  const [testRecipient, setTestRecipient] = useState('')
+  const [testBusy, setTestBusy]     = useState(false)
+  const [testResult, setTestResult] = useState(null)
+
   useEffect(() => { loadStaff(); loadStore(); loadSuppliers() }, [])
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      getNotificationLog({ limit: 20 }).then(r => setNotifLog(r.data || [])).catch(() => {})
+    }
+  }, [])
 
   async function loadStaff() {
     try { const res = await getStaff(); setStaff(res.data) }
@@ -63,12 +92,35 @@ export default function Settings() {
       const d = res.data || {}
       setStoreForm({
         ...EMPTY_STORE, ...d,
-        // Convert decimal to percent for UI display
         default_tax_rate: d.default_tax_rate != null ? Math.round(d.default_tax_rate * 100) : 16,
         default_low_stock_threshold: d.default_low_stock_threshold ?? 5,
         returns_approval_threshold: d.returns_approval_threshold ?? 5000,
       })
+      if (d.notification_config && Object.keys(d.notification_config).length) {
+        setNotifForm(prev => ({ ...prev, ...d.notification_config,
+          events: { ...EMPTY_NOTIF.events, ...(d.notification_config.events || {}) }
+        }))
+      }
     } catch (e) { console.error(e) }
+  }
+
+  async function saveNotifConfig() {
+    setNotifSaving(true); setNotifMsg('')
+    try {
+      await updateStoreConfig({ notification_config: notifForm })
+      setNotifMsg('Notification settings saved')
+      setTimeout(() => setNotifMsg(''), 3000)
+    } catch (e) { setNotifMsg(e.message) } finally { setNotifSaving(false) }
+  }
+
+  async function handleTestNotification() {
+    if (!testRecipient.trim()) return
+    setTestBusy(true); setTestResult(null)
+    try {
+      const res = await testNotification({ channel: testChannel, recipient: testRecipient.trim() })
+      setTestResult(res.data)
+      getNotificationLog({ limit: 20 }).then(r => setNotifLog(r.data || [])).catch(() => {})
+    } catch (e) { setTestResult({ ok: false, error: e.message }) } finally { setTestBusy(false) }
   }
 
   async function loadSuppliers() {
@@ -308,6 +360,187 @@ export default function Settings() {
           <HardwareRow label="Cash Drawer" desc="Triggered via printer or direct serial" />
           <HardwareRow label="Card Terminal" desc="Stripe Terminal SDK — requires STRIPE_SECRET_KEY" />
         </div>
+
+        {/* ── Notifications (admin only) ── */}
+        {user?.role === 'admin' && (
+          <>
+            <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Notifications</div>
+
+            {/* SMS — Africa's Talking */}
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
+                SMS — Africa's Talking
+                <a href="https://africastalking.com" target="_blank" rel="noreferrer"
+                  style={{ fontSize: 11, color: 'var(--accent)', marginLeft: 8, fontWeight: 400 }}>
+                  Get API key
+                </a>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="label">AT Username</label>
+                  <input className="input" placeholder="sandbox or your account username"
+                    value={notifForm.at_username}
+                    onChange={e => setNotifForm({ ...notifForm, at_username: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="label">AT API Key</label>
+                  <input className="input" type="password" placeholder="••••••••"
+                    value={notifForm.at_api_key}
+                    onChange={e => setNotifForm({ ...notifForm, at_api_key: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="label">Sender ID (optional)</label>
+                  <input className="input" placeholder="e.g. HARDWARE"
+                    value={notifForm.at_sender}
+                    onChange={e => setNotifForm({ ...notifForm, at_sender: e.target.value })} />
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
+                    Must be registered with Africa's Talking
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Email — SMTP */}
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Email — SMTP</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="label">SMTP Host</label>
+                  <input className="input" placeholder="smtp.gmail.com"
+                    value={notifForm.smtp_host}
+                    onChange={e => setNotifForm({ ...notifForm, smtp_host: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="label">Port</label>
+                  <select className="input" value={notifForm.smtp_port}
+                    onChange={e => setNotifForm({ ...notifForm, smtp_port: e.target.value })}>
+                    <option value="587">587 (TLS/STARTTLS)</option>
+                    <option value="465">465 (SSL)</option>
+                    <option value="25">25 (plain)</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="label">From Address</label>
+                  <input className="input" placeholder="pos@mystore.co.ke"
+                    value={notifForm.smtp_from}
+                    onChange={e => setNotifForm({ ...notifForm, smtp_from: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="label">Username / Email</label>
+                  <input className="input"
+                    value={notifForm.smtp_user}
+                    onChange={e => setNotifForm({ ...notifForm, smtp_user: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="label">Password / App Password</label>
+                  <input className="input" type="password" placeholder="••••••••"
+                    value={notifForm.smtp_pass}
+                    onChange={e => setNotifForm({ ...notifForm, smtp_pass: e.target.value })} />
+                </div>
+              </div>
+            </div>
+
+            {/* Per-event toggles */}
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Event Triggers</div>
+              {[
+                { key: 'reorder_alert',   label: 'Product below reorder point',   channels: ['sms', 'email'] },
+                { key: 'daily_summary',   label: 'Daily sales summary (end of day)', channels: ['sms', 'email'] },
+                { key: 'shift_overdue',   label: 'Shift not closed by 10pm',       channels: ['sms'] },
+                { key: 'unfiled_reports', label: 'Unfiled shift reports (> 2 days)', channels: ['email'] },
+                { key: 'return_pending',  label: 'Return pending approval (> 1hr)', channels: ['sms', 'email'] },
+                { key: 'account_over_limit', label: 'Account over credit limit',   channels: ['sms', 'email'] },
+                { key: 'sync_failure',    label: 'Cloud sync failure',             channels: ['email'] },
+              ].map(ev => {
+                const evData = notifForm.events?.[ev.key] || { enabled: false, channel: ev.channels[0], recipient: '' }
+                function upd(patch) {
+                  setNotifForm(f => ({ ...f, events: { ...f.events, [ev.key]: { ...evData, ...patch } } }))
+                }
+                return (
+                  <div key={ev.key} style={{ display: 'grid', gridTemplateColumns: '24px 1fr 100px 1fr', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                    <input type="checkbox" checked={!!evData.enabled} onChange={e => upd({ enabled: e.target.checked })} />
+                    <span style={{ fontSize: 13, color: evData.enabled ? 'var(--text)' : 'var(--text-muted)' }}>{ev.label}</span>
+                    <select className="input" style={{ padding: '4px 8px', fontSize: 12 }}
+                      value={evData.channel} onChange={e => upd({ channel: e.target.value })}
+                      disabled={!evData.enabled}>
+                      {ev.channels.map(c => <option key={c} value={c}>{c.toUpperCase()}</option>)}
+                    </select>
+                    <input className="input" style={{ padding: '4px 8px', fontSize: 12 }}
+                      placeholder={evData.channel === 'sms' ? '+254712345678' : 'manager@store.co.ke'}
+                      value={evData.recipient} onChange={e => upd({ recipient: e.target.value })}
+                      disabled={!evData.enabled} />
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Test + save */}
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Test Delivery</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="label">Channel</label>
+                  <select className="input" value={testChannel} onChange={e => setTestChannel(e.target.value)} style={{ width: 100 }}>
+                    <option value="sms">SMS</option>
+                    <option value="email">Email</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ margin: 0, flex: 1, minWidth: 200 }}>
+                  <label className="label">{testChannel === 'sms' ? 'Phone (+254…)' : 'Email address'}</label>
+                  <input className="input" value={testRecipient}
+                    onChange={e => setTestRecipient(e.target.value)}
+                    placeholder={testChannel === 'sms' ? '+254712345678' : 'you@example.com'} />
+                </div>
+                <button className="btn btn-ghost" onClick={handleTestNotification}
+                  disabled={testBusy || !testRecipient.trim()}>
+                  {testBusy ? 'Sending…' : `Send Test ${testChannel.toUpperCase()}`}
+                </button>
+              </div>
+              {testResult && (
+                <div style={{ marginTop: 8, fontSize: 13, color: testResult.ok ? 'var(--success)' : 'var(--danger)', fontWeight: 500 }}>
+                  {testResult.ok ? `Sent — ${testResult.detail}` : `Failed — ${testResult.error}`}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+              {notifMsg && <span style={{ fontSize: 13, color: notifMsg.includes('saved') ? 'var(--success)' : 'var(--danger)' }}>{notifMsg}</span>}
+              <button className="btn btn-primary" onClick={saveNotifConfig} disabled={notifSaving}>
+                {notifSaving ? 'Saving…' : 'Save Notification Settings'}
+              </button>
+            </div>
+
+            {/* Notification log */}
+            {notifLog.length > 0 && (
+              <>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Recent Notifications</div>
+                <div className="card" style={{ padding: 0, marginBottom: 24 }}>
+                  <table className="table" style={{ fontSize: 12 }}>
+                    <thead>
+                      <tr><th>Time</th><th>Event</th><th>Channel</th><th>Recipient</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                      {notifLog.map(n => (
+                        <tr key={n.id}>
+                          <td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date(n.created_at).toLocaleString()}</td>
+                          <td>{n.event_type}</td>
+                          <td><span className="badge badge-blue" style={{ fontSize: 10 }}>{n.channel}</span></td>
+                          <td style={{ color: 'var(--text-muted)' }}>{n.recipient}</td>
+                          <td>
+                            <span className={`badge ${n.status === 'sent' ? 'badge-green' : 'badge-red'}`} style={{ fontSize: 10 }}>
+                              {n.status}
+                            </span>
+                            {n.error && <span style={{ fontSize: 10, color: 'var(--danger)', marginLeft: 4 }}>{n.error}</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
+        )}
 
       </div>
 

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   getInventoryOverview, getStockLevels, adjustStock, getStockAdjustments,
   getStockMovements, getDamageReports, createDamageReport,
   approveDamageReport, rejectDamageReport, getGRNs, confirmGRN, signOffGRN,
-  getStoreConfig,
+  getStoreConfig, getProductsBelowReorder,
 } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
@@ -12,6 +13,7 @@ import { printGRN, printDamageReport, printCountSheet, printMovementReport } fro
 export default function Inventory() {
   const { fmt } = useCurrency()
   const { user } = useAuth()
+  const nav = useNavigate()
   const role = user?.role || ''
   const isManager = role === 'manager' || role === 'admin'
   const isPurchasing = role === 'purchasing'
@@ -22,6 +24,7 @@ export default function Inventory() {
   const [movements, setMovements] = useState([])
   const [damageReports, setDamageReports] = useState([])
   const [grns, setGrns] = useState([])
+  const [reorderProducts, setReorderProducts] = useState([])
   const [tab, setTab] = useState('stock')
   const [loading, setLoading] = useState(true)
   const [stockSearch, setStockSearch] = useState('')
@@ -61,7 +64,7 @@ export default function Inventory() {
   async function loadAll() {
     setLoading(true)
     try {
-      const calls = [getInventoryOverview(), getStockLevels()]
+      const calls = [getInventoryOverview(), getStockLevels(), getProductsBelowReorder()]
       if (!isPurchasing) {
         calls.push(
           getStockAdjustments({ limit: 100 }),
@@ -79,11 +82,12 @@ export default function Inventory() {
         return 0
       })
       setProducts(sorted)
+      setReorderProducts(results[2].data || [])
       if (!isPurchasing) {
-        setAdjustments(results[2].data)
-        setMovements(results[3].data)
-        setDamageReports(results[4].data)
-        setGrns(results[5].data)
+        setAdjustments(results[3].data)
+        setMovements(results[4].data)
+        setDamageReports(results[5].data)
+        setGrns(results[6].data)
       }
     } catch (e) {
       console.error(e)
@@ -158,6 +162,7 @@ export default function Inventory() {
   const TABS = [
     ['stock', 'All Stock'],
     ['alerts', `Alerts (${alerts.length})`],
+    ['reorder', `Reorder${reorderProducts.length > 0 ? ` (${reorderProducts.length})` : ''}`],
     ...(!isPurchasing ? [
       ['movements', 'Movement Log'],
       ['damage', `Damage Reports (${damageReports.filter(r => r.status === 'raised').length})`],
@@ -415,7 +420,64 @@ export default function Inventory() {
               </table>
             </div>
           </div>
-        ) : null}
+        ) : tab === 'reorder' ? (() => {
+          if (reorderProducts.length === 0) return (
+            <div className="empty-state" style={{ color: 'var(--success)' }}>All products are at or above their reorder points</div>
+          )
+          // Group by supplier
+          const groups = {}
+          reorderProducts.forEach(p => {
+            const key = p.supplier_id || '__none__'
+            if (!groups[key]) groups[key] = { supplier_id: p.supplier_id || null, supplier_name: p.supplier_name || 'No Supplier', items: [] }
+            groups[key].items.push(p)
+          })
+          function createDraftPO(group) {
+            nav('/purchase-orders', {
+              state: {
+                draft: {
+                  supplier_id: group.supplier_id,
+                  supplier_name: group.supplier_name,
+                  items: group.items.map(p => ({
+                    product_id: String(p.id),
+                    product_name: p.name,
+                    qty_ordered: p.reorder_qty > 0 ? p.reorder_qty : 1,
+                    unit_cost: 0,
+                  })),
+                },
+              },
+            })
+          }
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {Object.values(groups).map(group => (
+                <div key={group.supplier_id || '__none__'} className="card" style={{ padding: 0, borderColor: 'var(--danger)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{group.supplier_name}</span>
+                    <button className="btn btn-primary btn-sm" onClick={() => createDraftPO(group)}>
+                      Create Draft PO ({group.items.length} items)
+                    </button>
+                  </div>
+                  <table className="table" style={{ margin: 0 }}>
+                    <thead>
+                      <tr><th>Product</th><th>Barcode</th><th>Current Stock</th><th>Reorder At</th><th>Suggested Qty</th></tr>
+                    </thead>
+                    <tbody>
+                      {group.items.map(p => (
+                        <tr key={p.id}>
+                          <td style={{ fontWeight: 500 }}>{p.name}</td>
+                          <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: 12 }}>{p.barcode || '—'}</td>
+                          <td style={{ fontWeight: 700, color: p.stock_qty <= 0 ? 'var(--danger)' : 'var(--warning)' }}>{p.stock_qty}</td>
+                          <td style={{ color: 'var(--text-muted)' }}>{p.reorder_point}</td>
+                          <td style={{ fontWeight: 600, color: 'var(--accent)' }}>{p.reorder_qty > 0 ? p.reorder_qty : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          )
+        })() : null}
       </div>
 
       {/* ── Adjust stock modal ─── */}

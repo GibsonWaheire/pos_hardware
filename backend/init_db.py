@@ -120,6 +120,11 @@ def init_db():
             # Phase 31 — product reorder points
             _add_column_if_missing(conn, 'products', 'reorder_point', 'INTEGER DEFAULT 0')
             _add_column_if_missing(conn, 'products', 'reorder_qty',   'INTEGER DEFAULT 0')
+            # Phase 33 — product supplier link
+            _add_column_if_missing(conn, 'products', 'supplier_id',   'INTEGER')
+            _add_column_if_missing(conn, 'products', 'supplier_name', 'VARCHAR(200)')
+            # Phase 35 — notification config on store
+            _add_column_if_missing(conn, 'stores', 'notification_config', 'TEXT')
             conn.commit()
         finally:
             conn.close()
