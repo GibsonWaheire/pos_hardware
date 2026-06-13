@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
 import { useIdleTimeout } from '../hooks/useIdleTimeout'
 import { printSaleReceipt } from '../utils/print'
+import { parkSale, getParkedSales, retrieveSale, discardSale } from '../utils/parkedSales'
 import Cart from '../components/Cart'
 import CategorySidebar from '../components/CategorySidebar'
 import IdleScreen from '../components/IdleScreen'
@@ -241,9 +242,47 @@ export default function POS() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyMsg, setHistoryMsg]         = useState('')
 
-  // Payment / daily totals
+  // Payment
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [lastSale, setLastSale]       = useState(null)
+
+  // ── Parked / held sales (Phase 32) ───────────────────────────────────────
+  const [parkedSales, setParkedSales]   = useState(() => getParkedSales())
+  const [holdNoteOpen, setHoldNoteOpen] = useState(false)
+  const [holdNote, setHoldNote]         = useState('')
+  const [retrieveOpen, setRetrieveOpen] = useState(false)
+
+  function refreshParked() { setParkedSales(getParkedSales()) }
+
+  function handleHoldSale() {
+    setHoldNote('')
+    setHoldNoteOpen(true)
+  }
+
+  function confirmHold() {
+    const result = parkSale({ items: cartItems, customer, note: holdNote })
+    if (!result.ok) { alert(result.error); return }
+    clearCart()
+    setHoldNoteOpen(false)
+    refreshParked()
+  }
+
+  function handleRetrieveSale(parked) {
+    if (cartItems.length > 0 && !confirm('Replace current sale with the parked one?')) return
+    const data = retrieveSale(parked.slot)
+    if (!data) return
+    setCartItems(data.items)
+    setCurrentItemId(null)
+    if (data.customer) setCustomer(data.customer)
+    setRetrieveOpen(false)
+    refreshParked()
+  }
+
+  function handleDiscardParked(slot) {
+    if (!confirm('Discard this parked sale permanently?')) return
+    discardSale(slot)
+    refreshParked()
+  }
   // ── Search keyboard handler ───────────────────────────────────────────────
   function handleSearchKey(e) {
     if (e.key === 'ArrowDown') {
@@ -747,6 +786,18 @@ export default function POS() {
                   onClick={() => { setCustomer(null); setRedeemPoints('') }}>✕</button>
               </span>
             )}
+            {parkedSales.length > 0 && (
+              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--warning)' }}
+                onClick={() => setRetrieveOpen(true)}>
+                Parked ({parkedSales.length})
+              </button>
+            )}
+            {cartItems.length > 0 && (
+              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }}
+                onClick={handleHoldSale}>
+                Hold
+              </button>
+            )}
             {cartItems.length > 0 && (
               <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }}
                 onClick={() => setVoidAllAuth(true)}>
@@ -788,11 +839,19 @@ export default function POS() {
           </div>
         )}
 
-        {/* Reprint last sale — always visible at bottom of cart panel */}
-        {lastSale && (
+        {/* Reprint last sale + parked retrieve shortcut */}
+        {(lastSale || parkedSales.length > 0) && (
           <div className="bill-reprint-row">
-            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={reprintLastEsc}>ESC/POS</button>
-            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={reprintLastReceipt}>Print</button>
+            {lastSale && <>
+              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={reprintLastEsc}>ESC/POS</button>
+              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={reprintLastReceipt}>Print</button>
+            </>}
+            {parkedSales.length > 0 && (
+              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--warning)', flex: lastSale ? undefined : 1 }}
+                onClick={() => setRetrieveOpen(true)}>
+                Parked ({parkedSales.length})
+              </button>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={openHistory} title="Today's sales">📋</button>
           </div>
         )}
@@ -822,6 +881,80 @@ export default function POS() {
       </div>
 
       {/* ══ Modals ══ */}
+
+      {/* Hold Sale — note prompt */}
+      {holdNoteOpen && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ width: 360 }}>
+            <div className="modal-title">Hold Sale</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+              {cartItems.length} item{cartItems.length !== 1 ? 's' : ''} will be parked.
+              Add an optional note to identify this sale.
+            </div>
+            <label className="label">Hold Note (optional)</label>
+            <input className="input" value={holdNote}
+              onChange={e => setHoldNote(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && confirmHold()}
+              placeholder="e.g. Customer returning, Table 3…"
+              autoFocus style={{ marginBottom: 16 }} />
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+              Parked sales expire after 2 hours. Up to 3 slots available.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-ghost btn-lg" style={{ flex: 1 }}
+                onClick={() => setHoldNoteOpen(false)}>Cancel</button>
+              <button className="btn btn-primary btn-lg" style={{ flex: 2 }}
+                onClick={confirmHold}>Park Sale</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Retrieve parked sales modal */}
+      {retrieveOpen && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setRetrieveOpen(false)}>
+          <div className="modal" style={{ width: 520 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="modal-title" style={{ marginBottom: 0 }}>Parked Sales</div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setRetrieveOpen(false)}>✕</button>
+            </div>
+            {parkedSales.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)' }}>
+                No parked sales
+              </div>
+            ) : parkedSales.map(p => {
+              const total = p.items.reduce((s, i) => s + (i.line_total || i.unit_price * i.qty), 0)
+              const age   = Math.round((Date.now() - p.parked_at) / 60000)
+              const expiresIn = Math.round((2 * 60) - age)
+              return (
+                <div key={p.slot} style={{
+                  padding: '14px 16px', borderRadius: 10,
+                  border: '1.5px solid var(--border)', marginBottom: 10,
+                  display: 'flex', alignItems: 'center', gap: 12,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 3 }}>
+                      Slot {p.slot}
+                      {p.note && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8, fontSize: 13 }}>— {p.note}</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      {p.items.length} item{p.items.length !== 1 ? 's' : ''} · {fmt(total)}
+                      {p.customer && <span style={{ marginLeft: 8 }}>· {p.customer.name}</span>}
+                    </div>
+                    <div style={{ fontSize: 11, marginTop: 3, color: expiresIn < 30 ? 'var(--warning)' : 'var(--text-muted)' }}>
+                      Parked {age}m ago · expires in {Math.max(0, expiresIn)}m
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => handleRetrieveSale(p)}>Retrieve</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDiscardParked(p.slot)}>Discard</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Manual item entry — manager/admin only */}
       {manualOpen && user?.role !== 'cashier' && (

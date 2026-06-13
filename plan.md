@@ -98,6 +98,7 @@ Every feature gating decision must follow this table.
 | 28 | Operational Settings — Business Rules in Settings (returns threshold, VAT rate, low stock), role descriptions, per-item discount auth gate, Products pre-fill from store defaults | ✅ |
 | 29 | POS Terminal Overhaul — 3-panel layout (category sidebar + product tile grid + cart), F3/`/` search shortcut, out-of-stock overlays, low-stock badges, CategorySidebar wired in, browse products by category | ✅ |
 | 31 | Product Images & Rich Catalog — image upload/delete API (JPEG/PNG/WebP 2MB), static proxy, thumbnail in table, reorder_point/reorder_qty fields + below-reorder API, barcode label print (58mm + A4 30-up, JsBarcode CODE128) | ✅ |
+| 32 | Hold Sale / Parked Transactions — up to 3 localStorage slots, 2-hour auto-expire, Hold button + note modal, Parked(N) badge, Retrieve modal with age/expiry display, Discard | ✅ |
 | 30 | Security Hardening — bcrypt PIN hashing, Flask-Limiter rate limiting, login lockout, session idle timeout + lock screen, HTTPS/secure cookies, input validation (validate_str/validate_positive/validate_email), audit log completeness across inventory/customers/products, remove hardcoded PINs | ✅ |
 | 39 | Shift Reconciliation Gate — mandatory per-tender reconciliation before close, cashier 403 on close, manager reconciliation modal in Reports, Print & Close / Close Without Printing, Shift History table with variance columns, A4 printShiftReconciliation | ✅ |
 
@@ -1143,7 +1144,14 @@ Every document the system must be able to produce:
 
 ---
 
-### Phase 32 — Hold Sale / Parked Transactions
+### Phase 32 — Hold Sale / Parked Transactions ✅ COMPLETE
+
+**Implemented:**
+- `frontend/src/utils/parkedSales.js` — localStorage helper: `parkSale`, `getParkedSales`, `retrieveSale`, `discardSale`; auto-expire after 2 hours; up to 3 named slots (`pos_parked_1..3`)
+- POS.jsx: "Hold" button in bill header (when cart non-empty) → note prompt modal → `parkSale()` → clears cart
+- "Parked (N)" button in bill header + in the reprint row (amber, visible whenever parked count > 0, even with empty cart)
+- Retrieve modal: shows all parked slots with note, item count, total, customer name, age + expiry countdown; Retrieve replaces current cart (warns if non-empty); Discard removes slot permanently
+- `parkedSales` state initialised from localStorage on mount; refreshed after every park/retrieve/discard
 
 **Goal:** Cashier can park the current sale (e.g. customer forgot wallet) and start a new one.
 
