@@ -62,7 +62,13 @@ def create_sale():
         discount = float(item_data.get('discount', 0))
         tax_rate = float(item_data.get('tax_rate', 0))
         product_id = item_data.get('product_id')
-        product_name = item_data.get('product_name', '')
+        product_name = item_data.get('product_name', '') or ''
+
+        # Hard blocks — reject zero-price and zero-qty lines
+        if qty <= 0:
+            return jsonify({'error': f'Item "{product_name}" has invalid quantity ({qty}). Minimum is 1.'}), 400
+        if unit_price <= 0:
+            return jsonify({'error': f'Item "{product_name}" has no valid price. Set a price before selling.'}), 400
 
         if product_id:
             product = Product.query.get(product_id)

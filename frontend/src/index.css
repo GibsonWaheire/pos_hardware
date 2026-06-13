@@ -329,6 +329,17 @@ body {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
+  position: relative; /* anchor for idle-checkout absolute positioning */
+}
+
+/* Inner wrapper sits above the idle backdrop */
+.pos-search-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .pos-search-wrap {
@@ -394,6 +405,23 @@ body {
 .sri-name { flex: 1; font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sri-unit { font-size: 11px; color: var(--text-muted); margin-left: 4px; }
 .sri-price { font-size: 14px; font-weight: 700; color: var(--accent); flex-shrink: 0; }
+
+/* Zero-price badge on search result items */
+.sri-no-price {
+  font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+  background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border);
+  flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.4px;
+}
+
+/* Blocked search result row (cashier + no-price) */
+.search-result-item.sri-blocked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.search-result-item.sri-blocked:hover,
+.search-result-item.sri-blocked.active {
+  background: transparent;
+}
 
 .search-no-result {
   padding: 24px 16px;
@@ -655,7 +683,47 @@ body {
 
 .cart-item-total { font-weight: 700; min-width: 60px; text-align: right; }
 
-.cart-item-locked { opacity: 0.82; background: color-mix(in srgb, var(--surface2) 60%, transparent); }
+/* Locked item row — all previous items, require manager auth for any change */
+.cart-item-locked {
+  opacity: 0.82;
+  background: color-mix(in srgb, var(--surface2) 60%, transparent);
+}
+
+/* Current item row — the last-added item, subtle left accent */
+.cart-item-current {
+  border-left: 3px solid var(--accent);
+  padding-left: 9px; /* compensate for border */
+}
+
+/* Lock icon + current dot */
+.lock-icon  { font-size: 10px; margin-right: 4px; opacity: 0.7; }
+.current-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 5px;
+  vertical-align: middle;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* Locked qty display — not clickable */
+.qty-locked { cursor: default; color: var(--text-muted); }
+.qty-locked:hover { background: none; }
+
+/* Shake animation for invalid qty input */
+@keyframes qty-shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-5px); }
+  40%       { transform: translateX(5px); }
+  60%       { transform: translateX(-4px); }
+  80%       { transform: translateX(4px); }
+}
+.qty-shake { animation: qty-shake 0.4s ease; border-color: var(--danger, #ef4444) !important; }
 
 .cart-totals {
   padding: 16px;
@@ -734,4 +802,211 @@ select.input { appearance: auto; }
 /* Screen-only — hides during print */
 @media print {
   .no-print { display: none !important; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   IDLE CHECKOUT DISPLAY — parallax + carousel
+   Shown when bill is empty; hidden instantly on first scan
+   ═══════════════════════════════════════════════════════ */
+
+.idle-checkout {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #1a1d27;
+  opacity: 0;
+  /* No transition by default — hidden instantly */
+}
+
+.idle-checkout.idle-fade-in {
+  opacity: 1;
+  transition: opacity 0.6s ease;
+}
+
+/* ── Parallax layer: floating hardware silhouettes ── */
+
+.idle-parallax {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.idle-shape {
+  position: absolute;
+  color: #6b7280;
+  opacity: 0.07;
+  animation: idle-drift linear infinite alternate;
+}
+
+@keyframes idle-drift {
+  from { transform: translateY(0px) var(--shape-rot, rotate(0deg)); }
+  to   { transform: translateY(-28px) var(--shape-rot, rotate(0deg)); }
+}
+
+/* Each shape gets a different animation offset via nth-child */
+.idle-shape:nth-child(1) { animation-delay: 0s; }
+.idle-shape:nth-child(2) { animation-delay: -5s; }
+.idle-shape:nth-child(3) { animation-delay: -11s; }
+.idle-shape:nth-child(4) { animation-delay: -3s; }
+.idle-shape:nth-child(5) { animation-delay: -8s; }
+.idle-shape:nth-child(6) { animation-delay: -14s; }
+
+/* ── Carousel layer ── */
+
+.idle-carousel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.idle-slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.8s ease;
+}
+
+.idle-slide.idle-slide-active {
+  opacity: 1;
+}
+
+.idle-slide-content {
+  text-align: center;
+  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Slide typography */
+.idle-welcome {
+  font-size: 28px;
+  font-weight: 800;
+  color: #e2e8f0;
+  letter-spacing: -0.5px;
+}
+
+.idle-clock {
+  font-size: 48px;
+  font-weight: 200;
+  color: #94a3b8;
+  letter-spacing: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.idle-date {
+  font-size: 13px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.idle-hint {
+  font-size: 12px;
+  color: #475569;
+  margin-top: 8px;
+}
+
+.idle-slide-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #64748b;
+}
+
+.idle-stat-big {
+  font-size: 52px;
+  font-weight: 800;
+  color: #38bdf8;
+  letter-spacing: -1px;
+  margin-top: 4px;
+}
+
+.idle-stat-sub {
+  font-size: 16px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.idle-tip-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #1e3a5f;
+  color: #38bdf8;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.idle-tip-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: #cbd5e1;
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+.idle-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.idle-tagline {
+  font-size: 14px;
+  color: #64748b;
+  font-style: italic;
+}
+
+.idle-powered {
+  font-size: 10px;
+  color: #334155;
+  margin-top: 16px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* ── Dot indicators ── */
+
+.idle-dots {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  padding-bottom: 20px;
+}
+
+.idle-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #334155;
+  transition: background 0.3s, transform 0.3s;
+}
+
+.idle-dot.idle-dot-active {
+  background: #38bdf8;
+  transform: scale(1.4);
 }

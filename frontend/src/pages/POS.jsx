@@ -10,6 +10,7 @@ import { useIdleTimeout } from '../hooks/useIdleTimeout'
 import { printSaleReceipt } from '../utils/print'
 import Cart from '../components/Cart'
 import IdleScreen from '../components/IdleScreen'
+import IdleCheckout from '../components/IdleCheckout'
 import PaymentModal from '../components/PaymentModal'
 import ManagerAuthModal from '../components/ManagerAuthModal'
 
@@ -125,6 +126,16 @@ export default function POS() {
   }
 
   useEffect(() => () => clearTimeout(flashTimerRef.current), [])
+
+  // ── Zero-price error banner ───────────────────────────────────────────────
+  const [zeroPriceError, setZeroPriceError] = useState('')
+  const zeroPriceTimer = useRef(null)
+  function showZeroPriceError(msg) {
+    clearTimeout(zeroPriceTimer.current)
+    setZeroPriceError(msg)
+    zeroPriceTimer.current = setTimeout(() => setZeroPriceError(''), 4000)
+  }
+  useEffect(() => () => clearTimeout(zeroPriceTimer.current), [])
 
   // ── Manual item entry ─────────────────────────────────────────────────────
   const [manualOpen, setManualOpen]   = useState(false)
@@ -299,6 +310,12 @@ export default function POS() {
     const weight      = product.weight ?? null
     const displayName = product.product_name_display ?? product.name
     const imageUrl    = product.image_url || null
+
+    // Zero-price block — reject before adding
+    if (!unitPrice || unitPrice <= 0) {
+      showZeroPriceError(`"${displayName}" has no price set. Contact your manager.`)
+      return
+    }
 
     if (weight !== null) {
       const wKey = `weight-${productId}-${Date.now()}`
@@ -520,7 +537,7 @@ export default function POS() {
   }
 
   // ── Main checkout layout ──────────────────────────────────────────────────
-  const checkoutDisabled = cartItems.length === 0 || (hasAgeRestricted && !ageVerified)
+  const checkoutDisabled = cartItems.length === 0 || cartTotal <= 0 || (hasAgeRestricted && !ageVerified)
 
   return (
     <div className="pos-checkout" style={{ position: 'relative' }}>
@@ -529,6 +546,16 @@ export default function POS() {
 
       {/* ══ LEFT: Bill column ══ */}
       <div className="pos-bill">
+
+        {/* Zero-price error banner */}
+        {zeroPriceError && (
+          <div style={{
+            padding: '8px 16px', background: '#ef444420', borderBottom: '2px solid #ef4444',
+            color: '#ef4444', fontSize: 12, fontWeight: 600, flexShrink: 0,
+          }}>
+            ⚠ {zeroPriceError}
+          </div>
+        )}
 
         {/* Scan/add flash */}
         {lastAdded && (
@@ -590,7 +617,6 @@ export default function POS() {
               currentItemId={currentItemId}
               onUpdateQty={updateQty}
               onQtyChangeRequest={requestQtyChange}
-              onRemove={removeItem}
               onRemoveRequest={requestRemoveItem}
               onDiscountRequest={requestItemDiscount}
             />
@@ -640,90 +666,105 @@ export default function POS() {
           disabled={checkoutDisabled}
           onClick={() => setPaymentOpen(true)}
         >
-          {cartItems.length === 0 ? 'Charge' : `Charge  ${fmt(cartTotal)}`}
+          {cartItems.length === 0 ? 'Charge' : cartTotal <= 0 ? 'Nothing to charge' : `Charge  ${fmt(cartTotal)}`}
         </button>
       </div>
 
       {/* ══ RIGHT: Search column ══ */}
       <div className="pos-search-col">
 
-        <div className="pos-search-wrap">
-          <input
-            ref={searchRef}
-            className="pos-search-input"
-            placeholder="Search item or scan barcode"
-            value={searchQuery}
-            onChange={e => { setSearchQuery(e.target.value); setNoResults(false) }}
-            onKeyDown={handleSearchKey}
-            autoComplete="off"
-            autoFocus
-          />
-        </div>
+        {/* Idle display — shown only when bill is empty, hidden instantly on first scan */}
+        <IdleCheckout
+          visible={cartItems.length === 0}
+          storeConfig={storeConfig}
+          dailyTotals={dailyTotals}
+        />
 
-        {searchLoading && <div className="search-loading">Searching…</div>}
+        {/* Search content — always on top of idle */}
+        <div className="pos-search-inner">
+          <div className="pos-search-wrap">
+            <input
+              ref={searchRef}
+              className="pos-search-input"
+              placeholder="Search item or scan barcode"
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); setNoResults(false) }}
+              onKeyDown={handleSearchKey}
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
 
-        {!searchLoading && searchResults.length > 0 && (
-          <div className="search-results">
-            {searchResults.map((p, i) => {
-              const unit = p.is_weight_based ? (p.weight_unit || 'kg') : (p.weight_unit || 'pc')
-              return (
-                <div
-                  key={p.id}
-                  className={`search-result-item${i === selectedIdx ? ' active' : ''}`}
-                  onClick={() => addToCart(p)}
-                  onMouseEnter={() => setSelectedIdx(i)}
-                >
-                  {p.image_url
-                    ? <img className="sri-img" src={p.image_url} alt={p.name} />
-                    : <div className="sri-placeholder" />
-                  }
-                  <span className="sri-name">
-                    {p.name}
-                    <span className="sri-unit">/{unit}</span>
-                  </span>
-                  <span className="sri-price">{fmt(p.price)}</span>
+          {searchLoading && <div className="search-loading">Searching…</div>}
+
+          {!searchLoading && searchResults.length > 0 && (
+            <div className="search-results">
+              {searchResults.map((p, i) => {
+                const unit       = p.is_weight_based ? (p.weight_unit || 'kg') : (p.weight_unit || 'pc')
+                const hasNoPrice = !p.price || p.price <= 0
+                const blocked    = hasNoPrice && user?.role === 'cashier'
+                return (
+                  <div
+                    key={p.id}
+                    className={`search-result-item${i === selectedIdx ? ' active' : ''}${blocked ? ' sri-blocked' : ''}`}
+                    onClick={() => blocked ? showZeroPriceError(`"${p.name}" has no price set. Contact your manager.`) : addToCart(p)}
+                    onMouseEnter={() => !blocked && setSelectedIdx(i)}
+                  >
+                    {p.image_url
+                      ? <img className="sri-img" src={p.image_url} alt={p.name} />
+                      : <div className="sri-placeholder" />
+                    }
+                    <span className="sri-name">
+                      {p.name}
+                      <span className="sri-unit">/{unit}</span>
+                    </span>
+                    {hasNoPrice
+                      ? <span className="sri-no-price">No price</span>
+                      : <span className="sri-price">{fmt(p.price)}</span>
+                    }
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {!searchLoading && noResults && (
+            <div className="search-no-result">
+              <div>No product found for <strong>"{searchQuery}"</strong></div>
+              {user?.role !== 'cashier' && (
+                <button onClick={() => { setManualOpen(true); setManualName(searchQuery) }}>
+                  Add manually
+                </button>
+              )}
+              {user?.role === 'cashier' && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Contact manager to add unlisted items
                 </div>
-              )
-            })}
+              )}
+            </div>
+          )}
+
+          {!searchQuery && !searchLoading && (
+            <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', marginTop: 16 }}>
+              Start typing or scan a barcode<br />
+              <span style={{ fontSize: 11, marginTop: 6, display: 'block', opacity: 0.6 }}>
+                Arrow keys to select · Enter to add
+              </span>
+            </div>
+          )}
+
+          <div style={{ flex: 1 }} />
+
+          {/* Footer: daily totals + history */}
+          <div className="search-footer">
+            {dailyTotals
+              ? <span>Today: <strong>{dailyTotals.transaction_count}</strong> sales · <strong>{fmt(dailyTotals.total_revenue)}</strong></span>
+              : <span />
+            }
+            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={openHistory}>
+              History
+            </button>
           </div>
-        )}
-
-        {!searchLoading && noResults && (
-          <div className="search-no-result">
-            <div>No product found for <strong>"{searchQuery}"</strong></div>
-            {user?.role !== 'cashier' && (
-              <button onClick={() => { setManualOpen(true); setManualName(searchQuery) }}>
-                Add manually
-              </button>
-            )}
-            {user?.role === 'cashier' && (
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Contact manager to add unlisted items
-              </div>
-            )}
-          </div>
-        )}
-
-        {!searchQuery && !searchLoading && (
-          <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', marginTop: 16 }}>
-            Start typing or scan a barcode<br />
-            <span style={{ fontSize: 11, marginTop: 6, display: 'block', opacity: 0.6 }}>
-              Arrow keys to select · Enter to add
-            </span>
-          </div>
-        )}
-
-        <div style={{ flex: 1 }} />
-
-        {/* Footer: daily totals + history */}
-        <div className="search-footer">
-          {dailyTotals
-            ? <span>Today: <strong>{dailyTotals.transaction_count}</strong> sales · <strong>{fmt(dailyTotals.total_revenue)}</strong></span>
-            : <span />
-          }
-          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={openHistory}>
-            History
-          </button>
         </div>
       </div>
 
