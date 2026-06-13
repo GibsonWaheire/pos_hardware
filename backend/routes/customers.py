@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from db import db
 from models import Customer, LoyaltyTier
+from auth_utils import get_current_user, log_action, validate_str, validate_email
 
 bp = Blueprint('customers', __name__, url_prefix='/api/customers')
 
@@ -47,9 +48,22 @@ def get_customer(customer_id):
 
 @bp.route('', methods=['POST'])
 def create_customer():
+    caller = get_current_user()
     data = request.json or {}
     if not data.get('name'):
         return jsonify({'error': 'name is required'}), 400
+
+    err = validate_str(data['name'], 120, 'name')
+    if err:
+        return jsonify({'error': err}), 400
+    if data.get('phone'):
+        ph_err = validate_str(data['phone'], 20, 'phone')
+        if ph_err:
+            return jsonify({'error': ph_err}), 400
+    if data.get('email'):
+        em_err = validate_email(data['email'])
+        if em_err:
+            return jsonify({'error': em_err}), 400
 
     if data.get('phone'):
         if Customer.query.filter_by(phone=data['phone']).first():
@@ -85,13 +99,31 @@ def create_customer():
     )
     db.session.add(customer)
     db.session.commit()
+    log_action(caller, 'create', 'customer', customer.id, customer.name)
     return jsonify(customer.to_dict()), 201
 
 
 @bp.route('/<int:customer_id>', methods=['PUT'])
 def update_customer(customer_id):
+    caller = get_current_user()
     customer = Customer.query.get_or_404(customer_id)
     data = request.json or {}
+
+    if 'name' in data:
+        err = validate_str(data['name'], 120, 'name')
+        if err:
+            return jsonify({'error': err}), 400
+    if 'phone' in data and data['phone']:
+        err = validate_str(data['phone'], 20, 'phone')
+        if err:
+            return jsonify({'error': err}), 400
+    if 'email' in data and data['email']:
+        err = validate_email(data['email'])
+        if err:
+            return jsonify({'error': err}), 400
+
+    credit_limit_before = getattr(customer, 'credit_limit', None)
+
     for field in ('name', 'phone', 'email', 'notes', 'is_active', 'tier_id'):
         if field in data:
             setattr(customer, field, data[field])
@@ -101,7 +133,16 @@ def update_customer(customer_id):
             customer.date_of_birth = date.fromisoformat(data['date_of_birth']) if data['date_of_birth'] else None
         except ValueError:
             pass
+
+    extra = {}
+    if 'credit_limit' in data and data['credit_limit'] != credit_limit_before:
+        extra['credit_limit_before'] = credit_limit_before
+        extra['credit_limit_after']  = data['credit_limit']
+        if hasattr(customer, 'credit_limit'):
+            customer.credit_limit = data['credit_limit']
+
     db.session.commit()
+    log_action(caller, 'update', 'customer', customer.id, customer.name, extra=extra or None)
     return jsonify(customer.to_dict())
 
 

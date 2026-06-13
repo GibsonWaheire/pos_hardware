@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request, session
 from db import db
 from models import Product, StockAdjustment, StockMovement, DamageReport
-from auth_utils import get_current_user, stamp
+from auth_utils import get_current_user, stamp, log_action, validate_str, validate_positive
 from sqlalchemy import func, case
 from datetime import datetime, date
 
@@ -55,6 +55,14 @@ def adjust_stock():
     if not product_id or qty_change is None:
         return jsonify({'error': 'product_id and qty_change are required'}), 400
 
+    err = validate_positive(product_id, 'product_id')
+    if err:
+        return jsonify({'error': err}), 400
+
+    reason_err = validate_str(data.get('reason', 'manual'), 50, 'reason')
+    if reason_err:
+        return jsonify({'error': reason_err}), 400
+
     qty_change = int(qty_change)
     product = Product.query.get_or_404(product_id)
 
@@ -99,6 +107,9 @@ def adjust_stock():
     )
     db.session.add(mv)
     db.session.commit()
+    log_action(user, 'stock_adjust', 'product', product.id, product.name,
+               extra={'reason': reason, 'qty_change': actual_change,
+                      'before': before, 'after': product.stock_qty})
     return jsonify({'product': product.to_dict(), 'adjustment': adj.to_dict()})
 
 
@@ -258,6 +269,8 @@ def approve_damage_report(report_id):
             report.stock_adjusted = True
 
     db.session.commit()
+    log_action(user, 'approve', 'damage_report', report.id, report.report_number,
+               extra={'product': report.product_name, 'qty': report.qty})
     return jsonify(report.to_dict())
 
 
@@ -278,4 +291,6 @@ def reject_damage_report(report_id):
     report.reviewed_at  = datetime.utcnow()
     report.review_notes = data.get('notes', '')
     db.session.commit()
+    log_action(user, 'reject', 'damage_report', report.id, report.report_number,
+               extra={'product': report.product_name, 'qty': report.qty})
     return jsonify(report.to_dict())
