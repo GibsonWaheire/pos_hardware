@@ -1532,3 +1532,214 @@ export function printShiftReportDoc(report) {
 
   printDoc(`Shift Report ${report.report_number}`, html)
 }
+
+/**
+ * Phase 39 — A4 Daily Shift Reconciliation Report
+ * Uses the Phase 39 content JSON shape (tenders, overrides, transactions).
+ */
+export function printShiftReconciliation(report) {
+  const c       = report.content || {}
+  const store   = c.store   || {}
+  const shift   = c.shift   || {}
+  const tenders = c.tenders || []
+  const ov      = c.overrides  || {}
+  const txns    = c.transactions || {}
+  const recoBy  = c.reconciled_by || {}
+
+  const kes = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const dt  = (s) => s ? new Date(s).toLocaleString('en-KE', { dateStyle: 'short', timeStyle: 'short' }) : '—'
+  const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+
+  const shiftDate = shift.opened_at ? new Date(shift.opened_at).toLocaleDateString('en-KE') : '—'
+  const reportId  = c.report_id || report.report_number || 'PREVIEW'
+
+  const overallStatus = c.overall_status || 'BALANCED'
+  const hasDisc = tenders.some(t => t.variance !== 0)
+
+  function varStyle(v) {
+    if (v === 0) return 'color:#007700; font-weight:700'
+    return v < 0 ? 'color:#a00; font-weight:700' : 'color:#7a5c00; font-weight:700'
+  }
+  function varText(v) {
+    if (v === 0) return 'BALANCED'
+    return v < 0 ? `SHORT ${kes(Math.abs(v))}` : `OVER ${kes(v)}`
+  }
+
+  const tenderRows = tenders.map(t => `
+    <tr>
+      <td style="font-weight:500;text-transform:capitalize">${esc(t.tender)}</td>
+      <td class="right">${kes(t.expected)}</td>
+      <td class="right">${kes(t.actual)}</td>
+      <td class="right" style="${varStyle(t.variance)}">${varText(t.variance)}</td>
+      <td class="center"><span style="${varStyle(t.variance)}">${esc(t.status)}</span></td>
+    </tr>
+  `).join('')
+
+  const overrideRows = (ov.details || []).map(d => `
+    <tr>
+      <td>${dt(d.time)}</td>
+      <td>${esc(d.cashier_name || '—')}</td>
+      <td style="color:${d.action === 'REMOVE_ITEM' ? '#a00' : '#7a5c00'}">${esc(d.action)}</td>
+      <td>${esc(d.item_name || '—')}</td>
+      <td class="right">${d.original_qty || 0} → ${d.new_qty ?? 0}</td>
+      <td class="right" style="${d.value_impact < 0 ? 'color:#a00' : ''}">${(d.value_impact || 0) >= 0 ? '+' : ''}${kes(d.value_impact || 0)}</td>
+    </tr>
+  `).join('')
+
+  const txnRows = (txns.list || []).slice(0, 100).map(t => `
+    <tr style="${t.status !== 'completed' ? 'opacity:0.5' : ''}">
+      <td>${dt(t.time)}</td>
+      <td class="mono">${esc(t.receipt_number || '—')}</td>
+      <td class="right">${t.items_count || 0}</td>
+      <td style="text-transform:capitalize">${esc(t.tender || '—')}</td>
+      <td class="right">${kes(t.amount)}</td>
+    </tr>
+  `).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Times New Roman', serif; font-size: 10pt; color: #111; }
+    @page { size: A4 portrait; margin: 18mm; }
+    .hdr { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2.5pt solid #111; padding-bottom: 10pt; margin-bottom: 12pt; }
+    .store-name { font-size: 15pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1pt; }
+    .store-sub { font-size: 8pt; color: #444; margin-top: 2pt; }
+    .rpt-right { text-align: right; }
+    .rpt-right h2 { font-size: 12pt; text-transform: uppercase; letter-spacing: 1pt; }
+    .rpt-right .sub { font-size: 8pt; color: #555; margin-top: 2pt; }
+    .overall { padding: 8pt 12pt; margin-bottom: 12pt; border: 2pt solid ${hasDisc ? '#a00' : '#007700'}; border-radius: 3pt; font-size: 11pt; font-weight: 700; color: ${hasDisc ? '#a00' : '#007700'}; }
+    section { margin-bottom: 14pt; }
+    section h3 { font-size: 9pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5pt; background: #222; color: #fff; padding: 3pt 8pt; }
+    table { width: 100%; border-collapse: collapse; font-size: 8.5pt; margin-top: 0; }
+    thead tr { background: #e8e8e8; }
+    th { padding: 3pt 5pt; text-align: left; font-weight: 700; border-bottom: 1pt solid #bbb; }
+    td { padding: 2.5pt 5pt; border-bottom: 0.5pt solid #e0e0e0; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+    .right { text-align: right; }
+    .center { text-align: center; }
+    .mono { font-family: 'Courier New', monospace; }
+    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; margin-bottom: 12pt; font-size: 9pt; }
+    .meta .kv { display: flex; justify-content: space-between; padding: 1.5pt 0; border-bottom: 0.5pt dotted #ddd; }
+    .meta .kv .lbl { color: #555; }
+    .meta .kv .val { font-weight: 500; }
+    .totals { margin-top: 6pt; padding-top: 6pt; border-top: 1.5pt solid #111; display: flex; justify-content: space-between; font-size: 9.5pt; }
+    .sig { border-top: 1.5pt solid #111; padding-top: 14pt; margin-top: 14pt; page-break-inside: avoid; }
+    .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40pt; margin-top: 10pt; }
+    .sig-line { border-bottom: 1pt solid #111; height: 30pt; margin-bottom: 4pt; }
+    .sig-label { font-size: 8pt; color: #444; }
+    .footer { margin-top: 12pt; font-size: 7.5pt; color: #666; border-top: 0.5pt solid #ccc; padding-top: 6pt; text-align: center; }
+    .flagged-warn { background: #fee2e2; border: 1pt solid #fca5a5; padding: 4pt 8pt; margin: 4pt 0; font-size: 8.5pt; color: #a00; }
+    .cwp-warn { background: #fef3c7; border: 1pt solid #f59e0b; padding: 4pt 8pt; margin-bottom: 8pt; font-size: 8.5pt; color: #7a5c00; }
+  </style></head><body>
+
+  <!-- Header -->
+  <div class="hdr">
+    <div>
+      <div class="store-name">${esc(store.name || 'Store')}</div>
+      <div class="store-sub">${esc(store.address || '')}${store.kra_pin ? ' · KRA PIN: ' + esc(store.kra_pin) : ''}</div>
+    </div>
+    <div class="rpt-right">
+      <h2>Daily Shift Reconciliation</h2>
+      <div class="sub">Report ID: ${esc(reportId)}</div>
+      <div class="sub">Date: ${shiftDate}</div>
+    </div>
+  </div>
+
+  ${c.closed_without_print ? '<div class="cwp-warn">CLOSED WITHOUT PRINTING — no hardcopy on record</div>' : ''}
+
+  <!-- Shift meta -->
+  <div class="meta">
+    <div>
+      <div class="kv"><span class="lbl">Cashier</span><span class="val">${esc(shift.cashier_name || '—')}</span></div>
+      <div class="kv"><span class="lbl">Manager / Reconciled by</span><span class="val">${esc(recoBy.name || '—')}</span></div>
+      <div class="kv"><span class="lbl">Shift opened</span><span class="val">${dt(shift.opened_at)}</span></div>
+      <div class="kv"><span class="lbl">Shift closed</span><span class="val">${dt(shift.closed_at)}</span></div>
+    </div>
+    <div>
+      <div class="kv"><span class="lbl">Opening float</span><span class="val">${kes(shift.opening_float)}</span></div>
+      <div class="kv"><span class="lbl">Expected revenue</span><span class="val">${kes(c.total_expected_revenue)}</span></div>
+      <div class="kv"><span class="lbl">Actual revenue</span><span class="val">${kes(c.total_actual_revenue)}</span></div>
+      <div class="kv"><span class="lbl">Net variance</span><span class="val" style="${varStyle(c.total_variance || 0)}">${(c.total_variance || 0) >= 0 ? '+' : ''}${kes(c.total_variance || 0)}</span></div>
+    </div>
+  </div>
+
+  <!-- Overall status -->
+  <div class="overall">
+    Overall: ${esc(overallStatus)}${hasDisc ? ' — DISCREPANCY DETECTED' : ' — ALL TENDERS BALANCED'}
+  </div>
+
+  <!-- Section 1: Tender reconciliation -->
+  <section>
+    <h3>Section 1 — Tender Reconciliation</h3>
+    <table>
+      <thead><tr><th>Tender</th><th class="right">Expected</th><th class="right">Actual (counted)</th><th class="right">Variance</th><th class="center">Status</th></tr></thead>
+      <tbody>
+        ${tenderRows}
+      </tbody>
+    </table>
+    ${tenders.length > 0 ? `
+    <div class="totals">
+      <span>Total expected revenue</span>
+      <strong>${kes(c.total_expected_revenue)}</strong>
+    </div>` : ''}
+  </section>
+
+  <!-- Section 2: Override summary -->
+  <section>
+    <h3>Section 2 — Override Summary</h3>
+    ${ov.flagged ? `<div class="flagged-warn">Override activity is ${ov.pct_of_sales}% of today's sales — review recommended</div>` : ''}
+    <div style="font-size:9pt; padding: 4pt 0 6pt; display:flex; gap:20pt">
+      <span>Total overrides: <strong>${ov.count || 0}</strong></span>
+      <span>Total value impacted: <strong>${kes(ov.total_value_impact)}</strong></span>
+    </div>
+    ${(ov.details || []).length > 0 ? `
+    <table>
+      <thead><tr><th>Time</th><th>Cashier</th><th>Action</th><th>Item</th><th class="right">Qty change</th><th class="right">Value impact</th></tr></thead>
+      <tbody>${overrideRows}</tbody>
+    </table>` : '<div style="font-size:9pt;color:#555;padding:4pt 0">No manager overrides recorded for this shift.</div>'}
+  </section>
+
+  <!-- Section 3: Transaction summary -->
+  <section>
+    <h3>Section 3 — Transaction Summary</h3>
+    <div style="font-size:9pt; padding: 4pt 0 6pt; display:flex; gap:20pt; flex-wrap:wrap">
+      <span>Total transactions: <strong>${txns.total_count || 0}</strong></span>
+      ${Object.entries(txns.by_tender || {}).map(([t, d]) =>
+        `<span style="text-transform:capitalize">${esc(t)}: <strong>${d.count}</strong> · ${kes(d.total)}</span>`
+      ).join('')}
+    </div>
+    ${txnRows ? `
+    <table>
+      <thead><tr><th>Time</th><th>Receipt</th><th class="right">Items</th><th>Tender</th><th class="right">Amount</th></tr></thead>
+      <tbody>${txnRows}</tbody>
+    </table>
+    ${(txns.list || []).length > 100 ? '<div style="font-size:8pt;color:#555;padding:4pt 0">Showing first 100 transactions. See full report for complete list.</div>' : ''}
+    ` : ''}
+  </section>
+
+  <!-- Signature block -->
+  <div class="sig">
+    <div style="font-size:9pt;font-weight:700;margin-bottom:8pt">Acknowledgement &amp; Sign-off</div>
+    <div class="sig-grid">
+      <div>
+        <div class="sig-line"></div>
+        <div class="sig-label">Cashier: ${esc(shift.cashier_name || '________________')}</div>
+        <div class="sig-label" style="margin-top:4pt">Signature: _________________ &nbsp;&nbsp; Date: _________</div>
+      </div>
+      <div>
+        <div class="sig-line"></div>
+        <div class="sig-label">Manager: ${esc(recoBy.name || '________________')}</div>
+        <div class="sig-label" style="margin-top:4pt">Signature: _________________ &nbsp;&nbsp; Date: _________</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    This report was generated automatically and constitutes an official record of shift activity.
+    Print in portrait, A4, no margins.
+  </div>
+
+  </body></html>`
+
+  printDoc(`Shift Reconciliation ${reportId}`, html)
+}

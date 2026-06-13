@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  getProducts, getDailyTotals, getProductByBarcode, getProductByPlu,
+  getProducts, getProductByBarcode, getProductByPlu,
   getCurrentShift, openShift, getAccountByCustomer, getLoyaltyConfig,
   getSales, getStoreConfig, printReceipt,
 } from '../api'
@@ -209,20 +209,6 @@ export default function POS() {
   // Payment / daily totals
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [lastSale, setLastSale]       = useState(null)
-  const [dailyTotals, setDailyTotals] = useState(null)
-
-  useEffect(() => {
-    if (shiftStatus === 'open') loadDailyTotals()
-  }, [shiftStatus])
-
-  async function loadDailyTotals() {
-    try {
-      const today = new Date().toISOString().split('T')[0]
-      const res = await getDailyTotals(today)
-      setDailyTotals(res.data)
-    } catch {}
-  }
-
   // ── Search keyboard handler ───────────────────────────────────────────────
   function handleSearchKey(e) {
     if (e.key === 'ArrowDown') {
@@ -607,7 +593,6 @@ export default function POS() {
           <IdleCheckout
             visible={cartItems.length === 0}
             storeConfig={storeConfig}
-            dailyTotals={dailyTotals}
           />
           {cartItems.length > 0 && (
             <Cart
@@ -743,12 +728,9 @@ export default function POS() {
 
           <div style={{ flex: 1 }} />
 
-          {/* Footer: daily totals + history */}
+          {/* Footer: history link only (daily totals visible in Reports → Shift History) */}
           <div className="search-footer">
-            {dailyTotals
-              ? <span>Today: <strong>{dailyTotals.transaction_count}</strong> sales · <strong>{fmt(dailyTotals.total_revenue)}</strong></span>
-              : <span />
-            }
+            <span />
             <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={openHistory}>
               History
             </button>

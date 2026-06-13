@@ -130,10 +130,13 @@ class OverrideApproval(db.Model):
     manager_name  = db.Column(db.String(100))
     manager_role  = db.Column(db.String(20))
     auth_method   = db.Column(db.String(20))   # card | pin
-    action        = db.Column(db.String(50))   # ADJUST_QTY | REMOVE_COMMITTED_ITEM
+    action        = db.Column(db.String(50))   # ADJUST_QTY | REMOVE_ITEM
     item_name     = db.Column(db.String(200))
     original_qty  = db.Column(db.Integer)
     new_qty       = db.Column(db.Integer, nullable=True)
+    unit_price    = db.Column(db.Float, nullable=True)   # Phase 39 — snapshot for value calc
+    value_impact  = db.Column(db.Float, nullable=True)   # Phase 39 — KES impact
+    shift_id      = db.Column(db.Integer, nullable=True)  # Phase 39 — denormalised
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
     used_at       = db.Column(db.DateTime, nullable=True)
     sale_id       = db.Column(db.Integer, nullable=True)
@@ -479,6 +482,21 @@ class Shift(db.Model):
     opened_by_name = db.Column(db.String(100))
     auth_method    = db.Column(db.String(20))   # card | pin | manager_login
 
+    # Phase 39 — per-tender reconciliation
+    actual_cash          = db.Column(db.Float, nullable=True)
+    actual_mpesa         = db.Column(db.Float, nullable=True)
+    actual_card          = db.Column(db.Float, nullable=True)
+    actual_other         = db.Column(db.Float, nullable=True)
+    variance_cash        = db.Column(db.Float, nullable=True)
+    variance_mpesa       = db.Column(db.Float, nullable=True)
+    variance_card        = db.Column(db.Float, nullable=True)
+    variance_other       = db.Column(db.Float, nullable=True)
+    reconciled_by_id     = db.Column(db.Integer, nullable=True)
+    reconciled_by_name   = db.Column(db.String(100), nullable=True)
+    reconciled_at        = db.Column(db.DateTime, nullable=True)
+    closed_without_print = db.Column(db.Boolean, default=False)
+    admin_bypass         = db.Column(db.Boolean, default=False)
+
     sales = db.relationship('Sale', backref='shift', lazy=True)
 
     def to_dict(self):
@@ -492,6 +510,14 @@ class Shift(db.Model):
             'notes': self.notes,
             'opened_by_id': self.opened_by_id, 'opened_by_name': self.opened_by_name,
             'auth_method': self.auth_method,
+            'actual_cash': self.actual_cash, 'actual_mpesa': self.actual_mpesa,
+            'actual_card': self.actual_card, 'actual_other': self.actual_other,
+            'variance_cash': self.variance_cash, 'variance_mpesa': self.variance_mpesa,
+            'variance_card': self.variance_card, 'variance_other': self.variance_other,
+            'reconciled_by_name': self.reconciled_by_name,
+            'reconciled_at': self.reconciled_at.isoformat() if self.reconciled_at else None,
+            'closed_without_print': self.closed_without_print,
+            'admin_bypass': self.admin_bypass,
         }
 
 
@@ -1169,6 +1195,9 @@ class ShiftReport(db.Model):
     filed_by_name  = db.Column(db.String(100))
     filed_at       = db.Column(db.DateTime, nullable=True)
     signed_note    = db.Column(db.Text)
+    # Phase 39
+    closed_without_print = db.Column(db.Boolean, default=False)
+    has_discrepancy      = db.Column(db.Boolean, default=False)
     created_at     = db.Column(db.DateTime, default=datetime.utcnow)
 
     print_events = db.relationship('ReportPrintEvent', backref='report', lazy=True,
@@ -1193,6 +1222,8 @@ class ShiftReport(db.Model):
             'filed_by_name': self.filed_by_name,
             'filed_at': self.filed_at.isoformat() if self.filed_at else None,
             'signed_note': self.signed_note,
+            'closed_without_print': self.closed_without_print,
+            'has_discrepancy': self.has_discrepancy,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

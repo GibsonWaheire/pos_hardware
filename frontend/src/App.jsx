@@ -31,7 +31,7 @@ import Login from './pages/Login'
 
 const NAV = [
   // Cashier — only sees Checkout
-  { to: '/',                label: 'Checkout',  icon: '🛒', end: true,  roles: ['cashier','manager','admin'] },
+  { to: '/',                label: 'Checkout',  icon: '🛒', end: true,  roles: ['cashier','admin'] },
   // Manager / Admin
   { to: '/dashboard',       label: 'Dashboard', icon: '📊',             roles: ['manager','admin'] },
   { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['manager','admin'] },
@@ -269,7 +269,7 @@ function AppInner() {
 
         <main className="main-content">
           <Routes>
-          <Route path="/"                element={<RoleGuard roles={['cashier','manager','admin']}><POS /></RoleGuard>} />
+          <Route path="/"                element={<RoleGuard roles={['cashier','admin']}><POS /></RoleGuard>} />
           <Route path="/dashboard"       element={<RoleGuard roles={['manager','admin']}><Dashboard /></RoleGuard>} />
           <Route path="/quotes"          element={<RoleGuard roles={['cashier','manager','admin']}><Quotes /></RoleGuard>} />
           <Route path="/products"        element={<RoleGuard roles={['inventory','purchasing','manager','admin']}><Products /></RoleGuard>} />

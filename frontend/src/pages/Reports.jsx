@@ -4,12 +4,13 @@ import {
   getReportByCashier, getReportByCategory, getInventoryReport,
   getPurchasingReport, getReturnsReport,
   getExportCsvUrl, getShiftReports, printShiftReport, fileShiftReport,
+  getCurrentShift, getShiftReconciliation, closeShift,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
 import {
   printSalesReport, printCashierReport, printInventoryReport, printPurchasingReport, printReturnsReport,
-  printShiftReportDoc,
+  printShiftReportDoc, printShiftReconciliation,
 } from '../utils/print'
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
@@ -17,6 +18,7 @@ function daysAgo(n) {
   const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split('T')[0]
 }
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleString('en-KE') : '—' }
+function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' }) : '—' }
 
 function InlineBar({ value, max, color = 'var(--accent)' }) {
   const { fmt } = useCurrency()
@@ -49,16 +51,28 @@ export default function Reports() {
   const [purchasingData, setPurchasingData] = useState(null)
   const [returnsData, setReturnsData] = useState(null)
 
-  // Shift reports tab
+  // Shift History tab
   const [shiftReports, setShiftReports] = useState([])
-  const [fileModal, setFileModal]       = useState(null)   // report being filed
+  const [currentShift, setCurrentShift] = useState(null)
+  const [fileModal, setFileModal]       = useState(null)
   const [signedNote, setSignedNote]     = useState('')
   const [filing, setFiling]             = useState(false)
-  const [srFilter, setSrFilter]         = useState('all') // all | pending | filed
+  const [srFilter, setSrFilter]         = useState('all')
 
+  // Reconciliation modal state
+  const [recoModal, setRecoModal]   = useState(false)
+  const [recoData, setRecoData]     = useState(null)
+  const [recoLoading, setRecoLoading] = useState(false)
+  const [actualCash, setActualCash]   = useState('')
+  const [actualMpesa, setActualMpesa] = useState('')
+  const [actualCard, setActualCard]   = useState('')
+  const [actualOther, setActualOther] = useState('')
+  const [recoNotes, setRecoNotes]   = useState('')
+  const [closingShift, setClosingShift] = useState(false)
+  const [overridesOpen, setOverridesOpen] = useState(false)
+  const [txnsOpen, setTxnsOpen]     = useState(false)
 
   useEffect(() => { load() }, [tab])
-  // Auto-correct tab to first accessible one on mount (TABS accessible via closure at call time)
   useEffect(() => {
     if (!TABS.find(t => t.key === tab)) {
       const first = TABS[0]?.key
@@ -67,7 +81,6 @@ export default function Reports() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function load() {
-    // TABS is accessible via closure since load() is only called after render
     if (!TABS.find(entry => entry.key === tab)) return
     setLoading(true)
     const params = { date_from: dateFrom, date_to: dateTo }
@@ -87,8 +100,8 @@ export default function Reports() {
         const r = await getPurchasingReport(params); setPurchasingData(r.data)
       } else if (tab === 'returns') {
         const r = await getReturnsReport(params); setReturnsData(r.data)
-      } else if (tab === 'shift-reports') {
-        await loadShiftReports()
+      } else if (tab === 'shift-history') {
+        await Promise.all([loadShiftReports(), loadCurrentShift()])
       }
     } catch (e) { console.error(e) } finally { setLoading(false) }
   }
@@ -97,6 +110,13 @@ export default function Reports() {
     const params = srFilter !== 'all' ? { status: srFilter.toUpperCase() } : {}
     const r = await getShiftReports(params)
     setShiftReports(r.data)
+  }
+
+  async function loadCurrentShift() {
+    try {
+      const r = await getCurrentShift()
+      setCurrentShift(r.data.shift)
+    } catch (e) { /* not critical */ }
   }
 
   function downloadCsv(type) {
@@ -108,7 +128,11 @@ export default function Reports() {
       const r = await printShiftReport(report.id)
       const updated = r.data
       setShiftReports(prev => prev.map(x => x.id === updated.id ? updated : x))
-      printShiftReportDoc(updated)
+      if (updated.content?.tenders) {
+        printShiftReconciliation(updated)
+      } else {
+        printShiftReportDoc(updated)
+      }
     } catch (e) {
       alert('Print error: ' + e.message)
     }
@@ -130,22 +154,118 @@ export default function Reports() {
     }
   }
 
-  const canFile  = user && ['manager', 'admin'].includes(user.role)
-  const canPrint = user && ['manager', 'admin', 'inventory', 'purchasing'].includes(user.role)
-  const isManager = user && ['manager', 'admin'].includes(user.role)
+  // ── Reconciliation flow ────────────────────────────────────────────────────
+
+  async function openReconciliation() {
+    if (!currentShift) return
+    setRecoLoading(true)
+    setRecoModal(true)
+    setActualCash(''); setActualMpesa(''); setActualCard(''); setActualOther('')
+    setRecoNotes(''); setOverridesOpen(false); setTxnsOpen(false)
+    try {
+      const r = await getShiftReconciliation(currentShift.id)
+      setRecoData(r.data)
+    } catch (e) {
+      alert('Error loading reconciliation: ' + e.message)
+      setRecoModal(false)
+    } finally {
+      setRecoLoading(false)
+    }
+  }
+
+  function computeVariance(actual, expected) {
+    const a = parseFloat(actual) || 0
+    const e = expected || 0
+    return Math.round((a - e) * 100) / 100
+  }
+
+  function varianceLabel(v) {
+    if (v === 0) return { text: 'Balanced', color: 'var(--success)' }
+    if (v < 0)   return { text: `SHORT by ${fmt(Math.abs(v))}`, color: 'var(--danger)' }
+    return            { text: `OVER by ${fmt(v)}`, color: 'var(--warning)' }
+  }
+
+  async function handleCloseShift(closedWithoutPrint) {
+    if (!currentShift || !recoData) return
+
+    const exp = recoData.expected
+
+    if (!closedWithoutPrint) {
+      const confirmed = window.confirm('Confirm hardcopy printed and filed?')
+      if (!confirmed) return
+    } else {
+      const confirmed = window.confirm(
+        'Closing without printing means no hardcopy. This will be flagged in the admin report. Continue?'
+      )
+      if (!confirmed) return
+    }
+
+    setClosingShift(true)
+    try {
+      const res = await closeShift(currentShift.id, {
+        reconciliation_submitted: true,
+        actual_cash:  parseFloat(actualCash)  || 0,
+        actual_mpesa: parseFloat(actualMpesa) || 0,
+        actual_card:  parseFloat(actualCard)  || 0,
+        actual_other: parseFloat(actualOther) || 0,
+        notes: recoNotes,
+        closed_without_print: closedWithoutPrint,
+      })
+      setCurrentShift(null)
+      setRecoModal(false)
+      setRecoData(null)
+      await loadShiftReports()
+      alert(`Shift closed. Report ${res.data.report_number} generated.`)
+    } catch (e) {
+      alert('Error closing shift: ' + e.message)
+    } finally {
+      setClosingShift(false)
+    }
+  }
+
+  async function handlePrintAndClose() {
+    if (!currentShift || !recoData) return
+    // Build a temporary report object for printing before actual close
+    const exp = recoData.expected
+    const tenders = []
+    if (exp.cash)  tenders.push({ tender: 'cash',  expected: exp.cash,  actual: parseFloat(actualCash)  || 0, variance: computeVariance(actualCash, exp.cash),  status: computeVariance(actualCash, exp.cash)  === 0 ? 'BALANCED' : computeVariance(actualCash, exp.cash)  < 0 ? 'SHORT' : 'OVER' })
+    if (exp.mpesa) tenders.push({ tender: 'mpesa', expected: exp.mpesa, actual: parseFloat(actualMpesa) || 0, variance: computeVariance(actualMpesa, exp.mpesa), status: computeVariance(actualMpesa, exp.mpesa) === 0 ? 'BALANCED' : computeVariance(actualMpesa, exp.mpesa) < 0 ? 'SHORT' : 'OVER' })
+    if (exp.card)  tenders.push({ tender: 'card',  expected: exp.card,  actual: parseFloat(actualCard)  || 0, variance: computeVariance(actualCard, exp.card),  status: computeVariance(actualCard, exp.card)  === 0 ? 'BALANCED' : computeVariance(actualCard, exp.card)  < 0 ? 'SHORT' : 'OVER' })
+    if (exp.other) tenders.push({ tender: 'other', expected: exp.other, actual: parseFloat(actualOther) || 0, variance: computeVariance(actualOther, exp.other), status: computeVariance(actualOther, exp.other) === 0 ? 'BALANCED' : computeVariance(actualOther, exp.other) < 0 ? 'SHORT' : 'OVER' })
+
+    const previewReport = {
+      report_number: 'PREVIEW',
+      content: {
+        shift: currentShift,
+        reconciled_by: { name: user?.name, role: user?.role },
+        tenders,
+        overrides: recoData.overrides,
+        transactions: recoData.transactions,
+        total_expected_revenue: exp.total,
+        total_actual_revenue: tenders.reduce((s, t) => s + t.actual, 0),
+        total_variance: tenders.reduce((s, t) => s + t.variance, 0),
+      },
+    }
+    printShiftReconciliation(previewReport)
+    // After print dialog, proceed to close
+    await handleCloseShift(false)
+  }
+
+  const canFile    = user && ['manager', 'admin'].includes(user.role)
+  const canPrint   = user && ['manager', 'admin', 'inventory', 'purchasing'].includes(user.role)
+  const isManager  = user && ['manager', 'admin'].includes(user.role)
   const isInventory = user?.role === 'inventory'
 
   const ALL_TABS = [
-    { key: 'sales',         label: 'Sales',         roles: ['manager', 'admin'] },
-    { key: 'cashier',       label: 'By Cashier',    roles: ['manager', 'admin'] },
-    { key: 'category',      label: 'By Category',   roles: ['manager', 'admin'] },
-    { key: 'inventory',     label: 'Inventory',     roles: ['inventory', 'manager', 'admin'] },
-    { key: 'purchasing',    label: 'Purchasing',    roles: ['purchasing', 'manager', 'admin'] },
-    { key: 'returns',       label: 'Returns',       roles: ['manager', 'admin'] },
-    { key: 'shift-reports', label: 'Shift Reports', roles: ['manager', 'admin'] },
+    { key: 'sales',          label: 'Sales',         roles: ['manager', 'admin'] },
+    { key: 'cashier',        label: 'By Cashier',    roles: ['manager', 'admin'] },
+    { key: 'category',       label: 'By Category',   roles: ['manager', 'admin'] },
+    { key: 'inventory',      label: 'Inventory',     roles: ['inventory', 'manager', 'admin'] },
+    { key: 'purchasing',     label: 'Purchasing',    roles: ['purchasing', 'manager', 'admin'] },
+    { key: 'returns',        label: 'Returns',       roles: ['manager', 'admin'] },
+    { key: 'shift-history',  label: 'Shift History', roles: ['manager', 'admin'] },
   ]
   const TABS = ALL_TABS.filter(t => t.roles.includes(user?.role))
-  // Auto-select first visible tab if current tab is not accessible
   const activeTab = TABS.find(t => t.key === tab) ? tab : (TABS[0]?.key || 'inventory')
 
   const filteredReports = shiftReports.filter(r => {
@@ -155,14 +275,29 @@ export default function Reports() {
     return true
   })
 
+  // Compute Shift History status for display
+  function shiftHistoryStatus(r) {
+    const c = r.content || {}
+    if (r.status === 'FILED') return { label: 'FILED', color: '#15803d', bg: '#dcfce7' }
+    if (r.closed_without_print || c.closed_without_print) return { label: 'CLOSED', color: '#92400e', bg: '#fef3c7' }
+    if (r.has_discrepancy || (c.tenders || []).some(t => t.variance !== 0)) return { label: 'DISCREPANCY', color: '#dc2626', bg: '#fee2e2' }
+    return { label: r.status, color: '#1e40af', bg: '#dbeafe' }
+  }
+
+  // Overdue: open shift past midnight
+  const isOverdue = currentShift && (() => {
+    const opened = new Date(currentShift.opened_at)
+    const now = new Date()
+    return opened.toDateString() !== now.toDateString() && now > opened
+  })()
+
   return (
     <>
-
       <div className="no-print" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
         <div className="page-header">
           <span className="page-title">Reports</span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {activeTab !== 'inventory' && activeTab !== 'shift-reports' && activeTab !== 'purchasing' && activeTab !== 'returns' && (
+            {activeTab !== 'inventory' && activeTab !== 'shift-history' && activeTab !== 'purchasing' && activeTab !== 'returns' && (
               <>
                 <input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 140 }} />
                 <span style={{ color: 'var(--text-muted)' }}>to</span>
@@ -238,7 +373,6 @@ export default function Reports() {
                   <StatCard key={p.method} label={p.method} value={fmt(p.total)} sub={`${p.count} sales`} />
                 ))}
               </div>
-
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div className="card" style={{ padding: 0 }}>
                   <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>Daily Breakdown</div>
@@ -260,7 +394,6 @@ export default function Reports() {
                     </table>
                   )}
                 </div>
-
                 <div className="card" style={{ padding: 0 }}>
                   <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>Top Products / Services</div>
                   {topProducts.length === 0 ? (
@@ -377,7 +510,6 @@ export default function Reports() {
                 <StatCard label="Out of Stock" value={inventoryData.summary.out_of_stock_count} color={inventoryData.summary.out_of_stock_count > 0 ? 'var(--danger)' : undefined} />
                 <StatCard label="Low Stock" value={inventoryData.summary.low_stock_count} color={inventoryData.summary.low_stock_count > 0 ? 'var(--warning)' : undefined} />
               </div>
-
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div className="card" style={{ padding: 0 }}>
                   <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14, color: 'var(--danger)' }}>Out of Stock ({inventoryData.out_of_stock.length})</div>
@@ -394,7 +526,6 @@ export default function Reports() {
                     </table>
                   )}
                 </div>
-
                 <div className="card" style={{ padding: 0 }}>
                   <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14, color: 'var(--warning)' }}>Low Stock ({inventoryData.low_stock.length})</div>
                   {inventoryData.low_stock.length === 0 ? (
@@ -415,16 +546,11 @@ export default function Reports() {
                     </table>
                   )}
                 </div>
-
                 <div className="card" style={{ padding: 0, gridColumn: 'span 2' }}>
                   <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>Top 10 by Stock Value</div>
                   <table className="table">
                     <thead>
-                      <tr>
-                        <th>#</th><th>Product</th><th>Qty</th>
-                        {isManager && <th>Unit Price</th>}
-                        {isManager && <th>Stock Value</th>}
-                      </tr>
+                      <tr><th>#</th><th>Product</th><th>Qty</th>{isManager && <th>Unit Price</th>}{isManager && <th>Stock Value</th>}</tr>
                     </thead>
                     <tbody>
                       {inventoryData.top_by_value.map((p, i) => (
@@ -457,24 +583,17 @@ export default function Reports() {
                   <StatCard key={status} label={status.charAt(0).toUpperCase() + status.slice(1)} value={count} />
                 ))}
               </div>
-
               {purchasingData.pos?.length === 0 && (
                 <div className="empty-state">No purchase orders for this period</div>
               )}
-
               {purchasingData.pos?.length > 0 && (
                 <div className="card" style={{ padding: 0 }}>
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>PO Number</th>
-                        <th>Supplier</th>
-                        <th>Items</th>
+                        <th>PO Number</th><th>Supplier</th><th>Items</th>
                         {isManager && <th>Total Cost</th>}
-                        <th>Status</th>
-                        <th>Created By</th>
-                        <th>Date</th>
-                        <th>Approved By</th>
+                        <th>Status</th><th>Created By</th><th>Date</th><th>Approved By</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -515,7 +634,6 @@ export default function Reports() {
                   color={(returnsData.by_status || {}).pending_approval > 0 ? 'var(--warning)' : undefined} />
                 <StatCard label="Rejected" value={(returnsData.by_status || {}).rejected || 0} />
               </div>
-
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
                 <div className="card" style={{ padding: 0 }}>
                   <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>By Refund Method</div>
@@ -552,7 +670,6 @@ export default function Reports() {
                   )}
                 </div>
               </div>
-
               <div className="card" style={{ padding: 0 }}>
                 <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>Return Transactions</div>
                 {returnsData.returns.length === 0 ? (
@@ -589,9 +706,32 @@ export default function Reports() {
             </>
           )}
 
-          {/* ── Shift Reports tab ── */}
-          {activeTab === 'shift-reports' && (
+          {/* ── Shift History tab ── */}
+          {activeTab === 'shift-history' && (
             <>
+              {/* Active shift banner */}
+              {currentShift && (
+                <div style={{
+                  background: isOverdue ? '#fef2f2' : '#f0fdf4',
+                  border: `1px solid ${isOverdue ? 'var(--danger)' : 'var(--success)'}`,
+                  borderRadius: 10, marginBottom: 16, padding: '14px 20px',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: isOverdue ? 'var(--danger)' : 'var(--success)', marginBottom: 4 }}>
+                      {isOverdue ? 'OVERDUE — ' : ''}Shift Open — {currentShift.cashier_name || 'No cashier'}
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                      Opened: {fmtDate(currentShift.opened_at)} · Float: {fmt(currentShift.opening_float)}
+                    </div>
+                  </div>
+                  <button className="btn btn-danger" onClick={openReconciliation}>
+                    Reconcile &amp; Close Shift
+                  </button>
+                </div>
+              )}
+
+              {/* Filter bar */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: 4 }}>
                   {[['all', 'All'], ['pending', 'Pending'], ['filed', 'Filed']].map(([key, label]) => (
@@ -601,7 +741,7 @@ export default function Reports() {
                     </button>
                   ))}
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={loadShiftReports}>Refresh</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => Promise.all([loadShiftReports(), loadCurrentShift()])}>Refresh</button>
               </div>
 
               {loading && <div className="empty-state">Loading...</div>}
@@ -616,12 +756,14 @@ export default function Reports() {
                     <thead>
                       <tr>
                         <th>Report #</th>
-                        <th>Shift</th>
-                        <th>Period</th>
                         <th>Cashier</th>
-                        <th>Revenue</th>
+                        <th>Opened</th>
+                        <th>Closed</th>
+                        <th>Total Sales</th>
+                        <th>Cash Var.</th>
+                        <th>M-Pesa Var.</th>
+                        <th>Overrides</th>
                         <th>Status</th>
-                        <th>Filed By</th>
                         <th></th>
                       </tr>
                     </thead>
@@ -630,22 +772,37 @@ export default function Reports() {
                         const c = r.content || {}
                         const summary = c.summary || {}
                         const shift   = c.shift   || {}
+                        const tenders = c.tenders || []
+                        const cashTender  = tenders.find(t => t.tender === 'cash')
+                        const mpesaTender = tenders.find(t => t.tender === 'mpesa')
+                        const overrides   = c.overrides || c.item_overrides || {}
+                        const st = shiftHistoryStatus(r)
                         return (
                           <tr key={r.id}>
                             <td style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{r.report_number}</td>
-                            <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>#{r.shift_id}</td>
-                            <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                              <div>{fmtDate(r.period_start)}</div>
-                              <div>{fmtDate(r.period_end)}</div>
-                            </td>
                             <td style={{ fontWeight: 500 }}>{shift.cashier_name || '—'}</td>
+                            <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(r.period_start)}</td>
+                            <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(r.period_end)}</td>
                             <td style={{ fontWeight: 600 }}>{fmt(summary.total_revenue)}</td>
                             <td>
-                              <StatusBadge status={r.status} printCount={r.print_count} />
+                              {cashTender ? (
+                                <span style={{ fontWeight: 600, color: cashTender.variance === 0 ? 'var(--success)' : cashTender.variance < 0 ? 'var(--danger)' : 'var(--warning)' }}>
+                                  {cashTender.variance >= 0 ? '+' : ''}{fmt(cashTender.variance)}
+                                </span>
+                              ) : '—'}
                             </td>
-                            <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                              {r.filed_by_name ? `${r.filed_by_name}` : '—'}
-                              {r.filed_at && <div>{fmtDate(r.filed_at)}</div>}
+                            <td>
+                              {mpesaTender ? (
+                                <span style={{ fontWeight: 600, color: mpesaTender.variance === 0 ? 'var(--success)' : mpesaTender.variance < 0 ? 'var(--danger)' : 'var(--warning)' }}>
+                                  {mpesaTender.variance >= 0 ? '+' : ''}{fmt(mpesaTender.variance)}
+                                </span>
+                              ) : '—'}
+                            </td>
+                            <td style={{ color: 'var(--text-muted)' }}>{overrides.count ?? '—'}</td>
+                            <td>
+                              <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: st.bg, color: st.color }}>
+                                {st.label}
+                              </span>
                             </td>
                             <td>
                               <div style={{ display: 'flex', gap: 6 }}>
@@ -671,7 +828,7 @@ export default function Reports() {
             </>
           )}
 
-          {loading && tab !== 'shift-reports' && <div className="empty-state">Loading...</div>}
+          {loading && tab !== 'shift-history' && <div className="empty-state">Loading...</div>}
         </div>
       </div>
 
@@ -707,9 +864,247 @@ export default function Reports() {
           </div>
         </div>
       )}
+
+      {/* ── Reconciliation modal ── */}
+      {recoModal && (
+        <div className="modal-overlay no-print" style={{ alignItems: 'flex-start', overflowY: 'auto', padding: '32px 0' }}>
+          <div className="modal" style={{ width: 600, maxWidth: '95vw', margin: 'auto' }}>
+            <div className="modal-title">Reconcile &amp; Close Shift</div>
+
+            {recoLoading && <div className="empty-state">Loading reconciliation data...</div>}
+
+            {!recoLoading && recoData && (() => {
+              const exp = recoData.expected
+              const ov  = recoData.overrides
+              const txns = recoData.transactions
+
+              const varCash  = computeVariance(actualCash,  exp.cash)
+              const varMpesa = computeVariance(actualMpesa, exp.mpesa)
+              const varCard  = computeVariance(actualCard,  exp.card)
+              const varOther = computeVariance(actualOther, exp.other)
+
+              const hasVariance = varCash !== 0 || varMpesa !== 0 || varCard !== 0 || varOther !== 0
+              const allFilled   = (exp.cash  === 0 || actualCash  !== '') &&
+                                  (exp.mpesa === 0 || actualMpesa !== '') &&
+                                  (exp.card  === 0 || actualCard  !== '')
+
+              return (
+                <>
+                  {/* Shift info */}
+                  <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
+                    <strong>{recoData.shift.cashier_name}</strong>
+                    {' · '}Opened: {fmtDate(recoData.shift.opened_at)}
+                    {' · '}Float: {fmt(recoData.shift.opening_float)}
+                  </div>
+
+                  {/* Tender reconciliation table */}
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10 }}>Tender Reconciliation</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20, fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ textAlign: 'left', padding: '6px 0', color: 'var(--text-muted)', fontWeight: 500 }}>Tender</th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Expected</th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Actual (counted)</th>
+                        <th style={{ textAlign: 'right', padding: '6px 0', color: 'var(--text-muted)', fontWeight: 500 }}>Variance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { key: 'cash',  label: 'Cash', expected: exp.cash,  actual: actualCash,  setActual: setActualCash,  variance: varCash,  note: 'incl. float' },
+                        { key: 'mpesa', label: 'M-Pesa', expected: exp.mpesa, actual: actualMpesa, setActual: setActualMpesa, variance: varMpesa },
+                        { key: 'card',  label: 'Card', expected: exp.card,  actual: actualCard,  setActual: setActualCard,  variance: varCard  },
+                        ...(exp.other > 0 ? [{ key: 'other', label: 'Other', expected: exp.other, actual: actualOther, setActual: setActualOther, variance: varOther }] : []),
+                      ].map(row => {
+                        const vl = varianceLabel(row.variance)
+                        const filled = row.actual !== ''
+                        return (
+                          <tr key={row.key} style={{ borderBottom: '1px solid var(--border)' }}>
+                            <td style={{ padding: '10px 0', fontWeight: 500, textTransform: 'capitalize' }}>
+                              {row.label}
+                              {row.note && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>{row.note}</span>}
+                            </td>
+                            <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--text-muted)' }}>
+                              {fmt(row.expected)}
+                            </td>
+                            <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                placeholder="0.00"
+                                value={row.actual}
+                                onChange={e => row.setActual(e.target.value)}
+                                style={{
+                                  width: 110, padding: '5px 8px', textAlign: 'right',
+                                  border: '1px solid var(--border)', borderRadius: 6,
+                                  background: 'var(--bg)', color: 'var(--text)', fontSize: 13,
+                                }}
+                              />
+                            </td>
+                            <td style={{ padding: '10px 0', textAlign: 'right', fontWeight: 600, color: filled ? vl.color : 'var(--text-muted)' }}>
+                              {filled ? vl.text : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      <tr style={{ borderTop: '2px solid var(--border)' }}>
+                        <td style={{ padding: '10px 0', fontWeight: 700 }}>Total Expected</td>
+                        <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700 }}>{fmt(exp.total)}</td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  {/* M-Pesa daraja note */}
+                  {exp.mpesa > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, fontStyle: 'italic' }}>
+                      M-Pesa totals are verifiable against Daraja / phone statement.
+                    </div>
+                  )}
+
+                  {/* Overall status banner */}
+                  {allFilled && (
+                    <div style={{
+                      padding: '10px 14px', borderRadius: 8, marginBottom: 16, fontWeight: 600, fontSize: 13,
+                      background: hasVariance ? '#fee2e2' : '#dcfce7',
+                      color: hasVariance ? '#dc2626' : '#15803d',
+                      border: `1px solid ${hasVariance ? '#fca5a5' : '#86efac'}`,
+                    }}>
+                      {hasVariance ? 'Discrepancies found — review before closing' : 'Ready to close — all tenders balanced'}
+                    </div>
+                  )}
+
+                  {/* Overrides summary (collapsible) */}
+                  {ov.count > 0 && (
+                    <div style={{ marginBottom: 16 }}>
+                      <button
+                        onClick={() => setOverridesOpen(o => !o)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 14, color: ov.flagged ? 'var(--danger)' : 'var(--text)', padding: 0, display: 'flex', alignItems: 'center', gap: 8 }}
+                      >
+                        {overridesOpen ? '▼' : '▶'} Override Activity ({ov.count} overrides · {fmt(ov.total_value_impact)} impact)
+                        {ov.flagged && <span style={{ fontSize: 11, background: '#fee2e2', color: '#dc2626', padding: '2px 6px', borderRadius: 8 }}>FLAGGED {ov.pct_of_sales}% of sales</span>}
+                      </button>
+                      {overridesOpen && (
+                        <div style={{ marginTop: 10 }}>
+                          {ov.flagged && (
+                            <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: '#dc2626' }}>
+                              Override activity is {ov.pct_of_sales}% of today's sales — review recommended
+                            </div>
+                          )}
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                <th style={{ textAlign: 'left', padding: '4px 0', color: 'var(--text-muted)', fontWeight: 500 }}>Time</th>
+                                <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Cashier</th>
+                                <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Action</th>
+                                <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Item</th>
+                                <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Old→New</th>
+                                <th style={{ textAlign: 'right', padding: '4px 0', color: 'var(--text-muted)', fontWeight: 500 }}>Impact</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ov.details.map((d, i) => (
+                                <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '5px 0', color: 'var(--text-muted)' }}>{fmtTime(d.time)}</td>
+                                  <td style={{ padding: '5px 8px' }}>{d.cashier_name}</td>
+                                  <td style={{ padding: '5px 8px', color: d.action === 'REMOVE_ITEM' ? 'var(--danger)' : 'var(--warning)' }}>{d.action}</td>
+                                  <td style={{ padding: '5px 8px' }}>{d.item_name}</td>
+                                  <td style={{ padding: '5px 8px', color: 'var(--text-muted)' }}>{d.original_qty}→{d.new_qty ?? 0}</td>
+                                  <td style={{ padding: '5px 0', textAlign: 'right', fontWeight: 600, color: (d.value_impact || 0) < 0 ? 'var(--danger)' : 'var(--text)' }}>
+                                    {(d.value_impact || 0) >= 0 ? '+' : ''}{fmt(d.value_impact || 0)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Transaction breakdown (collapsible) */}
+                  <div style={{ marginBottom: 16 }}>
+                    <button
+                      onClick={() => setTxnsOpen(o => !o)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 14, color: 'var(--text)', padding: 0, display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      {txnsOpen ? '▼' : '▶'} Transaction Breakdown ({txns.total_count} sales)
+                    </button>
+                    {txnsOpen && (
+                      <div style={{ marginTop: 10, maxHeight: 240, overflowY: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                              <th style={{ textAlign: 'left', padding: '4px 0', color: 'var(--text-muted)', fontWeight: 500 }}>Time</th>
+                              <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Receipt</th>
+                              <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Items</th>
+                              <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Tender</th>
+                              <th style={{ textAlign: 'right', padding: '4px 0', color: 'var(--text-muted)', fontWeight: 500 }}>Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {txns.list.map((t, i) => (
+                              <tr key={i} style={{ borderBottom: '1px solid var(--border)', opacity: t.status !== 'completed' ? 0.5 : 1 }}>
+                                <td style={{ padding: '5px 0', color: 'var(--text-muted)' }}>{fmtTime(t.time)}</td>
+                                <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 11 }}>{t.receipt_number}</td>
+                                <td style={{ padding: '5px 8px', color: 'var(--text-muted)' }}>{t.items_count}</td>
+                                <td style={{ padding: '5px 8px', textTransform: 'capitalize' }}>{t.tender}</td>
+                                <td style={{ padding: '5px 0', textAlign: 'right', fontWeight: 600 }}>{fmt(t.amount)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div style={{ padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+                          {Object.entries(txns.by_tender).map(([t, d]) => (
+                            <span key={t} style={{ marginRight: 16 }}>{t}: {d.count} · {fmt(d.total)}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Notes */}
+                  <div className="form-group" style={{ marginBottom: 20 }}>
+                    <label className="label">Notes (optional)</label>
+                    <textarea className="input" rows={2} value={recoNotes} onChange={e => setRecoNotes(e.target.value)} style={{ resize: 'vertical' }} />
+                  </div>
+
+                  {/* Print hint */}
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16 }}>
+                    Print in portrait, A4, no margins
+                  </div>
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button className="btn btn-ghost" onClick={() => { setRecoModal(false); setRecoData(null) }}>
+                      Cancel
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => handleCloseShift(true)}
+                      disabled={!allFilled || closingShift}
+                      style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                    >
+                      {closingShift ? 'Closing...' : 'Close Without Printing'}
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handlePrintAndClose}
+                      disabled={!allFilled || closingShift}
+                    >
+                      {closingShift ? 'Closing...' : 'Print & Close Shift'}
+                    </button>
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        </div>
+      )}
     </>
   )
 }
+
 function StatusBadge({ status, printCount }) {
   const styles = {
     GENERATED: { background: '#fef3c7', color: '#92400e' },

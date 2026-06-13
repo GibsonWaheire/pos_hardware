@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react'
-import { getCurrentShift, openShift, closeShift, getShifts, getShiftSummary, getStaff } from '../api'
+import { useNavigate } from 'react-router-dom'
+import { getCurrentShift, openShift, getShifts, getShiftSummary, getStaff } from '../api'
+import { useCurrency } from '../context/CurrencyContext'
 
 export default function Shifts() {
+  const { fmt } = useCurrency()
+  const navigate = useNavigate()
   const [currentShift, setCurrentShift] = useState(null)
   const [shifts, setShifts] = useState([])
   const [staff, setStaff] = useState([])
-  const [modal, setModal] = useState(null)  // null | 'open' | { mode: 'close', shift } | { mode: 'summary', data }
+  const [modal, setModal] = useState(null)  // null | 'open' | { mode: 'summary', data }
   const [openForm, setOpenForm] = useState({ cashier_id: '', cashier_name: '', opening_float: '' })
-  const [closeForm, setCloseForm] = useState({ closing_float: '', notes: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -24,8 +27,6 @@ export default function Shifts() {
     } catch (e) { console.error(e) } finally { setLoading(false) }
   }
 
-  // ── Open shift ────────────────────────────────────────────────────────────
-
   async function handleOpenShift() {
     setSaving(true); setError('')
     try {
@@ -38,25 +39,6 @@ export default function Shifts() {
       loadAll()
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
-
-  // ── Close shift ───────────────────────────────────────────────────────────
-
-  async function handleCloseShift() {
-    if (!closeForm.closing_float && closeForm.closing_float !== '0') {
-      setError('Enter the actual cash count'); return
-    }
-    setSaving(true); setError('')
-    try {
-      await closeShift(modal.shift.id, {
-        closing_float: parseFloat(closeForm.closing_float),
-        notes: closeForm.notes,
-      })
-      setModal(null)
-      loadAll()
-    } catch (e) { setError(e.message) } finally { setSaving(false) }
-  }
-
-  // ── Shift summary ─────────────────────────────────────────────────────────
 
   async function viewSummary(shift) {
     try {
@@ -106,17 +88,16 @@ export default function Shifts() {
             </div>
             <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
               Opened: {formatTime(currentShift.opened_at)} · Duration: {formatDuration(currentShift.opened_at, null)} ·
-              Float: ${currentShift.opening_float.toFixed(2)}
+              Float: {fmt(currentShift.opening_float)}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-ghost" onClick={() => viewSummary(currentShift)}>Summary</button>
-            <button className="btn btn-danger" onClick={() => {
-              setCloseForm({ closing_float: '', notes: '' })
-              setError('')
-              setModal({ mode: 'close', shift: currentShift })
-            }}>
-              Close Shift
+            <button
+              className="btn btn-danger"
+              onClick={() => navigate('/reports', { state: { tab: 'shift-history', action: 'close' } })}
+            >
+              Reconcile &amp; Close
             </button>
           </div>
         </div>
@@ -129,23 +110,34 @@ export default function Shifts() {
           <div className="card" style={{ padding: 0 }}>
             <table className="table">
               <thead>
-                <tr><th>Cashier</th><th>Opened</th><th>Closed</th><th>Duration</th><th>Float In</th><th>Cash Counted</th><th>Variance</th><th>Status</th><th></th></tr>
+                <tr>
+                  <th>Cashier</th><th>Opened</th><th>Closed</th><th>Duration</th>
+                  <th>Float In</th><th>Cash Counted</th><th>Cash Var.</th>
+                  <th>M-Pesa Var.</th><th>Status</th><th></th>
+                </tr>
               </thead>
               <tbody>
                 {shifts.length === 0 ? (
-                  <tr><td colSpan={9} className="empty-state">No shifts yet</td></tr>
+                  <tr><td colSpan={10} className="empty-state">No shifts yet</td></tr>
                 ) : shifts.map(s => (
                   <tr key={s.id}>
                     <td style={{ fontWeight: 500 }}>{s.cashier_name || '—'}</td>
                     <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{formatTime(s.opened_at)}</td>
                     <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{formatTime(s.closed_at)}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{formatDuration(s.opened_at, s.closed_at)}</td>
-                    <td>${s.opening_float.toFixed(2)}</td>
-                    <td>{s.closing_float != null ? `$${s.closing_float.toFixed(2)}` : '—'}</td>
+                    <td>{fmt(s.opening_float)}</td>
+                    <td>{s.actual_cash != null ? fmt(s.actual_cash) : '—'}</td>
                     <td>
-                      {s.variance != null
-                        ? <span style={{ fontWeight: 600, color: s.variance === 0 ? 'var(--success)' : s.variance > 0 ? 'var(--success)' : 'var(--danger)' }}>
-                            {s.variance >= 0 ? '+' : ''}${s.variance.toFixed(2)}
+                      {s.variance_cash != null
+                        ? <span style={{ fontWeight: 600, color: s.variance_cash === 0 ? 'var(--success)' : s.variance_cash > 0 ? 'var(--warning)' : 'var(--danger)' }}>
+                            {s.variance_cash >= 0 ? '+' : ''}{fmt(s.variance_cash)}
+                          </span>
+                        : '—'}
+                    </td>
+                    <td>
+                      {s.variance_mpesa != null
+                        ? <span style={{ fontWeight: 600, color: s.variance_mpesa === 0 ? 'var(--success)' : s.variance_mpesa > 0 ? 'var(--warning)' : 'var(--danger)' }}>
+                            {s.variance_mpesa >= 0 ? '+' : ''}{fmt(s.variance_mpesa)}
                           </span>
                         : '—'}
                     </td>
@@ -183,7 +175,7 @@ export default function Shifts() {
               </select>
             </div>
             <div className="form-group">
-              <label className="label">Opening Float ($)</label>
+              <label className="label">Opening Float (KES)</label>
               <input className="input" type="number" min={0} step="0.01"
                 placeholder="Cash placed in drawer"
                 value={openForm.opening_float}
@@ -194,43 +186,6 @@ export default function Shifts() {
               <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
               <button className="btn btn-success" onClick={handleOpenShift} disabled={saving}>
                 {saving ? 'Opening...' : 'Open Shift'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Close shift modal */}
-      {modal?.mode === 'close' && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
-          <div className="modal" style={{ width: 420 }}>
-            <div className="modal-title">Close Shift</div>
-            <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>{modal.shift.cashier_name || 'No cashier'}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                Opened: {formatTime(modal.shift.opened_at)}<br />
-                Opening float: ${modal.shift.opening_float.toFixed(2)}<br />
-                Duration: {formatDuration(modal.shift.opened_at, null)}
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="label">Actual Cash Count (count your drawer)</label>
-              <input className="input" type="number" min={0} step="0.01"
-                placeholder="0.00"
-                value={closeForm.closing_float}
-                onChange={e => setCloseForm({ ...closeForm, closing_float: e.target.value })} />
-            </div>
-            <div className="form-group">
-              <label className="label">Notes (optional)</label>
-              <textarea className="input" rows={2} value={closeForm.notes}
-                onChange={e => setCloseForm({ ...closeForm, notes: e.target.value })}
-                style={{ resize: 'vertical' }} />
-            </div>
-            {error && <p className="error-msg">{error}</p>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
-              <button className="btn btn-danger" onClick={handleCloseShift} disabled={saving}>
-                {saving ? 'Closing...' : 'Close Shift'}
               </button>
             </div>
           </div>
@@ -252,24 +207,22 @@ export default function Shifts() {
                       {formatTime(shift.opened_at)} → {formatTime(shift.closed_at)} ({formatDuration(shift.opened_at, shift.closed_at)})
                     </div>
                   </div>
-
                   <SummaryRow label="Transactions" value={transaction_count} />
-                  <SummaryRow label="Total Revenue" value={`$${total_revenue.toFixed(2)}`} />
-                  <SummaryRow label="Cash Sales" value={`$${cash_sales.toFixed(2)}`} />
-                  <SummaryRow label="Card Sales" value={`$${card_sales.toFixed(2)}`} />
-                  {split_sales > 0 && <SummaryRow label="Split Sales" value={`$${split_sales.toFixed(2)}`} />}
-                  {total_tax > 0 && <SummaryRow label="Tax Collected" value={`$${total_tax.toFixed(2)}`} />}
-                  {total_discounts > 0 && <SummaryRow label="Discounts Given" value={`-$${total_discounts.toFixed(2)}`} />}
-
+                  <SummaryRow label="Total Revenue" value={fmt(total_revenue)} />
+                  <SummaryRow label="Cash Sales" value={fmt(cash_sales)} />
+                  <SummaryRow label="Card Sales" value={fmt(card_sales)} />
+                  {split_sales > 0 && <SummaryRow label="Split Sales" value={fmt(split_sales)} />}
+                  {total_tax > 0 && <SummaryRow label="Tax Collected" value={fmt(total_tax)} />}
+                  {total_discounts > 0 && <SummaryRow label="Discounts Given" value={`-${fmt(total_discounts)}`} />}
                   {shift.status === 'closed' && (
                     <div style={{ borderTop: '1px solid var(--border)', marginTop: 12, paddingTop: 12 }}>
-                      <SummaryRow label="Opening Float" value={`$${shift.opening_float.toFixed(2)}`} />
-                      <SummaryRow label="Expected Cash" value={`$${shift.expected_cash?.toFixed(2)}`} />
-                      <SummaryRow label="Actual Count" value={`$${shift.closing_float?.toFixed(2)}`} />
+                      <SummaryRow label="Opening Float" value={fmt(shift.opening_float)} />
+                      <SummaryRow label="Expected Cash" value={fmt(shift.expected_cash)} />
+                      <SummaryRow label="Actual Cash" value={fmt(shift.actual_cash)} />
                       <SummaryRow
-                        label="Variance"
-                        value={`${shift.variance >= 0 ? '+' : ''}$${shift.variance?.toFixed(2)}`}
-                        color={shift.variance === 0 ? 'var(--success)' : shift.variance > 0 ? 'var(--success)' : 'var(--danger)'}
+                        label="Cash Variance"
+                        value={`${(shift.variance_cash || 0) >= 0 ? '+' : ''}${fmt(shift.variance_cash || 0)}`}
+                        color={(shift.variance_cash || 0) === 0 ? 'var(--success)' : (shift.variance_cash || 0) > 0 ? 'var(--warning)' : 'var(--danger)'}
                         bold
                       />
                     </div>

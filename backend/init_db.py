@@ -92,6 +92,27 @@ def init_db():
             _add_column_if_missing(conn, 'sales', 'account_id',             'INTEGER')
             _add_column_if_missing(conn, 'sales', 'account_balance_before', 'FLOAT')
             _add_column_if_missing(conn, 'sales', 'account_balance_after',  'FLOAT')
+            # Phase 39 — per-tender reconciliation on shifts
+            _add_column_if_missing(conn, 'shifts', 'actual_cash',          'FLOAT')
+            _add_column_if_missing(conn, 'shifts', 'actual_mpesa',         'FLOAT')
+            _add_column_if_missing(conn, 'shifts', 'actual_card',          'FLOAT')
+            _add_column_if_missing(conn, 'shifts', 'actual_other',         'FLOAT')
+            _add_column_if_missing(conn, 'shifts', 'variance_cash',        'FLOAT')
+            _add_column_if_missing(conn, 'shifts', 'variance_mpesa',       'FLOAT')
+            _add_column_if_missing(conn, 'shifts', 'variance_card',        'FLOAT')
+            _add_column_if_missing(conn, 'shifts', 'variance_other',       'FLOAT')
+            _add_column_if_missing(conn, 'shifts', 'reconciled_by_id',     'INTEGER')
+            _add_column_if_missing(conn, 'shifts', 'reconciled_by_name',   'VARCHAR(100)')
+            _add_column_if_missing(conn, 'shifts', 'reconciled_at',        'DATETIME')
+            _add_column_if_missing(conn, 'shifts', 'closed_without_print', 'BOOLEAN DEFAULT 0')
+            _add_column_if_missing(conn, 'shifts', 'admin_bypass',         'BOOLEAN DEFAULT 0')
+            # Phase 39 — override approval value tracking
+            _add_column_if_missing(conn, 'override_approvals', 'value_impact', 'FLOAT')
+            _add_column_if_missing(conn, 'override_approvals', 'shift_id',     'INTEGER')
+            _add_column_if_missing(conn, 'override_approvals', 'unit_price',   'FLOAT')
+            # Phase 39 — shift report flags
+            _add_column_if_missing(conn, 'shift_reports', 'closed_without_print', 'BOOLEAN DEFAULT 0')
+            _add_column_if_missing(conn, 'shift_reports', 'has_discrepancy',      'BOOLEAN DEFAULT 0')
             conn.commit()
         finally:
             conn.close()

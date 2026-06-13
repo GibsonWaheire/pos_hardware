@@ -298,6 +298,7 @@ export const getShiftSummary = (id) => withLocal(
   () => api.get(`/shifts/${id}/summary`),
   () => local.lsStub({})
 )
+export const getShiftReconciliation = (id) => api.get(`/shifts/${id}/reconciliation`)
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 

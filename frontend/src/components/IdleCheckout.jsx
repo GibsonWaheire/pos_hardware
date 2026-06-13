@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import { useCurrency } from '../context/CurrencyContext'
 
 const TIPS = [
   'Manager card required to remove any item from the bill',
@@ -21,9 +20,7 @@ const SHAPES = [
   { id: 'ruler',  path: 'M3 7h18v2H3zM7 7v2M11 7v2M15 7v2M19 7v2',                                                                                                         dur: 33, x: 3,  y: 38, r: -10, size: 108 },
 ]
 
-export default function IdleCheckout({ visible, storeConfig = {}, dailyTotals }) {
-  const { fmt } = useCurrency()
-
+export default function IdleCheckout({ visible, storeConfig = {} }) {
   // Fix: initialise directly from `visible` so it shows on first mount
   const [showing, setShowing]   = useState(visible)
   const [fadeIn,  setFadeIn]    = useState(visible)
@@ -79,22 +76,7 @@ export default function IdleCheckout({ visible, storeConfig = {}, dailyTotals })
       <div className="idle-hint">Ready to serve — scan a barcode or search on the right</div>
     </div>,
 
-    /* 1 — Today's stats */
-    <div key="stats" className="idle-slide-content">
-      <div className="idle-slide-label">Today's Sales</div>
-      {dailyTotals ? (
-        <>
-          <div className="idle-stat-big">{fmt(dailyTotals.total_revenue)}</div>
-          <div className="idle-stat-sub">
-            {dailyTotals.transaction_count} transaction{dailyTotals.transaction_count !== 1 ? 's' : ''}
-          </div>
-        </>
-      ) : (
-        <div className="idle-stat-sub" style={{ marginTop: 24 }}>Shift not yet started</div>
-      )}
-    </div>,
-
-    /* 2 — Tip */
+    /* 1 — Tip */
     <div key="tip" className="idle-slide-content">
       <div className="idle-tip-icon">ℹ</div>
       <div className="idle-tip-text">{TIPS[tipIdx]}</div>

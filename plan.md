@@ -96,6 +96,7 @@ Every feature gating decision must follow this table.
 | 26 | Loyalty — wire earnPoints after every sale, dynamic redemption rate from config, KES currency fixes | ✅ |
 | 27 | Sale History & Receipt Date Fix — immutable created_at on reprints, cashier history panel with reprint | ✅ |
 | 28 | Operational Settings — Business Rules in Settings (returns threshold, VAT rate, low stock), role descriptions, per-item discount auth gate, Products pre-fill from store defaults | ✅ |
+| 39 | Shift Reconciliation Gate — mandatory per-tender reconciliation before close, cashier 403 on close, manager reconciliation modal in Reports, Print & Close / Close Without Printing, Shift History table with variance columns, A4 printShiftReconciliation | ✅ |
 
 ---
 
@@ -103,7 +104,23 @@ Every feature gating decision must follow this table.
 
 ---
 
-### Phase 39 — Shift Reconciliation Gate (Mandatory Close Flow)
+### Phase 39 — Shift Reconciliation Gate (Mandatory Close Flow) ✅ COMPLETE
+
+**Implemented:**
+- `App.jsx`: removed `manager` from Checkout nav + route guard — only `cashier` + `admin` see Checkout
+- `POS.jsx`: removed daily totals from cashier footer; removed `getDailyTotals` call
+- `IdleCheckout.jsx`: removed "Today's Sales" slide from idle carousel — only store name, time/date, tips, branding
+- `Shifts.jsx`: removed Close Shift button; replaced with "Reconcile & Close" that navigates to Reports; added per-tender variance columns to shift table; KES currency via `useCurrency`
+- `backend/models.py`: Shift — 13 new Phase 39 columns (actual/variance per tender, reconciled_by, closed_without_print, admin_bypass); OverrideApproval — value_impact, shift_id, unit_price; ShiftReport — closed_without_print, has_discrepancy
+- `backend/routes/shifts.py`: new `GET /<id>/reconciliation` endpoint (manager/admin) — computes expected per tender, refunds, overrides, transaction list; `POST /<id>/close` — cashier 403, reconciliation_submitted required, admin_bypass path, stores per-tender actuals + variances; `_generate_shift_report` updated to Phase 39 content JSON shape (tenders, overrides, transactions)
+- `backend/init_db.py`: 19 new column migrations for shifts, override_approvals, shift_reports
+- `frontend/src/api.js`: new `getShiftReconciliation(id)` export
+- `Reports.jsx`: renamed tab "Shift Reports" → "Shift History"; active shift banner with "Reconcile & Close Shift" button; full reconciliation modal (expected vs actual per tender, live variance, Balanced/SHORT/OVER labels, collapsible overrides table, collapsible transaction breakdown, notes); Print & Close / Close Without Printing flows; Shift History table shows Cash Var., M-Pesa Var., override count, computed status (FILED/CLOSED/DISCREPANCY/OVERDUE)
+- `utils/print.js`: new `printShiftReconciliation(report)` — A4 portrait with header, meta, overall status, Section 1 (tender reconciliation), Section 2 (override summary), Section 3 (transaction summary), signature block; reuses Phase 39 content JSON
+
+---
+
+### Phase 39 — Shift Reconciliation Gate (Mandatory Close Flow) [SPEC]
 
 **Goal:** Shift close is impossible without a full tender reconciliation. Managers reconcile in Reports; cashiers never close shifts. Admin retains checkout access and can bypass reconciliation (logged).
 
