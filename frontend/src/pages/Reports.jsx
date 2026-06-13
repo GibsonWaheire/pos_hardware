@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   getSalesReport, getTopProducts, getPaymentBreakdown,
   getReportByCashier, getReportByCategory, getInventoryReport,
@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
 import {
   printSalesReport, printCashierReport, printInventoryReport, printPurchasingReport, printReturnsReport,
+  printShiftReportDoc,
 } from '../utils/print'
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
@@ -50,13 +51,11 @@ export default function Reports() {
 
   // Shift reports tab
   const [shiftReports, setShiftReports] = useState([])
-  const [printReport, setPrintReport]   = useState(null)   // report being shown in print view
   const [fileModal, setFileModal]       = useState(null)   // report being filed
   const [signedNote, setSignedNote]     = useState('')
   const [filing, setFiling]             = useState(false)
   const [srFilter, setSrFilter]         = useState('all') // all | pending | filed
 
-  const printRef = useRef(null)
 
   useEffect(() => { load() }, [tab])
   // Auto-correct tab to first accessible one on mount (TABS accessible via closure at call time)
@@ -108,10 +107,8 @@ export default function Reports() {
     try {
       const r = await printShiftReport(report.id)
       const updated = r.data
-      setPrintReport(updated)
       setShiftReports(prev => prev.map(x => x.id === updated.id ? updated : x))
-      // Slight delay so the DOM updates before print dialog
-      setTimeout(() => window.print(), 150)
+      printShiftReportDoc(updated)
     } catch (e) {
       alert('Print error: ' + e.message)
     }
@@ -160,8 +157,6 @@ export default function Reports() {
 
   return (
     <>
-      {/* ── Print view (hidden on screen, shown on print) ── */}
-      {printReport && <PrintPage report={printReport} ref={printRef} />}
 
       <div className="no-print" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
         <div className="page-header">
@@ -715,215 +710,6 @@ export default function Reports() {
     </>
   )
 }
-
-// ── Print page component ───────────────────────────────────────────────────────
-
-function PrintPage({ report }) {
-  const { fmt: kes } = useCurrency()
-  const c       = report.content || {}
-  const store   = c.store   || {}
-  const shift   = c.shift   || {}
-  const summary = c.summary || {}
-  const overrides = c.overrides || {}
-  const itemOverrides = c.item_overrides || {}
-  const isReprint = report.print_count > 1
-
-  return (
-    <div className="print-page">
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          .print-page, .print-page * { visibility: visible; }
-          .print-page {
-            position: absolute;
-            left: 0; top: 0;
-            width: 210mm;
-            min-height: 297mm;
-            padding: 20mm;
-            background: white;
-            color: black;
-            font-family: 'Times New Roman', serif;
-            font-size: 11pt;
-            line-height: 1.5;
-          }
-          @page {
-            size: A4;
-            margin: 0;
-          }
-        }
-      `}</style>
-
-      {/* Store header */}
-      <div style={{ borderBottom: '2px solid black', paddingBottom: 12, marginBottom: 16 }}>
-        <div style={{ fontSize: 18, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-          {store.name || 'Store'}
-        </div>
-        {store.address && <div style={{ fontSize: 10, marginTop: 2 }}>{store.address}</div>}
-        <div style={{ fontSize: 10, marginTop: 2 }}>
-          {[store.phone, store.email].filter(Boolean).join(' | ')}
-          {store.tax_number && ` | PIN: ${store.tax_number}`}
-        </div>
-      </div>
-
-      {/* Report title */}
-      <div style={{ textAlign: 'center', marginBottom: 16 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-          Shift Daily Report
-        </div>
-        <div style={{ fontSize: 10, marginTop: 4, color: '#555' }}>
-          {report.report_number} &nbsp;|&nbsp; Generated: {fmtDate(report.created_at)}
-        </div>
-        {isReprint && (
-          <div style={{
-            marginTop: 8, padding: '4px 12px', border: '2px solid #dc2626',
-            display: 'inline-block', color: '#dc2626', fontWeight: 700, fontSize: 11,
-            letterSpacing: 1, textTransform: 'uppercase',
-          }}>
-            REPRINT — COPY {report.print_count}
-          </div>
-        )}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
-        {/* Shift details */}
-        <PSection title="Shift Details">
-          <PRow label="Cashier"     value={shift.cashier_name || '—'} />
-          <PRow label="Opened"      value={fmtDate(shift.opened_at)} />
-          <PRow label="Closed"      value={fmtDate(shift.closed_at)} />
-        </PSection>
-
-        {/* Cash reconciliation */}
-        <PSection title="Cash Reconciliation">
-          <PRow label="Opening Float"  value={kes(shift.opening_float)} />
-          <PRow label="Cash Sales"     value={kes(summary.cash_sales)} />
-          <PRow label="Expected Cash"  value={kes(shift.expected_cash)} bold />
-          <PRow label="Closing Count"  value={kes(shift.closing_float)} bold />
-          <PRow
-            label="Variance"
-            value={kes(shift.variance)}
-            color={shift.variance < 0 ? '#dc2626' : shift.variance > 0 ? '#16a34a' : undefined}
-            bold
-          />
-        </PSection>
-      </div>
-
-      {/* Sales summary */}
-      <PSection title="Sales Summary" style={{ marginBottom: 12 }}>
-        <PRow label="Total Transactions" value={summary.transaction_count ?? 0} />
-        <PRow label="Total Revenue"      value={kes(summary.total_revenue)} bold />
-        <PRow label="Cash"               value={kes(summary.cash_sales)} />
-        <PRow label="Card / EFTPOS"      value={kes(summary.card_sales)} />
-        <PRow label="M-Pesa"             value={kes(summary.mpesa_sales)} />
-        <PRow label="Split Payment"      value={kes(summary.split_sales)} />
-        <PRow label="Total Tax (VAT)"    value={kes(summary.total_tax)} />
-        <PRow label="Total Discounts"    value={kes(summary.total_discounts)} />
-      </PSection>
-
-      {/* Overrides & exceptions */}
-      <PSection title="Overrides & Exceptions" style={{ marginBottom: 12 }}>
-        <PRow label="Voided Transactions"    value={overrides.void_count ?? 0} />
-        <PRow label="Voided Amount"          value={kes(overrides.void_amount)} color={overrides.void_count > 0 ? '#dc2626' : undefined} />
-        <PRow label="No-Sale Events"         value={overrides.no_sale_count ?? 0} />
-        <PRow label="Item Override Events"   value={itemOverrides.count ?? 0} color={(itemOverrides.count ?? 0) > 0 ? '#dc2626' : undefined} />
-      </PSection>
-
-      {/* Item override detail table */}
-      {(itemOverrides.details || []).length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ background: '#dc2626', color: '#fff', padding: '5px 10px', fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Item Override Log — Manager Authorization Required Events
-            </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9 }}>
-              <thead>
-                <tr style={{ background: '#fecaca' }}>
-                  <th style={thS}>Time</th>
-                  <th style={thS}>Action</th>
-                  <th style={thS}>Item</th>
-                  <th style={thS}>Qty Before</th>
-                  <th style={thS}>Qty After</th>
-                  <th style={thS}>Authorized By</th>
-                  <th style={thS}>Method</th>
-                  <th style={thS}>Sale #</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(itemOverrides.details || []).map((oa, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #fca5a5', background: i % 2 === 0 ? '#fff' : '#fff7f7' }}>
-                    <td style={tdS}>{oa.created_at ? new Date(oa.created_at).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                    <td style={{ ...tdS, fontWeight: 600, color: '#dc2626' }}>{oa.action === 'REMOVE_COMMITTED_ITEM' ? 'REMOVE' : 'ADJUST QTY'}</td>
-                    <td style={tdS}>{oa.item_name}</td>
-                    <td style={{ ...tdS, textAlign: 'right' }}>{oa.original_qty}</td>
-                    <td style={{ ...tdS, textAlign: 'right' }}>{oa.action === 'REMOVE_COMMITTED_ITEM' ? '—' : oa.new_qty}</td>
-                    <td style={tdS}>{oa.manager_name} ({oa.manager_role})</td>
-                    <td style={tdS}>{oa.auth_method}</td>
-                    <td style={tdS}>{oa.sale_id ? `#${oa.sale_id}` : 'cancelled'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Notes */}
-      {shift.notes && (
-        <div style={{ marginBottom: 16, fontSize: 10, border: '1px solid #ccc', padding: '8px 12px', borderRadius: 4 }}>
-          <strong>Shift Notes:</strong> {shift.notes}
-        </div>
-      )}
-
-      {/* Signatures */}
-      <div style={{ borderTop: '1px solid black', paddingTop: 16, marginTop: 8 }}>
-        <div style={{ fontWeight: 700, marginBottom: 20, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          Signatures
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40 }}>
-          <div>
-            <div style={{ borderBottom: '1px solid black', marginBottom: 4, height: 32 }} />
-            <div style={{ fontSize: 10 }}>Cashier: {shift.cashier_name || '________________'}</div>
-            <div style={{ fontSize: 10, marginTop: 4 }}>Date: ________________________</div>
-          </div>
-          <div>
-            <div style={{ borderBottom: '1px solid black', marginBottom: 4, height: 32 }} />
-            <div style={{ fontSize: 10 }}>Manager: ________________________</div>
-            <div style={{ fontSize: 10, marginTop: 4 }}>Date: ________________________</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div style={{ marginTop: 20, fontSize: 9, color: '#666', textAlign: 'center', borderTop: '1px solid #ccc', paddingTop: 8 }}>
-        Generated by POS System &nbsp;|&nbsp; {report.generated_by_name} &nbsp;|&nbsp; {fmtDate(report.created_at)}
-        {report.filed_by_name && ` | Filed by ${report.filed_by_name} on ${fmtDate(report.filed_at)}`}
-      </div>
-    </div>
-  )
-}
-
-const thS = { padding: '4px 6px', textAlign: 'left', fontWeight: 700, borderBottom: '1px solid #fca5a5' }
-const tdS = { padding: '3px 6px', verticalAlign: 'top' }
-
-function PSection({ title, children, style }) {
-  return (
-    <div style={{ border: '1px solid #ddd', borderRadius: 4, overflow: 'hidden', marginBottom: 8, ...style }}>
-      <div style={{ background: '#f0f0f0', padding: '5px 10px', fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-        {title}
-      </div>
-      <div style={{ padding: '6px 10px' }}>{children}</div>
-    </div>
-  )
-}
-
-function PRow({ label, value, bold, color }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', borderBottom: '1px dotted #eee', fontSize: 10 }}>
-      <span style={{ color: '#444' }}>{label}</span>
-      <span style={{ fontWeight: bold ? 700 : 400, color: color || '#111' }}>{value}</span>
-    </div>
-  )
-}
-
 function StatusBadge({ status, printCount }) {
   const styles = {
     GENERATED: { background: '#fef3c7', color: '#92400e' },

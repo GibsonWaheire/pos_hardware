@@ -29,7 +29,7 @@ export default function POS() {
 
   useEffect(() => {
     if (!user) return
-    if (user.role !== 'cashier') { setShiftStatus('open'); return }
+    if (user.role === 'admin') { setShiftStatus('open'); return }  // admin bypasses shift gate
     if (SHIFT_KEY && sessionStorage.getItem(SHIFT_KEY)) { setShiftStatus('open'); return }
     checkShift()
   }, [user]) // eslint-disable-line

@@ -1143,3 +1143,392 @@ export function printSaleReceipt(sale, store = {}) {
     </div>
   </body></html>`)
 }
+
+// ── Shift Report PDF ─────────────────────────────────────────────────────────
+export function printShiftReportDoc(report) {
+  const c    = report.content || {}
+  const store   = c.store   || {}
+  const shift   = c.shift   || {}
+  const summary = c.summary || {}
+  const ov      = c.overrides     || {}
+  const iov     = c.item_overrides || {}
+  const salesLog   = c.sales_log    || []
+  const invLog     = c.inventory_log || []
+  const accLog     = c.account_log  || []
+  const loyaltyLog = c.loyalty_log  || []
+
+  const kes  = (n) => `KES ${Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const t    = (s) => s ? new Date(s).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' }) : '—'
+  const dt   = (s) => s ? new Date(s).toLocaleString('en-KE', { dateStyle: 'short', timeStyle: 'short' }) : '—'
+  const esc  = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  const isReprint = report.print_count > 1
+
+  const CSS = `
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Times New Roman', serif; font-size: 10pt; color: #111; background: #fff; }
+    @page { size: A4; margin: 18mm 16mm; }
+    @media print { body { font-size: 9.5pt; } }
+
+    .hdr { border-bottom: 2.5pt solid #111; padding-bottom: 10pt; margin-bottom: 12pt; display: flex; justify-content: space-between; align-items: flex-start; }
+    .store-name { font-size: 16pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1pt; }
+    .store-sub  { font-size: 8.5pt; color: #444; margin-top: 2pt; }
+    .rpt-title  { text-align: right; }
+    .rpt-title h2 { font-size: 13pt; text-transform: uppercase; letter-spacing: 1pt; }
+    .rpt-title .sub { font-size: 8.5pt; color: #555; margin-top: 2pt; }
+    .reprint { display: inline-block; border: 2pt solid #cc0000; color: #cc0000; font-weight: 700;
+               font-size: 9pt; padding: 2pt 10pt; text-transform: uppercase; letter-spacing: 1pt; margin-top: 6pt; }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; margin-bottom: 10pt; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10pt; margin-bottom: 10pt; }
+    .box { border: 1pt solid #ccc; border-radius: 3pt; overflow: hidden; }
+    .box-title { background: #e8e8e8; padding: 4pt 8pt; font-weight: 700; font-size: 8.5pt;
+                 text-transform: uppercase; letter-spacing: 0.5pt; border-bottom: 1pt solid #ccc; }
+    .box-body { padding: 6pt 8pt; }
+    .kv { display: flex; justify-content: space-between; padding: 1.5pt 0; font-size: 9.5pt; border-bottom: 0.5pt dotted #ddd; }
+    .kv:last-child { border-bottom: none; }
+    .kv .lbl { color: #444; }
+    .kv .val { font-weight: 500; text-align: right; }
+    .kv.bold .val { font-weight: 700; }
+    .kv.red  .val { color: #cc0000; }
+    .kv.grn  .val { color: #007700; }
+
+    section { margin-bottom: 12pt; }
+    section h3 { font-size: 9.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5pt;
+                 background: #222; color: #fff; padding: 3pt 8pt; margin-bottom: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+    thead tr { background: #e8e8e8; }
+    th { padding: 3pt 5pt; text-align: left; font-weight: 700; border-bottom: 1pt solid #bbb; white-space: nowrap; }
+    td { padding: 2.5pt 5pt; border-bottom: 0.5pt solid #e0e0e0; vertical-align: top; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+    .right { text-align: right; }
+    .center { text-align: center; }
+    .mono { font-family: 'Courier New', monospace; }
+    .red-hdr h3 { background: #a00; }
+    .amber-hdr h3 { background: #7a5c00; }
+    .green-hdr h3 { background: #005f00; }
+    .blue-hdr h3 { background: #003080; }
+
+    .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8pt; margin-bottom: 10pt; }
+    .stat-box { border: 1pt solid #ccc; border-radius: 3pt; padding: 6pt 8pt; text-align: center; }
+    .stat-box .lbl { font-size: 7.5pt; color: #555; text-transform: uppercase; letter-spacing: 0.4pt; }
+    .stat-box .val { font-size: 14pt; font-weight: 700; margin-top: 2pt; }
+
+    .sig { border-top: 1.5pt solid #111; padding-top: 14pt; margin-top: 14pt; }
+    .sig-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 30pt; margin-top: 10pt; }
+    .sig-line { border-bottom: 1pt solid #111; height: 30pt; margin-bottom: 4pt; }
+    .sig-label { font-size: 8.5pt; }
+    .footer { margin-top: 14pt; font-size: 7.5pt; color: #666; border-top: 0.5pt solid #ccc; padding-top: 6pt; text-align: center; }
+
+    .void-row td { color: #a00; }
+    .sub-items { margin: 2pt 0 2pt 8pt; font-size: 7.5pt; color: #555; }
+    .sub-items div { display: flex; justify-content: space-between; }
+  `
+
+  // ── Sales log table rows ─────────────────────────────────────────────────
+  const txnRows = salesLog.map((s, i) => {
+    const isVoid = s.status === 'voided'
+    const subItems = (s.items || []).map(it =>
+      `<div><span>${esc(it.product_name)} ×${it.qty}</span><span>${kes(it.line_total)}</span></div>`
+    ).join('')
+    return `<tr class="${isVoid ? 'void-row' : ''}">
+      <td class="mono">${esc(s.receipt_number)}</td>
+      <td>${t(s.created_at)}</td>
+      <td>${isVoid ? '<strong>VOID</strong>' : esc(s.payment_method?.toUpperCase())}</td>
+      <td class="right">${s.items_count}</td>
+      <td class="right">${kes(s.subtotal)}</td>
+      <td class="right">${s.discount_total > 0 ? '-'+kes(s.discount_total) : '—'}</td>
+      <td class="right">${s.tax_amount > 0 ? kes(s.tax_amount) : '—'}</td>
+      <td class="right"><strong>${isVoid ? '(VOID)' : kes(s.total)}</strong></td>
+      <td>
+        ${s.mpesa_ref ? `<span class="mono">${esc(s.mpesa_ref)}</span>` : ''}
+        ${s.change_given > 0 ? `Change: ${kes(s.change_given)}` : ''}
+      </td>
+    </tr>
+    ${subItems ? `<tr><td colspan="9"><div class="sub-items">${subItems}</div></td></tr>` : ''}`
+  }).join('')
+
+  // ── Inventory log rows ───────────────────────────────────────────────────
+  const invRows = invLog.map((m, i) => {
+    const chg = m.qty_change > 0 ? `+${m.qty_change}` : String(m.qty_change)
+    const col = m.qty_change < 0 ? 'color:#a00' : m.qty_change > 0 ? 'color:#007700' : ''
+    return `<tr>
+      <td>${t(m.created_at)}</td>
+      <td>${esc(m.product_name)}</td>
+      <td>${esc(m.movement_type?.replace(/_/g,' '))}</td>
+      <td class="right">${m.qty_before}</td>
+      <td class="right mono" style="${col}"><strong>${chg}</strong></td>
+      <td class="right">${m.qty_after}</td>
+      <td class="mono">${esc(m.reference_id || '—')}</td>
+      <td>${esc(m.user_name || '—')}</td>
+      <td>${esc(m.notes || '')}</td>
+    </tr>`
+  }).join('')
+
+  // ── Account log rows ─────────────────────────────────────────────────────
+  const accRows = accLog.map((a) => {
+    const col = a.type === 'charge' ? 'color:#a00' : 'color:#007700'
+    const sign = a.type === 'charge' ? '-' : '+'
+    return `<tr>
+      <td>${t(a.created_at)}</td>
+      <td>${esc(a.type?.toUpperCase())}</td>
+      <td class="mono">${esc(a.receipt_number || '—')}</td>
+      <td class="right" style="${col}"><strong>${sign}${kes(Math.abs(a.amount))}</strong></td>
+      <td class="right">${kes(a.balance_after)}</td>
+      <td>${esc(a.payment_method || '—')}</td>
+      <td>${esc(a.cashier_name || '—')}</td>
+      <td>${esc(a.notes || '')}</td>
+    </tr>`
+  }).join('')
+
+  // ── Loyalty log rows ─────────────────────────────────────────────────────
+  const loyRows = loyaltyLog.map((l) => {
+    const col = l.type === 'earn' ? 'color:#007700' : 'color:#a00'
+    const sign = l.type === 'earn' ? '+' : '-'
+    return `<tr>
+      <td>${t(l.created_at)}</td>
+      <td>${esc(l.type?.toUpperCase())}</td>
+      <td class="right" style="${col}"><strong>${sign}${l.points} pts</strong></td>
+      <td class="right">${l.balance_after} pts</td>
+      <td>${esc(l.notes || '')}</td>
+    </tr>`
+  }).join('')
+
+  // ── Override log rows ─────────────────────────────────────────────────────
+  const ovrRows = (iov.details || []).map((oa) =>
+    `<tr>
+      <td>${t(oa.created_at)}</td>
+      <td style="color:#a00;font-weight:700">${oa.action === 'REMOVE_COMMITTED_ITEM' ? 'REMOVE' : 'ADJUST QTY'}</td>
+      <td>${esc(oa.item_name)}</td>
+      <td class="right">${oa.original_qty}</td>
+      <td class="right">${oa.action === 'REMOVE_COMMITTED_ITEM' ? '—' : oa.new_qty}</td>
+      <td>${esc(oa.manager_name)} (${esc(oa.manager_role)})</td>
+      <td>${esc(oa.auth_method)}</td>
+      <td>${oa.sale_id ? '#'+oa.sale_id : 'cancelled'}</td>
+    </tr>`
+  ).join('')
+
+  const voidRows = (ov.void_details || []).map((v) =>
+    `<tr>
+      <td>${dt(v.created_at)}</td>
+      <td class="mono">${esc(v.reference_id || '—')}</td>
+      <td class="right" style="color:#a00">${kes(v.amount)}</td>
+      <td>${esc(v.cashier_name || '—')}</td>
+      <td>${esc(v.reason || '—')}</td>
+    </tr>`
+  ).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+  <title>Shift Report ${esc(report.report_number)}</title>
+  <style>${CSS}</style></head><body>
+
+  <!-- HEADER -->
+  <div class="hdr">
+    <div>
+      <div class="store-name">${esc(store.name || 'Store')}</div>
+      ${store.address ? `<div class="store-sub">${esc(store.address)}</div>` : ''}
+      <div class="store-sub">${[store.phone, store.email].filter(Boolean).map(esc).join(' | ')}${store.tax_number ? ' | PIN: '+esc(store.tax_number) : ''}</div>
+    </div>
+    <div class="rpt-title">
+      <h2>Shift Daily Report</h2>
+      <div class="sub">${esc(report.report_number)} &nbsp;|&nbsp; Generated: ${dt(report.created_at)}</div>
+      ${isReprint ? `<div class="reprint">REPRINT — COPY ${report.print_count}</div>` : ''}
+    </div>
+  </div>
+
+  <!-- KEY METRICS -->
+  <div class="stat-grid">
+    <div class="stat-box">
+      <div class="lbl">Total Revenue</div>
+      <div class="val" style="font-size:12pt">${kes(summary.total_revenue)}</div>
+    </div>
+    <div class="stat-box">
+      <div class="lbl">Transactions</div>
+      <div class="val">${summary.transaction_count ?? 0}</div>
+    </div>
+    <div class="stat-box">
+      <div class="lbl">Cash Variance</div>
+      <div class="val" style="color:${shift.variance < 0 ? '#cc0000' : shift.variance > 0 ? '#007700' : '#111'};font-size:12pt">${kes(shift.variance)}</div>
+    </div>
+    <div class="stat-box">
+      <div class="lbl">Override Events</div>
+      <div class="val" style="color:${(iov.count||0)>0?'#cc0000':'#111'}">${iov.count ?? 0}</div>
+    </div>
+  </div>
+
+  <!-- SHIFT + CASH RECON (2-col) -->
+  <div class="grid2">
+    <div class="box">
+      <div class="box-title">Shift Details</div>
+      <div class="box-body">
+        <div class="kv"><span class="lbl">Cashier</span><span class="val">${esc(shift.cashier_name || '—')}</span></div>
+        <div class="kv"><span class="lbl">Shift ID</span><span class="val mono">#${shift.id || '—'}</span></div>
+        <div class="kv"><span class="lbl">Opened</span><span class="val">${dt(shift.opened_at)}</span></div>
+        <div class="kv"><span class="lbl">Closed</span><span class="val">${dt(shift.closed_at)}</span></div>
+        <div class="kv"><span class="lbl">Duration</span><span class="val">${(() => {
+          if (!shift.opened_at || !shift.closed_at) return '—'
+          const mins = Math.round((new Date(shift.closed_at) - new Date(shift.opened_at)) / 60000)
+          return `${Math.floor(mins/60)}h ${mins%60}m`
+        })()}</span></div>
+        ${shift.notes ? `<div class="kv"><span class="lbl">Notes</span><span class="val">${esc(shift.notes)}</span></div>` : ''}
+      </div>
+    </div>
+    <div class="box">
+      <div class="box-title">Cash Reconciliation</div>
+      <div class="box-body">
+        <div class="kv"><span class="lbl">Opening Float</span><span class="val">${kes(shift.opening_float)}</span></div>
+        <div class="kv"><span class="lbl">Cash Sales</span><span class="val">${kes(summary.cash_sales)}</span></div>
+        <div class="kv bold"><span class="lbl">Expected in Drawer</span><span class="val">${kes(shift.expected_cash)}</span></div>
+        <div class="kv bold"><span class="lbl">Actual Count</span><span class="val">${kes(shift.closing_float)}</span></div>
+        <div class="kv bold ${shift.variance < 0 ? 'red' : shift.variance > 0 ? 'grn' : ''}">
+          <span class="lbl">Variance ${shift.variance < 0 ? '(SHORT)' : shift.variance > 0 ? '(OVER)' : '(BALANCED)'}</span>
+          <span class="val">${kes(shift.variance)}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAYMENT BREAKDOWN (3-col) -->
+  <div class="grid3">
+    <div class="box">
+      <div class="box-title">Payment Breakdown</div>
+      <div class="box-body">
+        <div class="kv bold"><span class="lbl">Total Revenue</span><span class="val">${kes(summary.total_revenue)}</span></div>
+        <div class="kv"><span class="lbl">Cash</span><span class="val">${kes(summary.cash_sales)}</span></div>
+        <div class="kv"><span class="lbl">Card / EFTPOS</span><span class="val">${kes(summary.card_sales)}</span></div>
+        <div class="kv"><span class="lbl">M-Pesa</span><span class="val">${kes(summary.mpesa_sales)}</span></div>
+        <div class="kv"><span class="lbl">Split</span><span class="val">${kes(summary.split_sales)}</span></div>
+        <div class="kv"><span class="lbl">Account</span><span class="val">${kes(summary.account_sales)}</span></div>
+      </div>
+    </div>
+    <div class="box">
+      <div class="box-title">Tax & Discounts</div>
+      <div class="box-body">
+        <div class="kv"><span class="lbl">Gross Sales</span><span class="val">${kes((summary.total_revenue||0) + (summary.total_discounts||0))}</span></div>
+        <div class="kv"><span class="lbl">Discounts Given</span><span class="val" style="color:#a00">-${kes(summary.total_discounts)}</span></div>
+        <div class="kv bold"><span class="lbl">Net Revenue</span><span class="val">${kes(summary.total_revenue)}</span></div>
+        <div class="kv"><span class="lbl">VAT Collected</span><span class="val">${kes(summary.total_tax)}</span></div>
+      </div>
+    </div>
+    <div class="box">
+      <div class="box-title">Exceptions Summary</div>
+      <div class="box-body">
+        <div class="kv ${ov.void_count > 0 ? 'red' : ''}"><span class="lbl">Voided Sales</span><span class="val">${ov.void_count ?? 0}</span></div>
+        <div class="kv ${ov.void_count > 0 ? 'red' : ''}"><span class="lbl">Voided Amount</span><span class="val">${kes(ov.void_amount)}</span></div>
+        <div class="kv"><span class="lbl">No-Sale Events</span><span class="val">${ov.no_sale_count ?? 0}</span></div>
+        <div class="kv ${(iov.count||0) > 0 ? 'red' : ''}"><span class="lbl">Item Overrides</span><span class="val">${iov.count ?? 0}</span></div>
+        <div class="kv"><span class="lbl">Loyalty Txns</span><span class="val">${loyaltyLog.length}</span></div>
+        <div class="kv"><span class="lbl">Account Txns</span><span class="val">${accLog.length}</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRANSACTION LOG -->
+  <section>
+    <h3>Transaction Log (${salesLog.length} transactions)</h3>
+    ${salesLog.length === 0 ? '<p style="padding:8pt;color:#666">No transactions this shift.</p>' : `
+    <table>
+      <thead><tr>
+        <th>Receipt #</th><th>Time</th><th>Method</th><th class="right">Items</th>
+        <th class="right">Subtotal</th><th class="right">Discount</th><th class="right">VAT</th>
+        <th class="right">Total</th><th>Ref / Change</th>
+      </tr></thead>
+      <tbody>${txnRows}</tbody>
+    </table>`}
+  </section>
+
+  ${ovrRows ? `
+  <!-- ITEM OVERRIDE LOG -->
+  <section class="red-hdr">
+    <h3>Item Override Log — Manager Authorization Required (${iov.count ?? 0} events)</h3>
+    <table>
+      <thead><tr>
+        <th>Time</th><th>Action</th><th>Item</th><th class="right">Qty Before</th>
+        <th class="right">Qty After</th><th>Authorized By</th><th>Method</th><th>Sale #</th>
+      </tr></thead>
+      <tbody>${ovrRows}</tbody>
+    </table>
+  </section>` : ''}
+
+  ${voidRows ? `
+  <!-- VOIDED SALES LOG -->
+  <section class="red-hdr">
+    <h3>Voided Sales (${ov.void_count ?? 0})</h3>
+    <table>
+      <thead><tr>
+        <th>Time</th><th>Receipt #</th><th class="right">Amount</th><th>Cashier</th><th>Reason</th>
+      </tr></thead>
+      <tbody>${voidRows}</tbody>
+    </table>
+  </section>` : ''}
+
+  ${invRows ? `
+  <!-- INVENTORY MOVEMENT LOG -->
+  <section class="amber-hdr">
+    <h3>Inventory Movement Log (${invLog.length} movements)</h3>
+    <table>
+      <thead><tr>
+        <th>Time</th><th>Product</th><th>Type</th><th class="right">Before</th>
+        <th class="right">Change</th><th class="right">After</th><th>Reference</th><th>User</th><th>Notes</th>
+      </tr></thead>
+      <tbody>${invRows}</tbody>
+    </table>
+  </section>` : ''}
+
+  ${accRows ? `
+  <!-- ACCOUNT / CREDIT LOG -->
+  <section class="blue-hdr">
+    <h3>Customer Account Transactions (${accLog.length})</h3>
+    <table>
+      <thead><tr>
+        <th>Time</th><th>Type</th><th>Receipt</th><th class="right">Amount</th>
+        <th class="right">Balance After</th><th>Method</th><th>Cashier</th><th>Notes</th>
+      </tr></thead>
+      <tbody>${accRows}</tbody>
+    </table>
+  </section>` : ''}
+
+  ${loyRows ? `
+  <!-- LOYALTY ACTIVITY -->
+  <section class="green-hdr">
+    <h3>Loyalty Programme Activity (${loyaltyLog.length} transactions)</h3>
+    <table>
+      <thead><tr>
+        <th>Time</th><th>Type</th><th class="right">Points</th><th class="right">Balance After</th><th>Notes</th>
+      </tr></thead>
+      <tbody>${loyRows}</tbody>
+    </table>
+  </section>` : ''}
+
+  <!-- SIGNATURES -->
+  <div class="sig">
+    <div style="font-weight:700;font-size:9pt;text-transform:uppercase;letter-spacing:0.5pt">Acknowledgement &amp; Signatures</div>
+    <div class="sig-grid">
+      <div>
+        <div class="sig-line"></div>
+        <div class="sig-label">Cashier: <strong>${esc(shift.cashier_name || '______________________')}</strong></div>
+        <div class="sig-label" style="margin-top:3pt">Date: ____________________</div>
+      </div>
+      <div>
+        <div class="sig-line"></div>
+        <div class="sig-label">Supervisor / Manager: ____________________</div>
+        <div class="sig-label" style="margin-top:3pt">Date: ____________________</div>
+      </div>
+      <div>
+        <div class="sig-line"></div>
+        <div class="sig-label">Accountant / Finance: ____________________</div>
+        <div class="sig-label" style="margin-top:3pt">Date: ____________________</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    ${esc(report.report_number)} &nbsp;|&nbsp; Generated by POS System &nbsp;|&nbsp; ${esc(report.generated_by_name || '')} &nbsp;|&nbsp; ${dt(report.created_at)}
+    ${report.filed_by_name ? ` &nbsp;|&nbsp; Filed by ${esc(report.filed_by_name)} on ${dt(report.filed_at)}` : ''}
+    &nbsp;|&nbsp; This is an official document. Alterations are prohibited.
+  </div>
+
+  </body></html>`
+
+  printDoc(`Shift Report ${report.report_number}`, html)
+}
