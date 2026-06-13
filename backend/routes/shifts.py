@@ -115,7 +115,7 @@ def close_shift(shift_id):
 
 def _generate_shift_report(shift, user):
     """Build a ShiftReport for a just-closed shift. Call after shift.closed_at is set."""
-    from models import ShiftReport, Store, VoidLog
+    from models import ShiftReport, Store, VoidLog, OverrideApproval
     import json
 
     store = Store.query.first()
@@ -133,6 +133,15 @@ def _generate_shift_report(shift, user):
     ).all()
     void_list    = [v for v in voids if v.type == 'void_sale']
     no_sale_list = [v for v in voids if v.type == 'no_sale']
+
+    # Manager override approvals during this shift (for this cashier)
+    override_query = OverrideApproval.query.filter(
+        OverrideApproval.created_at >= shift.opened_at,
+        OverrideApproval.created_at <= shift.closed_at,
+    )
+    if shift.cashier_id:
+        override_query = override_query.filter_by(cashier_id=shift.cashier_id)
+    override_approvals = override_query.order_by(OverrideApproval.created_at).all()
 
     content = {
         'store': store.to_dict() if store else {},
@@ -152,6 +161,25 @@ def _generate_shift_report(shift, user):
             'void_amount': round(sum(v.amount or 0 for v in void_list), 2),
             'void_details': [v.to_dict() for v in void_list],
             'no_sale_count': len(no_sale_list),
+        },
+        'item_overrides': {
+            'count': len(override_approvals),
+            'details': [
+                {
+                    'id':           oa.id,
+                    'action':       oa.action,
+                    'item_name':    oa.item_name,
+                    'original_qty': oa.original_qty,
+                    'new_qty':      oa.new_qty,
+                    'manager_name': oa.manager_name,
+                    'manager_role': oa.manager_role,
+                    'auth_method':  oa.auth_method,
+                    'cashier_name': oa.cashier_name,
+                    'sale_id':      oa.sale_id,
+                    'created_at':   oa.created_at.isoformat() if oa.created_at else None,
+                }
+                for oa in override_approvals
+            ],
         },
     }
 

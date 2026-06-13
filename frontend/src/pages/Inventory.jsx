@@ -73,8 +73,8 @@ export default function Inventory() {
       const results = await Promise.all(calls)
       setOverview(results[0].data)
       const sorted = [...results[1].data].sort((a, b) => {
-        const aOut = a.stock_qty === 0, bOut = b.stock_qty === 0
-        if (aOut !== bOut) return aOut ? 1 : -1
+        const aAlert = a.stock_qty <= 0, bAlert = b.stock_qty <= 0
+        if (aAlert !== bAlert) return aAlert ? -1 : 1
         if (a.updated_at && b.updated_at) return new Date(b.updated_at) - new Date(a.updated_at)
         return 0
       })
@@ -239,9 +239,13 @@ export default function Inventory() {
                       <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: 12 }}>{p.barcode || '—'}</td>
                       <td style={{ color: 'var(--text-muted)' }}>{p.category_name || '—'}</td>
                       {!isPurchasing && <td>{fmt(p.price)}</td>}
-                      <td style={{ fontWeight: 600 }}>{p.stock_qty}</td>
+                      <td style={{ fontWeight: 600, color: p.stock_qty < 0 ? 'var(--danger)' : undefined }}>
+                        {p.stock_qty}
+                      </td>
                       <td>
-                        {p.stock_qty === 0
+                        {p.stock_qty < 0
+                          ? <span className="badge badge-red">Pending recount</span>
+                          : p.stock_qty === 0
                           ? <span className="badge badge-red">Out of stock</span>
                           : p.stock_qty <= p.low_stock_threshold
                           ? <span className="badge badge-yellow">Low stock</span>

@@ -725,6 +725,7 @@ function PrintPage({ report }) {
   const shift   = c.shift   || {}
   const summary = c.summary || {}
   const overrides = c.overrides || {}
+  const itemOverrides = c.item_overrides || {}
   const isReprint = report.print_count > 1
 
   return (
@@ -819,11 +820,51 @@ function PrintPage({ report }) {
       </PSection>
 
       {/* Overrides & exceptions */}
-      <PSection title="Overrides & Exceptions" style={{ marginBottom: 16 }}>
-        <PRow label="Voided Transactions" value={overrides.void_count ?? 0} />
-        <PRow label="Voided Amount"       value={kes(overrides.void_amount)} color={overrides.void_count > 0 ? '#dc2626' : undefined} />
-        <PRow label="No-Sale Events"      value={overrides.no_sale_count ?? 0} />
+      <PSection title="Overrides & Exceptions" style={{ marginBottom: 12 }}>
+        <PRow label="Voided Transactions"    value={overrides.void_count ?? 0} />
+        <PRow label="Voided Amount"          value={kes(overrides.void_amount)} color={overrides.void_count > 0 ? '#dc2626' : undefined} />
+        <PRow label="No-Sale Events"         value={overrides.no_sale_count ?? 0} />
+        <PRow label="Item Override Events"   value={itemOverrides.count ?? 0} color={(itemOverrides.count ?? 0) > 0 ? '#dc2626' : undefined} />
       </PSection>
+
+      {/* Item override detail table */}
+      {(itemOverrides.details || []).length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ background: '#dc2626', color: '#fff', padding: '5px 10px', fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Item Override Log — Manager Authorization Required Events
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9 }}>
+              <thead>
+                <tr style={{ background: '#fecaca' }}>
+                  <th style={thS}>Time</th>
+                  <th style={thS}>Action</th>
+                  <th style={thS}>Item</th>
+                  <th style={thS}>Qty Before</th>
+                  <th style={thS}>Qty After</th>
+                  <th style={thS}>Authorized By</th>
+                  <th style={thS}>Method</th>
+                  <th style={thS}>Sale #</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(itemOverrides.details || []).map((oa, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #fca5a5', background: i % 2 === 0 ? '#fff' : '#fff7f7' }}>
+                    <td style={tdS}>{oa.created_at ? new Date(oa.created_at).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                    <td style={{ ...tdS, fontWeight: 600, color: '#dc2626' }}>{oa.action === 'REMOVE_COMMITTED_ITEM' ? 'REMOVE' : 'ADJUST QTY'}</td>
+                    <td style={tdS}>{oa.item_name}</td>
+                    <td style={{ ...tdS, textAlign: 'right' }}>{oa.original_qty}</td>
+                    <td style={{ ...tdS, textAlign: 'right' }}>{oa.action === 'REMOVE_COMMITTED_ITEM' ? '—' : oa.new_qty}</td>
+                    <td style={tdS}>{oa.manager_name} ({oa.manager_role})</td>
+                    <td style={tdS}>{oa.auth_method}</td>
+                    <td style={tdS}>{oa.sale_id ? `#${oa.sale_id}` : 'cancelled'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Notes */}
       {shift.notes && (
@@ -859,6 +900,9 @@ function PrintPage({ report }) {
     </div>
   )
 }
+
+const thS = { padding: '4px 6px', textAlign: 'left', fontWeight: 700, borderBottom: '1px solid #fca5a5' }
+const tdS = { padding: '3px 6px', verticalAlign: 'top' }
 
 function PSection({ title, children, style }) {
   return (

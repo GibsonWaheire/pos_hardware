@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from db import db
-from models import Sale, SaleItem, Product, OfflineQueue, CustomerAccount, AccountTransaction
+from models import Sale, SaleItem, Product, OfflineQueue, CustomerAccount, AccountTransaction, OverrideApproval
 from auth_utils import get_current_user
 from datetime import datetime, date
 from hardware.printer import print_receipt
@@ -69,8 +69,8 @@ def create_sale():
             if product:
                 product_name = product.name
                 tax_rate = product.tax_rate
-                # Deduct stock
-                product.stock_qty = max(0, product.stock_qty - qty)
+                # Deduct stock — allow negative (pending recount for purchaser to resolve)
+                product.stock_qty -= qty
 
         line_pre_tax = (unit_price - discount) * qty
         line_tax = line_pre_tax * tax_rate
@@ -91,6 +91,21 @@ def create_sale():
         tax_amount += line_tax
 
     total = round(subtotal - discount_total + tax_amount, 2)
+
+    # Anti-theft: validate override approval IDs supplied by the frontend
+    override_ids = data.get('override_approval_ids') or []
+    validated_approvals = []
+    for oid in override_ids:
+        try:
+            oid = int(oid)
+        except (TypeError, ValueError):
+            return jsonify({'error': f'Invalid override_approval_id: {oid}'}), 400
+        approval = OverrideApproval.query.get(oid)
+        if not approval:
+            return jsonify({'error': f'Override approval {oid} not found'}), 400
+        if approval.used_at is not None:
+            return jsonify({'error': f'Override approval {oid} has already been used'}), 400
+        validated_approvals.append(approval)
 
     # Phase 7 — customer account payment
     account = None
@@ -154,6 +169,11 @@ def create_sale():
             notes=f'Sale charged to account',
         )
         db.session.add(txn)
+
+    # Mark override approvals as used and link to this sale
+    for approval in validated_approvals:
+        approval.used_at = datetime.utcnow()
+        approval.sale_id = sale.id
 
     db.session.commit()
 

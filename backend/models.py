@@ -35,6 +35,7 @@ class Product(db.Model):
     min_age = db.Column(db.Integer, default=18)
     stock_qty = db.Column(db.Integer, default=0)
     low_stock_threshold = db.Column(db.Integer, default=5)
+    image_url = db.Column(db.String(500), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -59,6 +60,7 @@ class Product(db.Model):
             'age_restricted': self.age_restricted,
             'age_restriction_type': self.age_restriction_type, 'min_age': self.min_age,
             'stock_qty': self.stock_qty, 'low_stock_threshold': self.low_stock_threshold,
+            'image_url': self.image_url,
             'category_id': self.category_id,
             'category_name': self.category_obj.name if self.category_obj else None,
             'is_active': self.is_active,
@@ -68,6 +70,21 @@ class Product(db.Model):
             'updated_by_role': self.updated_by_role,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def to_dict_cashier(self):
+        """Cashier-safe product dict — omits all stock/inventory fields."""
+        return {
+            'id': self.id, 'name': self.name, 'barcode': self.barcode,
+            'plu_code': self.plu_code, 'price': self.price,
+            'tax_class': self.tax_class, 'tax_rate': self.tax_rate,
+            'is_weight_based': self.is_weight_based, 'weight_unit': self.weight_unit,
+            'age_restricted': self.age_restricted,
+            'age_restriction_type': self.age_restriction_type, 'min_age': self.min_age,
+            'image_url': self.image_url,
+            'category_id': self.category_id,
+            'category_name': self.category_obj.name if self.category_obj else None,
+            'is_active': self.is_active,
         }
 
 
@@ -101,6 +118,34 @@ class Staff(db.Model):
 
 
 # ── Audit Log ─────────────────────────────────────────────────────────────────
+
+class OverrideApproval(db.Model):
+    """Server-side record of every manager-authorised modification to a locked bill item."""
+    __tablename__ = 'override_approvals'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    cashier_id    = db.Column(db.Integer, nullable=True)
+    cashier_name  = db.Column(db.String(100))
+    manager_id    = db.Column(db.Integer, nullable=True)
+    manager_name  = db.Column(db.String(100))
+    manager_role  = db.Column(db.String(20))
+    auth_method   = db.Column(db.String(20))   # card | pin
+    action        = db.Column(db.String(50))   # ADJUST_QTY | REMOVE_COMMITTED_ITEM
+    item_name     = db.Column(db.String(200))
+    original_qty  = db.Column(db.Integer)
+    new_qty       = db.Column(db.Integer, nullable=True)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    used_at       = db.Column(db.DateTime, nullable=True)
+    sale_id       = db.Column(db.Integer, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'manager_name': self.manager_name,
+            'action': self.action, 'item_name': self.item_name,
+            'original_qty': self.original_qty, 'new_qty': self.new_qty,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
 
 class AuditLog(db.Model):
     __tablename__ = 'audit_logs'

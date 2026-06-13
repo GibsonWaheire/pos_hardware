@@ -150,6 +150,20 @@ export const cancelPaymentIntent = (payment_intent_id) => withLocal(
   () => local.lsStub({})
 )
 
+// ── M-Pesa (Daraja STK Push) ──────────────────────────────────────────────────
+
+export const mpesaStkPush = (phone, amount, reference) =>
+  api.post('/payments/mpesa/stk-push', { phone, amount, reference })
+
+export const mpesaStkStatus = (checkout_request_id) =>
+  api.post('/payments/mpesa/stk-status', { checkout_request_id })
+
+export const requestOverrideApproval = (data) =>
+  api.post('/overrides/approve', data)
+
+export const getOverrides = (params) =>
+  api.get('/overrides', { params })
+
 // ── Suppliers ─────────────────────────────────────────────────────────────────
 
 export const getSuppliers = (params) => withLocal(

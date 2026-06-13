@@ -30,12 +30,12 @@ import Login from './pages/Login'
 // ── Nav items and their allowed roles ────────────────────────────────────────
 
 const NAV = [
-  // Cashier
+  // Cashier — only sees Checkout
   { to: '/',                label: 'Checkout',  icon: '🛒', end: true,  roles: ['cashier','manager','admin'] },
-  { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['cashier','manager','admin'] },
-  { to: '/customers',       label: 'Customers', icon: '👤',             roles: ['cashier','manager','admin'] },
-  // Manager / Admin only
+  // Manager / Admin
   { to: '/dashboard',       label: 'Dashboard', icon: '📊',             roles: ['manager','admin'] },
+  { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['manager','admin'] },
+  { to: '/customers',       label: 'Customers', icon: '👤',             roles: ['manager','admin'] },
   { to: '/returns',         label: 'Returns',   icon: '↩️',             roles: ['manager','admin'] },
   { to: '/shifts',          label: 'Shifts',    icon: '⏱️',             roles: ['manager','admin'] },
   { to: '/accounts',        label: 'Accounts',  icon: '🏦',             roles: ['manager','admin'] },
@@ -43,17 +43,16 @@ const NAV = [
   { to: '/terminals',       label: 'Terminals', icon: '🖥️',             roles: ['manager','admin'] },
   { to: '/reports',         label: 'Reports',   icon: '📈',             roles: ['manager','admin'] },
   { to: '/settings',        label: 'Settings',  icon: '⚙️',             roles: ['manager','admin'] },
-  // Inventory department
+  { to: '/services',        label: 'Services',  icon: '🔧',             roles: ['manager','admin'] },
+  { to: '/appointments',    label: 'Appointments', icon: '📅',          roles: ['manager','admin'] },
+  // Inventory
   { to: '/products',        label: 'Products',  icon: '📦',             roles: ['inventory','manager','admin'] },
   { to: '/inventory',       label: 'Inventory', icon: '🗂️',            roles: ['inventory','manager','admin'] },
   { to: '/reports',         label: 'Reports',   icon: '📈',             roles: ['inventory'] },
-  // Purchasing department
+  // Purchasing
   { to: '/inventory',       label: 'Stock',     icon: '🗂️',            roles: ['purchasing'] },
   { to: '/suppliers',       label: 'Suppliers', icon: '🚚',             roles: ['purchasing','manager','admin'] },
   { to: '/purchase-orders', label: 'Orders',    icon: '📋',             roles: ['supplier','purchasing','manager','admin'] },
-  // Services
-  { to: '/services',        label: 'Services',      icon: '🔧',         roles: ['manager','admin'] },
-  { to: '/appointments',    label: 'Appointments',  icon: '📅',         roles: ['cashier','manager','admin'] },
   // Admin
   { to: '/cloud-sync',      label: 'Cloud',     icon: '☁️',             roles: ['admin'] },
 ]

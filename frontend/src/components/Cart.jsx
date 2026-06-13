@@ -12,11 +12,10 @@ function QtyCell({ item, itemId, onUpdateQty }) {
 
   function commitEdit() {
     const n = parseInt(val, 10)
-    if (!isNaN(n) && n > 0) {
+    if (!isNaN(n) && n >= 1 && n !== item.qty) {
       onUpdateQty(itemId, n - item.qty)  // delta to reach the new qty
-    } else if (!isNaN(n) && n <= 0) {
-      onUpdateQty(itemId, -item.qty)     // removes item
     }
+    // values ≤ 0 are ignored — qty floor is 1
     setEditing(false)
   }
 
@@ -42,9 +41,8 @@ function QtyCell({ item, itemId, onUpdateQty }) {
   )
 }
 
-export default function Cart({ items, onUpdateQty, onRemove, onRemoveRequest, onDiscountRequest }) {
+export default function Cart({ items, currentItemId, onUpdateQty, onQtyChangeRequest, onRemove, onRemoveRequest, onDiscountRequest }) {
   const { fmt } = useCurrency()
-  const handleRemove = onRemoveRequest || onRemove
 
   if (items.length === 0) {
     return (
@@ -60,11 +58,43 @@ export default function Cart({ items, onUpdateQty, onRemove, onRemoveRequest, on
   return (
     <div className="cart-items">
       {items.map(item => {
-        const itemId = item._key || item.product_id
+        const itemId   = item._key || item.product_id
+        const isLocked = currentItemId != null && itemId !== currentItemId
+
+        // Qty change handlers — floor is 1, removal only via trash button
+        function handleMinus() {
+          if (item.qty <= 1) return  // qty cannot go below 1; use trash to remove
+          if (isLocked) {
+            if (onQtyChangeRequest) onQtyChangeRequest(itemId, -1)
+          } else {
+            onUpdateQty(itemId, -1)
+          }
+        }
+        function handlePlus() {
+          if (isLocked) {
+            if (onQtyChangeRequest) onQtyChangeRequest(itemId, +1)
+          } else {
+            onUpdateQty(itemId, +1)
+          }
+        }
+        function handleQtyChange(id, delta) {
+          if (item.qty + delta < 1) return  // QtyCell already floors at 1; guard here too
+          if (isLocked) {
+            if (onQtyChangeRequest) onQtyChangeRequest(id, delta)
+          } else {
+            onUpdateQty(id, delta)
+          }
+        }
+
         return (
-          <div key={itemId} className="cart-item">
+          <div key={itemId} className={`cart-item${isLocked ? ' cart-item-locked' : ''}`}>
+            {item.image_url
+              ? <img className="cart-item-img" src={item.image_url} alt={item.product_name} />
+              : <div className="cart-item-img-placeholder" />
+            }
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="cart-item-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isLocked && <span style={{ color: 'var(--text-muted)', fontSize: 11, marginRight: 4 }}>🔒</span>}
                 {item.product_name}
               </div>
               <div className="cart-item-sub">
@@ -75,9 +105,9 @@ export default function Cart({ items, onUpdateQty, onRemove, onRemoveRequest, on
             </div>
 
             <div className="cart-qty">
-              <button className="qty-btn" onClick={() => onUpdateQty(itemId, -1)}>−</button>
-              <QtyCell item={item} itemId={itemId} onUpdateQty={onUpdateQty} />
-              <button className="qty-btn" onClick={() => onUpdateQty(itemId, +1)}>+</button>
+              <button className="qty-btn" onClick={handleMinus} disabled={item.qty <= 1} style={{ opacity: item.qty <= 1 ? 0.3 : 1 }}>−</button>
+              <QtyCell item={item} itemId={itemId} onUpdateQty={handleQtyChange} />
+              <button className="qty-btn" onClick={handlePlus}>+</button>
             </div>
 
             <div className="cart-item-total">{fmt(item.line_total)}</div>
@@ -97,13 +127,19 @@ export default function Cart({ items, onUpdateQty, onRemove, onRemoveRequest, on
               </button>
             )}
 
+            {/* Trash: free only for the current (unlocked) item; locked items go through override */}
             <button
-              onClick={() => handleRemove(itemId)}
+              onClick={() => isLocked
+                ? (onRemoveRequest && onRemoveRequest(itemId))
+                : (onRemove && onRemove(itemId))
+              }
               style={{
-                background: 'none', border: 'none', color: 'var(--text-muted)',
+                background: 'none', border: 'none',
+                color: isLocked ? 'var(--text-muted)' : 'var(--danger,#ef4444)',
                 cursor: 'pointer', fontSize: 18, padding: '0 2px', flexShrink: 0,
+                opacity: isLocked ? 0.5 : 1,
               }}
-              title="Remove"
+              title={isLocked ? 'Remove (manager auth required)' : 'Remove'}
             >
               ×
             </button>

@@ -1,16 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
-import { authorizeAction } from '../api'
+import { authorizeAction, requestOverrideApproval } from '../api'
 
 /**
  * ManagerAuthModal — sudo-style elevation via card scan or manager PIN.
  *
  * Props:
- *   title        — modal heading (default "Manager Authorization")
- *   description  — sub-heading text
- *   onAuthorize  — called with { token, authorizer, auth_method } on success
- *   onCancel     — called when user dismisses (omit to hide cancel button)
+ *   title           — modal heading (default "Manager Authorization")
+ *   description     — sub-heading text
+ *   onAuthorize     — called with result on success:
+ *                     • no overridePayload: { token, authorizer, auth_method }
+ *                     • with overridePayload: { id, manager_name, action } (OverrideApproval record)
+ *   onCancel        — called when user dismisses (omit to hide cancel button)
+ *   overridePayload — when set, calls POST /overrides/approve instead of /auth/authorize
+ *                     must include { action, item_name, original_qty, new_qty? }
  */
-export default function ManagerAuthModal({ title = 'Manager Authorization', description, onAuthorize, onCancel }) {
+export default function ManagerAuthModal({ title = 'Manager Authorization', description, onAuthorize, onCancel, overridePayload }) {
   const [tab, setTab]           = useState('card')
   const [cardInput, setCardInput] = useState('')
   const [pin, setPin]           = useState('')
@@ -34,7 +38,9 @@ export default function ManagerAuthModal({ title = 'Manager Authorization', desc
     if (!c) return
     setBusy(true); setError('')
     try {
-      const res = await authorizeAction({ card_code: c })
+      const fn = overridePayload ? requestOverrideApproval : authorizeAction
+      const payload = overridePayload ? { card_code: c, ...overridePayload } : { card_code: c }
+      const res = await fn(payload)
       onAuthorize(res.data)
     } catch (e) {
       setError(e.message || 'Authorization failed')
@@ -52,7 +58,9 @@ export default function ManagerAuthModal({ title = 'Manager Authorization', desc
   async function submitPin(p) {
     setBusy(true); setError('')
     try {
-      const res = await authorizeAction({ pin: p })
+      const fn = overridePayload ? requestOverrideApproval : authorizeAction
+      const payload = overridePayload ? { pin: p, ...overridePayload } : { pin: p }
+      const res = await fn(payload)
       onAuthorize(res.data)
     } catch (e) {
       setError(e.message || 'Invalid PIN')

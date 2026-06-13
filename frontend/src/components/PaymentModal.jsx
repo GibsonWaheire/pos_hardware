@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer, getStoreConfig, createSaleInvoice, earnPoints } from '../api'
+import { useState, useEffect, useRef } from 'react'
+import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer, getStoreConfig, createSaleInvoice, earnPoints, mpesaStkPush, mpesaStkStatus } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
 import { printSaleReceipt, printTaxInvoice } from '../utils/print'
@@ -10,17 +10,30 @@ function newUUID() {
 }
 
 export default function PaymentModal({
-  method, items, subtotal, discountTotal, taxAmount, total,
-  customer, loyaltyPointsToRedeem, ageVerified,
+  method: methodProp, items, subtotal, discountTotal, taxAmount, total,
+  customer, customerAccount, onSetCustomer,
+  loyaltyPointsToRedeem, ageVerified,
+  overrideApprovalIds,
   onClose, onComplete,
 }) {
   const { currency, fmt: KES } = useCurrency()
   const { user } = useAuth()
+
+  // When method='select', the user picks a method from the selector screen
+  const [activeMethod, setActiveMethod] = useState(methodProp === 'select' ? null : methodProp)
+  const method = activeMethod || (methodProp !== 'select' ? methodProp : null)
+
   const [cashInput, setCashInput] = useState('')
   const [cardStatus, setCardStatus] = useState('')
   const [cardIntentId, setCardIntentId] = useState(null)
   const [splitCash, setSplitCash] = useState('')
+  const [mpesaPhone, setMpesaPhone] = useState('')
   const [mpesaRef, setMpesaRef] = useState('')
+  const [mpesaStage, setMpesaStage] = useState('input')  // 'input' | 'pushing' | 'polling' | 'manual' | 'done'
+  const [mpesaCheckoutId, setMpesaCheckoutId] = useState(null)
+  const [mpesaSimulated, setMpesaSimulated] = useState(false)
+  const [mpesaPollCount, setMpesaPollCount] = useState(0)
+  const mpesaPollRef = useRef(null)
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
   const [completedSale, setCompletedSale] = useState(null)
@@ -53,6 +66,7 @@ export default function PaymentModal({
       customer_id: customer?.id || null,
       loyalty_points_to_redeem: loyaltyPointsToRedeem || 0,
       age_verified: ageVerified || false,
+      override_approval_ids: overrideApprovalIds || [],
       offline_id: newUUID(),
       ...overrides,
     }
@@ -127,15 +141,87 @@ export default function PaymentModal({
     } catch (e) { setError(e.message); setProcessing(false) }
   }
 
-  // ── M-Pesa ───────────────────────────────────────────────────────────────
+  // ── M-Pesa STK Push ──────────────────────────────────────────────────────
 
-  async function handleMpesaPay() {
-    if (!mpesaRef.trim()) { setError('Enter M-Pesa confirmation code'); return }
-    setProcessing(true); setError('')
+  // Clean up polling interval on unmount or modal close
+  useEffect(() => {
+    return () => { if (mpesaPollRef.current) clearInterval(mpesaPollRef.current) }
+  }, [])
+
+  async function handleStkPush() {
+    const phone = mpesaPhone.trim()
+    if (!phone) { setError('Enter customer phone number'); return }
+    setError(''); setMpesaStage('pushing')
     try {
-      const res = await createSale(buildPayload({ payment_method: 'mpesa', mpesa_ref: mpesaRef.trim() }))
+      const res = await mpesaStkPush(phone, total, 'POS Sale')
+      const { checkout_request_id, simulated } = res.data
+      setMpesaCheckoutId(checkout_request_id)
+      setMpesaSimulated(!!simulated)
+      setMpesaPollCount(0)
+      setMpesaStage('polling')
+      // Start polling every 5s, max 18 times (90s)
+      mpesaPollRef.current = setInterval(() => {
+        setMpesaPollCount(c => c + 1)
+      }, 5000)
+    } catch (e) {
+      setError(e.message || 'Failed to send STK push')
+      setMpesaStage('input')
+    }
+  }
+
+  // Poll status whenever mpesaPollCount increments
+  useEffect(() => {
+    if (mpesaStage !== 'polling' || !mpesaCheckoutId) return
+    if (mpesaPollCount > 18) {
+      // Timeout — fall back to manual code entry
+      clearInterval(mpesaPollRef.current)
+      setMpesaStage('manual')
+      return
+    }
+    if (mpesaSimulated) {
+      // Simulated: skip polling, go straight to manual fallback after a beat
+      const t = setTimeout(() => setMpesaStage('manual'), 2000)
+      return () => clearTimeout(t)
+    }
+    mpesaStkStatus(mpesaCheckoutId).then(res => {
+      const { status, mpesa_ref } = res.data
+      if (status === 'completed') {
+        clearInterval(mpesaPollRef.current)
+        setMpesaRef(mpesa_ref || mpesaCheckoutId)
+        setMpesaStage('done')
+        finalizeMpesaSale(mpesa_ref || mpesaCheckoutId)
+      } else if (status === 'cancelled' || status === 'failed') {
+        clearInterval(mpesaPollRef.current)
+        setError(res.data.error_message || 'Payment failed or was cancelled')
+        setMpesaStage('input')
+      }
+      // 'pending' → keep polling
+    }).catch(() => { /* network blip, keep polling */ })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mpesaPollCount, mpesaStage])
+
+  async function finalizeMpesaSale(ref) {
+    setProcessing(true)
+    try {
+      const res = await createSale(buildPayload({ payment_method: 'mpesa', mpesa_ref: ref }))
       handleSaleSuccess(res.data)
-    } catch (e) { setError(e.message); setProcessing(false) }
+    } catch (e) {
+      setError(e.message)
+      setMpesaStage('manual')
+      setProcessing(false)
+    }
+  }
+
+  async function handleMpesaManual() {
+    if (!mpesaRef.trim()) { setError('Enter M-Pesa confirmation code'); return }
+    await finalizeMpesaSale(mpesaRef.trim())
+  }
+
+  function cancelMpesaPolling() {
+    if (mpesaPollRef.current) clearInterval(mpesaPollRef.current)
+    setMpesaStage('input')
+    setMpesaCheckoutId(null)
+    setError('')
   }
 
   // ── Card (Stripe Terminal) ───────────────────────────────────────────────
@@ -321,10 +407,61 @@ export default function PaymentModal({
     )
   }
 
+  // ── Method selector (shown when method='select') ─────────────────────────
+  if (methodProp === 'select' && !activeMethod) {
+    return (
+      <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+        <div className="modal" style={{ width: 420 }}>
+          <div style={{ textAlign: 'center', marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>
+              {items.reduce((s, i) => s + i.qty, 0)} item{items.reduce((s, i) => s + i.qty, 0) !== 1 ? 's' : ''}
+            </div>
+            <div style={{ fontSize: 42, fontWeight: 800, color: 'var(--success)', letterSpacing: -1 }}>
+              {KES(total)}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <button className="tender-btn" onClick={() => setActiveMethod('cash')}
+              style={{ background: '#22c55e18', border: '2px solid #22c55e44', color: 'var(--text)' }}>
+              <span style={{ fontSize: 28 }}>💵</span>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>Cash</span>
+            </button>
+            <button className="tender-btn" onClick={() => setActiveMethod('mpesa')}
+              style={{ background: '#4caf5018', border: '2px solid #4caf5044', color: 'var(--text)' }}>
+              <span style={{ fontSize: 28 }}>📱</span>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>M-Pesa</span>
+            </button>
+            <button className="tender-btn" onClick={() => setActiveMethod('split')}
+              style={{ background: '#f59e0b18', border: '2px solid #f59e0b44', color: 'var(--text)' }}>
+              <span style={{ fontSize: 28 }}>✂️</span>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>Split</span>
+            </button>
+            <button className="tender-btn" onClick={() => setActiveMethod('account')}
+              style={{ background: '#4f6ef718', border: '2px solid #4f6ef744', color: 'var(--text)' }}>
+              <span style={{ fontSize: 28 }}>🏦</span>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>Account</span>
+            </button>
+          </div>
+          <button className="tender-btn" onClick={() => setActiveMethod('card')}
+            style={{ background: '#6366f118', border: '2px solid #6366f144', color: 'var(--text)', width: '100%', flexDirection: 'row', marginBottom: 10 }}>
+            <span style={{ fontSize: 22 }}>💳</span>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>Card (Stripe Terminal)</span>
+          </button>
+          <button className="btn btn-ghost" style={{ width: '100%' }} onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget && !processing) onClose() }}>
       <div className="modal">
-        <div className="modal-title">{TITLE[method] || 'Payment'}</div>
+        <div className="modal-title">
+          {methodProp === 'select' && (
+            <button onClick={() => setActiveMethod(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, marginRight: 8, padding: 0 }}>←</button>
+          )}
+          {TITLE[method] || 'Payment'}
+        </div>
 
         {/* Order summary */}
         <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '12px 16px', marginBottom: 20 }}>
@@ -376,34 +513,109 @@ export default function PaymentModal({
           </>
         )}
 
-        {/* ── M-Pesa ── */}
+        {/* ── M-Pesa STK Push ── */}
         {method === 'mpesa' && (
           <>
-            <div style={{ textAlign: 'center', padding: '12px 0 8px' }}>
-              <div style={{ fontSize: 42, marginBottom: 8 }}>📱</div>
-              <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>{KES(total)}</div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                Customer sends via M-Pesa, then enter the confirmation code below.
+            {/* Stage: input phone number */}
+            {mpesaStage === 'input' && (
+              <>
+                <div style={{ textAlign: 'center', padding: '8px 0 12px' }}>
+                  <div style={{ fontWeight: 700, fontSize: 24, color: 'var(--success)', marginBottom: 4 }}>{KES(total)}</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                    Enter customer phone to send an STK push prompt directly to their handset.
+                  </div>
+                </div>
+                <label className="label">Customer Phone (M-Pesa)</label>
+                <input className="input"
+                  value={mpesaPhone}
+                  onChange={e => { setMpesaPhone(e.target.value); setError('') }}
+                  placeholder="e.g. 0712 345 678"
+                  inputMode="tel"
+                  autoFocus
+                  style={{ fontSize: 18, marginBottom: 4 }}
+                />
+                {error && <p className="error-msg">{error}</p>}
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
+                  <button className="btn btn-success btn-lg" style={{ flex: 2 }}
+                    onClick={handleStkPush} disabled={!mpesaPhone.trim()}>
+                    Send STK Push
+                  </button>
+                </div>
+                <div style={{ marginTop: 12, textAlign: 'center' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setMpesaStage('manual')}
+                    style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Skip — enter code manually
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Stage: pushing (waiting for Daraja response) */}
+            {mpesaStage === 'pushing' && (
+              <LoadingState msg="Sending STK push to customer..." />
+            )}
+
+            {/* Stage: polling for confirmation */}
+            {mpesaStage === 'polling' && (
+              <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📱</div>
+                <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>
+                  Waiting for customer to confirm
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+                  {mpesaSimulated
+                    ? 'Simulated mode — no real push sent (MPESA_CONSUMER_KEY not set)'
+                    : `STK push sent to ${mpesaPhone}. Customer should see a PIN prompt.`}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginBottom: 20 }}>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} style={{
+                      width: 8, height: 8, borderRadius: '50%',
+                      background: i <= (mpesaPollCount % 6) ? 'var(--success)' : 'var(--border)',
+                      transition: 'background 0.4s',
+                    }} />
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+                  Checking... ({mpesaPollCount * 5}s / 90s)
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={cancelMpesaPolling}>Cancel</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { clearInterval(mpesaPollRef.current); setMpesaStage('manual') }}>
+                    Enter code manually
+                  </button>
+                </div>
               </div>
-            </div>
-            <div style={{ marginTop: 16, marginBottom: 16 }}>
-              <label className="label">M-Pesa Confirmation Code</label>
-              <input className="input"
-                value={mpesaRef}
-                onChange={e => setMpesaRef(e.target.value.toUpperCase())}
-                placeholder="e.g. QJK8LPZ3A4"
-                style={{ fontFamily: 'monospace', fontSize: 18, letterSpacing: 2, textAlign: 'center' }}
-                autoFocus
-              />
-            </div>
-            {error && <p className="error-msg">{error}</p>}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onClose} disabled={processing}>Cancel</button>
-              <button className="btn btn-success btn-lg" style={{ flex: 2 }} onClick={handleMpesaPay}
-                disabled={processing || !mpesaRef.trim()}>
-                {processing ? 'Processing...' : 'Confirm Payment'}
-              </button>
-            </div>
+            )}
+
+            {/* Stage: manual code fallback */}
+            {mpesaStage === 'manual' && (
+              <>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+                  Ask the customer for their M-Pesa confirmation code and enter it below.
+                </div>
+                <label className="label">M-Pesa Confirmation Code</label>
+                <input className="input"
+                  value={mpesaRef}
+                  onChange={e => { setMpesaRef(e.target.value.toUpperCase()); setError('') }}
+                  placeholder="e.g. QJK8LPZ3A4"
+                  style={{ fontFamily: 'monospace', fontSize: 18, letterSpacing: 2, textAlign: 'center', marginBottom: 4 }}
+                  autoFocus
+                />
+                {error && <p className="error-msg">{error}</p>}
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button className="btn btn-ghost btn-lg" style={{ flex: 1 }}
+                    onClick={() => setMpesaStage('input')} disabled={processing}>Back</button>
+                  <button className="btn btn-success btn-lg" style={{ flex: 2 }}
+                    onClick={handleMpesaManual} disabled={processing || !mpesaRef.trim()}>
+                    {processing ? 'Processing...' : 'Confirm Payment'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {mpesaStage === 'done' && <LoadingState msg="Recording sale..." />}
           </>
         )}
 
@@ -577,3 +789,4 @@ function LoadingState({ msg }) {
     </div>
   )
 }
+

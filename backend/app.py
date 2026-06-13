@@ -74,6 +74,7 @@ from routes.hardware import bp as hardware_bp
 from routes.shift_reports import bp as shift_reports_bp
 from routes.grn import bp as grn_bp
 from routes.invoices import bp as invoices_bp
+from routes.overrides import bp as overrides_bp
 
 app.register_blueprint(products_bp)
 app.register_blueprint(sales_bp)
@@ -103,6 +104,7 @@ app.register_blueprint(hardware_bp)
 app.register_blueprint(shift_reports_bp)
 app.register_blueprint(grn_bp)
 app.register_blueprint(invoices_bp)
+app.register_blueprint(overrides_bp)
 
 # Apply tighter rate limits to auth endpoints
 limiter.limit('10 per minute')(auth_bp)
@@ -122,6 +124,7 @@ def _ensure_columns():
         ('stores',          'session_timeout_minutes',      'INTEGER'),
         ('staff',           'login_attempts',               'INTEGER DEFAULT 0'),
         ('staff',           'locked_until',                 'DATETIME'),
+        ('products',        'image_url',                    'VARCHAR(500)'),
     ]
     with db.engine.connect() as conn:
         for table, col, col_type in cols_to_add:

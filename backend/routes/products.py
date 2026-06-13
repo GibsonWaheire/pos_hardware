@@ -51,7 +51,8 @@ def list_products():
             )
         )
     products = query.order_by(Product.name).limit(limit).offset(offset).all()
-    return jsonify([p.to_dict() for p in products])
+    cashier = session.get('role') == 'cashier'
+    return jsonify([p.to_dict_cashier() if cashier else p.to_dict() for p in products])
 
 
 @bp.route('/products/barcode/<barcode>', methods=['GET'])
@@ -60,7 +61,8 @@ def get_by_barcode(barcode):
     product = Product.query.filter_by(barcode=barcode, is_active=True).first()
     if not product:
         return jsonify({'error': 'Product not found'}), 404
-    return jsonify(product.to_dict())
+    cashier = session.get('role') == 'cashier'
+    return jsonify(product.to_dict_cashier() if cashier else product.to_dict())
 
 
 @bp.route('/products/plu/<plu_code>', methods=['GET'])
@@ -69,7 +71,8 @@ def get_by_plu(plu_code):
     product = Product.query.filter_by(plu_code=plu_code, is_active=True).first()
     if not product:
         return jsonify({'error': 'PLU code not found'}), 404
-    return jsonify(product.to_dict())
+    cashier = session.get('role') == 'cashier'
+    return jsonify(product.to_dict_cashier() if cashier else product.to_dict())
 
 
 @bp.route('/scale/read', methods=['GET'])
