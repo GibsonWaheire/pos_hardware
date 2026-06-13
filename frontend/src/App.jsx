@@ -149,6 +149,7 @@ function LockScreen({ user, onUnlock }) {
 function AppInner() {
   const { user, logout, checking } = useAuth()
   const { theme, toggleTheme }     = useTheme()
+  const { isBackendUp, pendingCount, syncResult } = useOnlineStatus()
   const navigate = useNavigate()
   const [locked, setLocked]             = useState(false)
   const [idleTimeoutMs, setIdleTimeoutMs] = useState(10 * 60 * 1000)
@@ -186,8 +187,6 @@ function AppInner() {
     await logout()
     navigate('/', { replace: true })
   }
-
-  const { isBackendUp, pendingCount, syncResult } = useOnlineStatus()
 
   return (
     <>

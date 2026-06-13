@@ -113,6 +113,10 @@ def init_db():
             # Phase 39 — shift report flags
             _add_column_if_missing(conn, 'shift_reports', 'closed_without_print', 'BOOLEAN DEFAULT 0')
             _add_column_if_missing(conn, 'shift_reports', 'has_discrepancy',      'BOOLEAN DEFAULT 0')
+            # Returns — approval tracking columns (Phase 20)
+            _add_column_if_missing(conn, 'returns', 'approved_by_id',   'INTEGER')
+            _add_column_if_missing(conn, 'returns', 'approved_by_name', 'VARCHAR(100)')
+            _add_column_if_missing(conn, 'returns', 'approved_at',      'DATETIME')
             conn.commit()
         finally:
             conn.close()
