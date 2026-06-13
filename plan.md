@@ -96,6 +96,8 @@ Every feature gating decision must follow this table.
 | 26 | Loyalty — wire earnPoints after every sale, dynamic redemption rate from config, KES currency fixes | ✅ |
 | 27 | Sale History & Receipt Date Fix — immutable created_at on reprints, cashier history panel with reprint | ✅ |
 | 28 | Operational Settings — Business Rules in Settings (returns threshold, VAT rate, low stock), role descriptions, per-item discount auth gate, Products pre-fill from store defaults | ✅ |
+| 29 | POS Terminal Overhaul — 3-panel layout (category sidebar + product tile grid + cart), F3/`/` search shortcut, out-of-stock overlays, low-stock badges, CategorySidebar wired in, browse products by category | ✅ |
+| 30 | Security Hardening — bcrypt PIN hashing, Flask-Limiter rate limiting, login lockout, session idle timeout + lock screen, HTTPS/secure cookies, input validation (validate_str/validate_positive/validate_email), audit log completeness across inventory/customers/products, remove hardcoded PINs | ✅ |
 | 39 | Shift Reconciliation Gate — mandatory per-tender reconciliation before close, cashier 403 on close, manager reconciliation modal in Reports, Print & Close / Close Without Printing, Shift History table with variance columns, A4 printShiftReconciliation | ✅ |
 
 ---
@@ -951,7 +953,17 @@ Every document the system must be able to produce:
 
 ---
 
-### Phase 29 — POS Terminal Overhaul (Supermarket Look & Feel)
+### Phase 29 — POS Terminal Overhaul (Supermarket Look & Feel) ✅ COMPLETE
+
+**Implemented:**
+- 29A: 3-panel layout — `180px category sidebar | flex-1 product panel | 380px cart` via CSS grid; responsive ≤1199px collapses sidebar to horizontal pill tabs above product panel
+- 29B: Unified search bar autofocused on shift open; F3 or `/` global shortcut focuses search from anywhere; barcode scan into same input
+- 29C: Product tile grid in middle panel (browse mode, no query) — image tiles min 140px, out-of-stock greyed overlay, low-stock yellow dot badge; list view used for search results
+- 29D: Full-screen `IdleScreen` after 90s (already existed); `IdleCheckout` carousel in cart column when empty (existing)
+- 29F: Reprint buttons always visible at bottom of cart column after each completed sale
+- Fixed stale `loadDailyTotals()` call in `handleSaleComplete` (function was removed in Phase 39 but call remained)
+- `CategorySidebar` component (already existed) wired into POS: fetches categories on shift open, filters browse products by `category_id`
+- `selectedCategory` resets search query when switching categories
 
 **Goal:** The POS terminal must look and feel like a real supermarket checkout — not a dashboard. Fast, touch-friendly, visually rich, with a clear product browse area and a professional cart/receipt panel.
 
@@ -1008,7 +1020,17 @@ Every document the system must be able to produce:
 
 ---
 
-### Phase 30 — Security Hardening (CRITICAL)
+### Phase 30 — Security Hardening (CRITICAL) ✅ COMPLETE
+
+**Implemented:**
+- 30A: bcrypt PIN hashing with on-the-fly migration (`auth_utils.py`, `auth.py`, `staff.py`)
+- 30B: Flask-Limiter rate limiting on auth endpoints; login lockout (`login_attempts` + `locked_until` on Staff, 5-attempt threshold, 30-min lock); `POST /api/staff/<id>/unlock`
+- 30C: `get_current_user()` guard on generate-card/revoke-card; admin role required
+- 30D: `useIdleTimeout` hook + `LockScreen` component in `App.jsx`; PIN re-entry resumes session without full logout
+- 30E: `SESSION_COOKIE_SECURE=True`, `HSTS` header, startup warning if default SECRET_KEY
+- 30F: `validate_str`/`validate_positive`/`validate_email` applied in `inventory.py` (adjust_stock reason/product_id), `customers.py` (name/phone/email on create+update)
+- 30G: No hardcoded fallback PINs in `auth.py`
+- 30H: `log_action()` added to `inventory.py` (stock_adjust, damage approve/reject), `customers.py` (create, update — with credit_limit before/after); `products.py` already had full coverage
 
 **Goal:** Bring the app to production-grade security before any live deployment. Several critical vulnerabilities exist that must be fixed.
 
