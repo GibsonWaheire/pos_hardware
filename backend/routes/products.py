@@ -1,7 +1,13 @@
+import os
 from flask import Blueprint, jsonify, request, session
+from werkzeug.utils import secure_filename
 from db import db
 from models import Product, Category
 from auth_utils import get_current_user, log_action, stamp
+
+_IMG_DIR = os.path.join(os.path.dirname(__file__), '..', 'static', 'product_images')
+_ALLOWED  = {'jpg', 'jpeg', 'png', 'webp'}
+_MAX_SIZE = 2 * 1024 * 1024  # 2 MB
 
 WRITE_ROLES = {'inventory', 'manager', 'admin'}
 
@@ -128,6 +134,8 @@ def create_product():
         min_age=int(data.get('min_age', 18)),
         stock_qty=int(data.get('stock_qty', 0)),
         low_stock_threshold=int(data.get('low_stock_threshold', 5)),
+        reorder_point=int(data.get('reorder_point', 0)),
+        reorder_qty=int(data.get('reorder_qty', 0)),
         category_id=data.get('category_id'),
     )
     user = get_current_user()
@@ -183,6 +191,10 @@ def update_product(product_id):
         product.stock_qty = int(data['stock_qty'])
     if 'low_stock_threshold' in data:
         product.low_stock_threshold = int(data['low_stock_threshold'])
+    if 'reorder_point' in data:
+        product.reorder_point = int(data['reorder_point'] or 0)
+    if 'reorder_qty' in data:
+        product.reorder_qty = int(data['reorder_qty'] or 0)
     if 'category_id' in data:
         product.category_id = data['category_id']
     if 'is_active' in data:
@@ -216,3 +228,56 @@ def low_stock():
         Product.stock_qty <= Product.low_stock_threshold,
     ).all()
     return jsonify([p.to_dict() for p in products])
+
+
+@bp.route('/products/below-reorder', methods=['GET'])
+def below_reorder():
+    role = session.get('role', '')
+    if role not in ('manager', 'admin', 'inventory', 'purchasing'):
+        return jsonify({'error': 'Access denied'}), 403
+    products = Product.query.filter(
+        Product.is_active == True,
+        Product.reorder_point > 0,
+        Product.stock_qty <= Product.reorder_point,
+    ).all()
+    return jsonify([p.to_dict() for p in products])
+
+
+@bp.route('/products/<int:product_id>/image', methods=['POST'])
+def upload_image(product_id):
+    if session.get('role', '') not in WRITE_ROLES:
+        return jsonify({'error': 'Not authorised'}), 403
+    product = Product.query.get_or_404(product_id)
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f.filename:
+        return jsonify({'error': 'No file selected'}), 400
+    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
+    if ext not in _ALLOWED:
+        return jsonify({'error': f'File type not allowed. Use: jpg, png, webp'}), 400
+    f.seek(0, 2); size = f.tell(); f.seek(0)
+    if size > _MAX_SIZE:
+        return jsonify({'error': 'File too large (max 2 MB)'}), 400
+    os.makedirs(_IMG_DIR, exist_ok=True)
+    filename = f'product_{product_id}.{ext}'
+    f.save(os.path.join(_IMG_DIR, filename))
+    product.image_url = f'/static/product_images/{filename}'
+    db.session.commit()
+    return jsonify({'image_url': product.image_url})
+
+
+@bp.route('/products/<int:product_id>/image', methods=['DELETE'])
+def delete_image(product_id):
+    if session.get('role', '') not in WRITE_ROLES:
+        return jsonify({'error': 'Not authorised'}), 403
+    product = Product.query.get_or_404(product_id)
+    if product.image_url:
+        fname = product.image_url.split('/')[-1]
+        try:
+            os.remove(os.path.join(_IMG_DIR, fname))
+        except OSError:
+            pass
+        product.image_url = None
+        db.session.commit()
+    return jsonify({'image_url': None})

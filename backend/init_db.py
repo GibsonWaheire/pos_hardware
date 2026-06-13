@@ -117,6 +117,9 @@ def init_db():
             _add_column_if_missing(conn, 'returns', 'approved_by_id',   'INTEGER')
             _add_column_if_missing(conn, 'returns', 'approved_by_name', 'VARCHAR(100)')
             _add_column_if_missing(conn, 'returns', 'approved_at',      'DATETIME')
+            # Phase 31 — product reorder points
+            _add_column_if_missing(conn, 'products', 'reorder_point', 'INTEGER DEFAULT 0')
+            _add_column_if_missing(conn, 'products', 'reorder_qty',   'INTEGER DEFAULT 0')
             conn.commit()
         finally:
             conn.close()

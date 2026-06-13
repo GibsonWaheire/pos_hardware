@@ -1,15 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   getProducts, createProduct, updateProduct, deleteProduct,
   getCategories, createCategory, getStoreConfig,
+  uploadProductImage, deleteProductImage,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
+import { printBarcodeLabel } from '../utils/print'
 
 const EMPTY_FORM = {
   name: '', barcode: '', price: '', tax_rate: '0',
   tax_class: 'standard', stock_qty: '0',
   low_stock_threshold: '5', category_id: '',
+  reorder_point: '0', reorder_qty: '0',
 }
 
 export default function Products() {
@@ -24,6 +27,9 @@ export default function Products() {
   const [storeDefaults, setStoreDefaults] = useState({ default_tax_rate: 0.16, default_low_stock_threshold: 5 })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [imgUploading, setImgUploading] = useState(false)
+  const [editProduct, setEditProduct] = useState(null) // product being edited (for image)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     loadProducts()
@@ -55,6 +61,7 @@ export default function Products() {
       tax_rate: String(Math.round((storeDefaults.default_tax_rate || 0.16) * 100)),
       low_stock_threshold: String(storeDefaults.default_low_stock_threshold || 5),
     })
+    setEditProduct(null)
     setError('')
     setModal({ mode: 'add' })
   }
@@ -69,7 +76,10 @@ export default function Products() {
       stock_qty: String(product.stock_qty),
       low_stock_threshold: String(product.low_stock_threshold),
       category_id: product.category_id ? String(product.category_id) : '',
+      reorder_point: String(product.reorder_point || 0),
+      reorder_qty: String(product.reorder_qty || 0),
     })
+    setEditProduct(product)
     setError('')
     setModal({ mode: 'edit', id: product.id })
   }
@@ -85,6 +95,8 @@ export default function Products() {
         tax_rate: parseFloat(form.tax_rate),
         stock_qty: parseInt(form.stock_qty),
         low_stock_threshold: parseInt(form.low_stock_threshold),
+        reorder_point: parseInt(form.reorder_point || 0),
+        reorder_qty: parseInt(form.reorder_qty || 0),
         category_id: form.category_id ? parseInt(form.category_id) : null,
       }
       if (modal.mode === 'add') {
@@ -111,6 +123,36 @@ export default function Products() {
     }
   }
 
+  async function handleImageUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file || !modal?.id) return
+    const fd = new FormData()
+    fd.append('file', file)
+    setImgUploading(true)
+    try {
+      const res = await uploadProductImage(modal.id, fd)
+      setEditProduct(prev => ({ ...prev, image_url: res.data.image_url }))
+      loadProducts(search)
+    } catch (err) {
+      alert(err.response?.data?.error || 'Upload failed')
+    } finally {
+      setImgUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  async function handleImageDelete() {
+    if (!modal?.id) return
+    if (!confirm('Remove product image?')) return
+    try {
+      await deleteProductImage(modal.id)
+      setEditProduct(prev => ({ ...prev, image_url: null }))
+      loadProducts(search)
+    } catch (err) {
+      alert('Could not remove image')
+    }
+  }
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <div className="page-header">
@@ -131,25 +173,31 @@ export default function Products() {
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: 48 }}></th>
                 <th>Name</th>
                 <th>Barcode</th>
                 {!readOnly && <th>Price</th>}
-                {!readOnly && <th>Tax</th>}
                 <th>Stock</th>
+                <th>Reorder</th>
                 <th>Category</th>
                 <th>Status</th>
-                {!readOnly && <th></th>}
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {products.length === 0 ? (
-                <tr><td colSpan={readOnly ? 5 : 8} className="empty-state">No products yet</td></tr>
+                <tr><td colSpan={8} className="empty-state">No products yet</td></tr>
               ) : products.map(p => (
                 <tr key={p.id}>
+                  <td>
+                    {p.image_url
+                      ? <img src={p.image_url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
+                      : <div style={{ width: 40, height: 40, borderRadius: 6, background: 'var(--surface2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>📦</div>
+                    }
+                  </td>
                   <td style={{ fontWeight: 500 }}>{p.name}</td>
-                  <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{p.barcode || '—'}</td>
+                  <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: 12 }}>{p.barcode || '—'}</td>
                   {!readOnly && <td>{fmt(p.price)}</td>}
-                  {!readOnly && <td>{p.tax_class} ({(p.tax_rate * 100).toFixed(0)}%)</td>}
                   <td>
                     {p.stock_qty <= p.low_stock_threshold && p.stock_qty > 0
                       ? <span className="badge badge-yellow">{p.stock_qty} low</span>
@@ -158,20 +206,34 @@ export default function Products() {
                       : <span>{p.stock_qty}</span>
                     }
                   </td>
-                  <td style={{ color: 'var(--text-muted)' }}>{p.category_name || '—'}</td>
+                  <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {p.reorder_point > 0
+                      ? <span style={{ color: p.stock_qty <= p.reorder_point ? 'var(--danger,#ef4444)' : 'var(--text-muted)' }}>
+                          ≤{p.reorder_point} → {p.reorder_qty}
+                        </span>
+                      : '—'
+                    }
+                  </td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{p.category_name || '—'}</td>
                   <td>
                     <span className={p.is_active ? 'badge badge-green' : 'badge badge-red'}>
                       {p.is_active ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  {!readOnly && (
-                    <td>
-                      <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)} style={{ marginRight: 6 }}>Edit</button>
-                      {p.is_active && (
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDeactivate(p)}>Disable</button>
-                      )}
-                    </td>
-                  )}
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {(p.barcode || p.name) && (
+                      <button className="btn btn-ghost btn-sm" style={{ marginRight: 4 }}
+                        onClick={() => printBarcodeLabel(p, 'label')}>Label</button>
+                    )}
+                    {!readOnly && (
+                      <>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)} style={{ marginRight: 4 }}>Edit</button>
+                        {p.is_active && (
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDeactivate(p)}>Disable</button>
+                        )}
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -182,8 +244,34 @@ export default function Products() {
       {/* ── Add / Edit modal ─── */}
       {modal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
-          <div className="modal">
+          <div className="modal" style={{ maxHeight: '90vh', overflowY: 'auto', width: 520 }}>
             <div className="modal-title">{modal.mode === 'add' ? 'Add Product' : 'Edit Product'}</div>
+
+            {/* Image section (edit mode only) */}
+            {modal.mode === 'edit' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px', background: 'var(--surface2)', borderRadius: 8 }}>
+                {editProduct?.image_url
+                  ? <img src={editProduct.image_url} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)', flexShrink: 0 }} />
+                  : <div style={{ width: 72, height: 72, borderRadius: 8, background: 'var(--bg)', border: '2px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, flexShrink: 0 }}>📦</div>
+                }
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                    {editProduct?.image_url ? 'Product image' : 'No image — JPG, PNG, WebP up to 2 MB'}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-ghost btn-sm" disabled={imgUploading}
+                      onClick={() => fileInputRef.current?.click()}>
+                      {imgUploading ? 'Uploading…' : editProduct?.image_url ? 'Replace' : 'Upload'}
+                    </button>
+                    {editProduct?.image_url && (
+                      <button className="btn btn-danger btn-sm" onClick={handleImageDelete}>Remove</button>
+                    )}
+                  </div>
+                  <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp"
+                    style={{ display: 'none' }} onChange={handleImageUpload} />
+                </div>
+              </div>
+            )}
 
             <div className="form-group">
               <label className="label">Name *</label>
@@ -201,7 +289,7 @@ export default function Products() {
                   value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
               </div>
               <div className="form-group">
-                <label className="label">Tax Rate (e.g. 0.16 = 16%)</label>
+                <label className="label">Tax Rate (0.16 = 16%)</label>
                 <input className="input" type="number" min="0" max="1" step="0.01"
                   value={form.tax_rate} onChange={e => setForm({ ...form, tax_rate: e.target.value })} />
               </div>
@@ -211,9 +299,19 @@ export default function Products() {
                   value={form.stock_qty} onChange={e => setForm({ ...form, stock_qty: e.target.value })} />
               </div>
               <div className="form-group">
-                <label className="label">Low Stock Alert</label>
+                <label className="label">Low Stock Alert ≤</label>
                 <input className="input" type="number" min="0"
                   value={form.low_stock_threshold} onChange={e => setForm({ ...form, low_stock_threshold: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="label">Reorder When Below</label>
+                <input className="input" type="number" min="0" placeholder="0 = disabled"
+                  value={form.reorder_point} onChange={e => setForm({ ...form, reorder_point: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="label">Suggested Reorder Qty</label>
+                <input className="input" type="number" min="0" placeholder="0"
+                  value={form.reorder_qty} onChange={e => setForm({ ...form, reorder_qty: e.target.value })} />
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -239,7 +337,7 @@ export default function Products() {
             {error && <p className="error-msg">{error}</p>}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-              <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
+              <button className="btn btn-ghost" onClick={() => { setModal(null); setEditProduct(null) }}>Cancel</button>
               <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                 {saving ? 'Saving...' : 'Save'}
               </button>

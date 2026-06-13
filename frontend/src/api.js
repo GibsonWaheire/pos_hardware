@@ -60,6 +60,13 @@ export const deleteProduct = (id) => withLocal(
   () => api.delete(`/products/${id}`),
   () => local.lsDeleteProduct(id)
 )
+export const uploadProductImage = (id, formData) =>
+  api.post(`/products/${id}/image`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+export const deleteProductImage = (id) => api.delete(`/products/${id}/image`)
+export const getProductsBelowReorder = () => withLocal(
+  () => api.get('/products/below-reorder'),
+  () => local.lsStub([])
+)
 export const getCategories = () => withLocal(
   () => api.get('/categories'),
   () => local.lsGetCategories()

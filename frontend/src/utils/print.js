@@ -1743,3 +1743,72 @@ export function printShiftReconciliation(report) {
 
   printDoc(`Shift Reconciliation ${reportId}`, html)
 }
+
+
+// ── Phase 31C — Barcode Label Printing ───────────────────────────────────────
+
+/**
+ * Print a barcode label for a product.
+ * format: 'label' (58mm single) | 'a4' (30-up Avery sheet)
+ */
+export function printBarcodeLabel(product, format = 'label') {
+  const barcodeVal = product.barcode || product.plu_code || String(product.id)
+  const name       = product.name || ''
+
+  function labelHtml(p, bv) {
+    return `
+      <div class="label">
+        <div class="lbl-name">${p.name || ''}</div>
+        <svg class="lbl-barcode" data-val="${bv}"></svg>
+        <div class="lbl-meta">
+          ${bv !== String(p.id) ? `<span class="lbl-code">${bv}</span>` : ''}
+          ${p.price != null ? `<span class="lbl-price">KES ${Number(p.price).toFixed(2)}</span>` : ''}
+        </div>
+      </div>`
+  }
+
+  const isA4     = format === 'a4'
+  const copies   = isA4 ? 30 : 1
+  const labelsHtml = Array.from({ length: copies }, () => labelHtml(product, barcodeVal)).join('')
+
+  const css = isA4 ? `
+    @page { size: A4; margin: 12mm 8mm; }
+    body { margin: 0; font-family: Arial, sans-serif; }
+    .sheet { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+    .label { border: 0.3mm solid #ccc; border-radius: 2mm; padding: 3mm 4mm; display: flex; flex-direction: column; align-items: center; gap: 1.5mm; page-break-inside: avoid; }
+    .lbl-name { font-size: 8pt; font-weight: 700; text-align: center; max-height: 2.4em; overflow: hidden; }
+    .lbl-barcode { width: 100%; height: 14mm; }
+    .lbl-meta { display: flex; justify-content: space-between; width: 100%; font-size: 7pt; color: #333; }
+    .lbl-price { font-weight: 700; }
+  ` : `
+    @page { size: 58mm 40mm; margin: 2mm; }
+    body { margin: 0; font-family: Arial, sans-serif; }
+    .sheet { display: block; }
+    .label { display: flex; flex-direction: column; align-items: center; gap: 1mm; padding: 1mm; }
+    .lbl-name { font-size: 9pt; font-weight: 700; text-align: center; }
+    .lbl-barcode { width: 52mm; height: 16mm; }
+    .lbl-meta { display: flex; justify-content: space-between; width: 100%; font-size: 8pt; }
+    .lbl-price { font-weight: 700; font-size: 10pt; }
+  `
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Label \u2014 ${name}</title>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
+<style>${css}</style>
+</head><body>
+<div class="sheet">${labelsHtml}</div>
+<script>
+  try {
+    document.querySelectorAll('.lbl-barcode').forEach(function(el) {
+      JsBarcode(el, el.dataset.val, { format:'CODE128', width:1.4, height:40, displayValue:false, margin:0 });
+    });
+  } catch(e) {}
+  window.onload = function() { window.print(); };
+<\/script>
+</body></html>`
+
+  const w = window.open('', '_blank', 'width=600,height=400')
+  if (!w) return
+  w.document.write(html)
+  w.document.close()
+}

@@ -35,6 +35,8 @@ class Product(db.Model):
     min_age = db.Column(db.Integer, default=18)
     stock_qty = db.Column(db.Integer, default=0)
     low_stock_threshold = db.Column(db.Integer, default=5)
+    reorder_point = db.Column(db.Integer, default=0)
+    reorder_qty   = db.Column(db.Integer, default=0)
     image_url = db.Column(db.String(500), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
@@ -60,6 +62,7 @@ class Product(db.Model):
             'age_restricted': self.age_restricted,
             'age_restriction_type': self.age_restriction_type, 'min_age': self.min_age,
             'stock_qty': self.stock_qty, 'low_stock_threshold': self.low_stock_threshold,
+            'reorder_point': self.reorder_point or 0, 'reorder_qty': self.reorder_qty or 0,
             'image_url': self.image_url,
             'category_id': self.category_id,
             'category_name': self.category_obj.name if self.category_obj else None,
