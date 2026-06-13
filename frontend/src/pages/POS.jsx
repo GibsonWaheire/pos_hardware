@@ -603,15 +603,13 @@ export default function POS() {
         </div>
 
         {/* Cart / Bill items */}
-        <div className="bill-items">
-          {cartItems.length === 0 ? (
-            <div className="bill-empty">
-              No items yet<br />
-              <span style={{ fontSize: 12, marginTop: 6, display: 'block', opacity: 0.6 }}>
-                Scan barcode or search on the right
-              </span>
-            </div>
-          ) : (
+        <div className="bill-items" style={{ position: 'relative' }}>
+          <IdleCheckout
+            visible={cartItems.length === 0}
+            storeConfig={storeConfig}
+            dailyTotals={dailyTotals}
+          />
+          {cartItems.length > 0 && (
             <Cart
               items={cartItems}
               currentItemId={currentItemId}
@@ -672,17 +670,7 @@ export default function POS() {
 
       {/* ══ RIGHT: Search column ══ */}
       <div className="pos-search-col">
-
-        {/* Idle display — shown only when bill is empty, hidden instantly on first scan */}
-        <IdleCheckout
-          visible={cartItems.length === 0}
-          storeConfig={storeConfig}
-          dailyTotals={dailyTotals}
-        />
-
-        {/* Search content — always on top of idle */}
-        <div className="pos-search-inner">
-          <div className="pos-search-wrap">
+        <div className="pos-search-wrap">
             <input
               ref={searchRef}
               className="pos-search-input"
@@ -766,7 +754,6 @@ export default function POS() {
             </button>
           </div>
         </div>
-      </div>
 
       {/* ══ Modals ══ */}
 
