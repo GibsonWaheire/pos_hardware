@@ -672,7 +672,7 @@ export default function POS() {
             <div className="scan-flash-card">
               {lastAdded.image_url
                 ? <img className="scan-flash-card-img" src={lastAdded.image_url} alt={lastAdded.name} />
-                : <div className="scan-flash-card-placeholder" />
+                : <div className="scan-flash-card-placeholder">🔩</div>
               }
               <div className="scan-flash-card-name">{lastAdded.name}</div>
               <div className="scan-flash-card-price">{fmt(lastAdded.price)}</div>

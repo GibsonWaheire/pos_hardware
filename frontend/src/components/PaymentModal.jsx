@@ -455,21 +455,19 @@ export default function PaymentModal({
     card:    'Card — Stripe Terminal',
     mpesa:   'M-Pesa Payment',
     account: 'Account Payment',
-    split:   'Split / Multi-tender',
+    split:   'Split / Multi-Tender',
   }
 
   // ── Sale success screen ───────────────────────────────────────────────────
 
   if (completedSale) {
-    const method = completedSale.payment_method || ''
+    const saleMethod = completedSale.payment_method || ''
     return (
       <div className="modal-overlay">
-        <div className="modal" style={{ textAlign: 'center' }}>
+        <div className="modal" style={{ textAlign: 'center', maxWidth: 440 }}>
           <div style={{ fontWeight: 700, fontSize: 22, marginBottom: 4, letterSpacing: 0.2 }}>SALE COMPLETE</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 4 }}>
-            {completedSale.receipt_number}
-          </div>
-          <div style={{ fontWeight: 700, fontSize: 28, color: 'var(--success)', marginBottom: pointsEarned ? 8 : 16 }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 4 }}>{completedSale.receipt_number}</div>
+          <div style={{ fontWeight: 700, fontSize: 32, color: 'var(--success)', marginBottom: pointsEarned ? 8 : 16 }}>
             {KES(completedSale.total)}
           </div>
 
@@ -481,7 +479,7 @@ export default function PaymentModal({
             </div>
           )}
 
-          {method === 'cash' && (
+          {saleMethod === 'cash' && (
             <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Cash tendered</span><span>{KES(completedSale.cash_tendered)}</span>
@@ -491,150 +489,135 @@ export default function PaymentModal({
               </div>
             </div>
           )}
-          {method === 'mpesa' && completedSale.mpesa_ref && (
+          {saleMethod === 'mpesa' && completedSale.mpesa_ref && (
             <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '8px 16px', marginBottom: 16, fontSize: 13 }}>
               M-Pesa ref: <strong>{completedSale.mpesa_ref}</strong>
             </div>
           )}
 
-          {printMsg && (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{printMsg}</div>
-          )}
+          {printMsg && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{printMsg}</div>}
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleReprint}>
-              ESC/POS
-            </button>
-            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={printBrowserReceipt}>
-              Print Receipt
-            </button>
-            {(method === 'cash' || method === 'split') && (
-              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleOpenDrawer}>
-                Open Drawer
-              </button>
+            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleReprint}>ESC/POS</button>
+            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={printBrowserReceipt}>Print Receipt</button>
+            {(saleMethod === 'cash' || saleMethod === 'split') && (
+              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleOpenDrawer}>Open Drawer</button>
             )}
           </div>
           <div style={{ marginBottom: 8 }}>
-            <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={handlePrintInvoice}>
-              Print Invoice (A4)
-            </button>
+            <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={handlePrintInvoice}>Print Invoice (A4)</button>
           </div>
-
-          <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={onClose}>
-            New Sale
-          </button>
+          <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={onClose}>New Sale</button>
         </div>
       </div>
     )
   }
 
-  // ── Method selector (shown when method='select') ─────────────────────────
-  if (methodProp === 'select' && !activeMethod) {
-    return (
-      <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-        <div className="modal" style={{ width: 420 }}>
-          <div style={{ textAlign: 'center', marginBottom: 20 }}>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>
-              {items.reduce((s, i) => s + i.qty, 0)} item{items.reduce((s, i) => s + i.qty, 0) !== 1 ? 's' : ''}
-            </div>
-            <div style={{ fontSize: 42, fontWeight: 800, color: 'var(--success)', letterSpacing: -1 }}>
-              {KES(total)}
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-            {[
-              { key: 'cash',    label: 'Cash' },
-              { key: 'mpesa',   label: 'M-Pesa' },
-              { key: 'split',   label: 'Split / Multi' },
-              { key: 'account', label: 'Account' },
-            ].map(({ key, label }) => (
-              <button key={key} className="tender-btn-clean" onClick={() => setActiveMethod(key)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <button className="tender-btn-clean tender-btn-clean--wide" onClick={() => setActiveMethod('card')}
-            style={{ marginBottom: 10 }}>
-            Card — Stripe Terminal
-          </button>
-          <button className="btn btn-ghost" style={{ width: '100%' }} onClick={onClose}>Cancel</button>
-        </div>
+  // ── Shared order summary (left panel) ────────────────────────────────────
+  const lineTotal = (item) => item.line_total ?? (item.unit_price * item.qty - (item.discount || 0))
+
+  const LeftPanel = () => (
+    <div className="pay-left">
+      <div className="pay-left-title">Order Summary</div>
+      <table className="pay-items">
+        <thead>
+          <tr><th>Item</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Total</th></tr>
+        </thead>
+        <tbody>
+          {items.map((item, idx) => (
+            <tr key={idx}>
+              <td>{item.product_name}</td>
+              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{item.qty}</td>
+              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{KES(lineTotal(item))}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="pay-totals">
+        <div className="pay-totals-row"><span>Subtotal</span><span>{KES(subtotal)}</span></div>
+        {discountTotal > 0 && <div className="pay-totals-row" style={{ color: 'var(--warning)' }}><span>Discounts</span><span>−{KES(discountTotal)}</span></div>}
+        {taxAmount > 0 && <div className="pay-totals-row"><span>VAT (16%)</span><span>{KES(taxAmount)}</span></div>}
+        <div className="pay-totals-row total"><span>TOTAL</span><span>{KES(total)}</span></div>
       </div>
-    )
-  }
+    </div>
+  )
+
+  // ── Two-panel wrapper ─────────────────────────────────────────────────────
+  const isSelector = methodProp === 'select' && !activeMethod
 
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget && !processing) onClose() }}>
-      <div className="modal">
-        <div className="modal-title">
-          {methodProp === 'select' && (
-            <button onClick={() => setActiveMethod(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, marginRight: 8, padding: 0 }}>←</button>
-          )}
-          {TITLE[method] || 'Payment'}
-        </div>
+      <div className="pay-modal">
+        <LeftPanel />
+        <div className="pay-right">
 
-        {/* Order summary */}
-        <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '12px 16px', marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>
-            <span>Items ({items.reduce((s, i) => s + i.qty, 0)})</span>
-            <span>{KES(subtotal)}</span>
-          </div>
-          {discountTotal > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13, color: 'var(--warning)' }}>
-              <span>Discounts</span><span>−{KES(discountTotal)}</span>
-            </div>
+          {/* Back + title */}
+          {methodProp === 'select' && activeMethod && (
+            <button className="pay-back-btn" onClick={() => setActiveMethod(null)}>← Back to methods</button>
           )}
-          {taxAmount > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>
-              <span>VAT</span><span>{KES(taxAmount)}</span>
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 20, borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
-            <span>Total</span><span>{KES(total)}</span>
-          </div>
-        </div>
+          <div className="pay-right-title">{isSelector ? 'Select Payment Method' : (TITLE[method] || 'Payment')}</div>
 
-        {/* ── Cash ── */}
-        {method === 'cash' && (
-          <>
-            <label className="label">Cash Tendered</label>
-            <div style={{
-              fontSize: 32, fontWeight: 700, textAlign: 'center', padding: '12px',
-              background: 'var(--surface2)', borderRadius: 8, marginBottom: 4,
-              color: cashAmount >= total ? 'var(--success)' : 'var(--text)',
-              border: `2px solid ${cashAmount >= total ? 'var(--success)' : 'var(--border)'}`,
-            }}>
-              {currency} {cashInput || '0.00'}
-            </div>
-            {cashAmount >= total && (
-              <div style={{ textAlign: 'center', color: 'var(--success)', fontWeight: 600, marginBottom: 8 }}>
-                Change: {KES(change)}
+          {/* ── Method selector ── */}
+          {isSelector && (
+            <>
+              <div className="pay-method-grid">
+                {[
+                  { key: 'cash',    label: 'Cash' },
+                  { key: 'mpesa',   label: 'M-Pesa' },
+                  { key: 'card',    label: 'Card' },
+                  { key: 'account', label: 'Account' },
+                ].map(({ key, label }) => (
+                  <button key={key} className="pay-method-tile" onClick={() => setActiveMethod(key)}>{label}</button>
+                ))}
+                <button className="pay-method-tile pay-method-tile--full" onClick={() => setActiveMethod('split')}>
+                  Split / Multi-Tender
+                </button>
               </div>
-            )}
-            <NumPad value={cashInput} onChange={setCashInput} />
-            {error && <p className="error-msg">{error}</p>}
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onClose} disabled={processing}>Cancel</button>
-              <button className="btn btn-success btn-lg" style={{ flex: 2 }} onClick={handleCashPay}
-                disabled={processing || cashAmount < total}>
-                {processing ? 'Processing...' : `Collect ${KES(cashAmount)}`}
-              </button>
-            </div>
-          </>
-        )}
+              <button className="btn btn-ghost" style={{ width: '100%', marginTop: 'auto' }} onClick={onClose}>Cancel</button>
+            </>
+          )}
 
-        {/* ── M-Pesa STK Push ── */}
-        {method === 'mpesa' && (
-          <>
-            {/* Stage: input phone number */}
-            {mpesaStage === 'input' && (
-              <>
-                <div style={{ textAlign: 'center', padding: '8px 0 12px' }}>
-                  <div style={{ fontWeight: 700, fontSize: 24, color: 'var(--success)', marginBottom: 4 }}>{KES(total)}</div>
-                  <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                    Enter customer phone to send an STK push prompt directly to their handset.
-                  </div>
+          {/* ── Cash ── */}
+          {method === 'cash' && !isSelector && (
+            <>
+              <label className="label">Cash Tendered</label>
+              <div style={{
+                fontSize: 36, fontWeight: 700, textAlign: 'center', padding: '14px',
+                background: 'var(--surface2)', borderRadius: 8, marginBottom: 4,
+                color: cashAmount >= total ? 'var(--success)' : 'var(--text)',
+                border: `2px solid ${cashAmount >= total ? 'var(--success)' : 'var(--border)'}`,
+              }}>
+                {currency} {cashInput || '0.00'}
+              </div>
+              {cashAmount >= total && (
+                <div style={{ textAlign: 'center', color: 'var(--success)', fontWeight: 700, marginBottom: 8, fontSize: 15 }}>
+                  Change: {KES(change)}
                 </div>
+              )}
+              <NumPad value={cashInput} onChange={setCashInput} />
+              {error && <p className="error-msg">{error}</p>}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onClose} disabled={processing}>Cancel</button>
+                <button className="btn btn-success btn-lg" style={{ flex: 2 }} onClick={handleCashPay}
+                  disabled={processing || cashAmount < total}>
+                  {processing ? 'Processing...' : `Collect ${KES(cashAmount)}`}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── M-Pesa STK Push ── */}
+          {method === 'mpesa' && !isSelector && (
+            <>
+              {/* Stage: input phone number */}
+              {mpesaStage === 'input' && (
+                <>
+                  <div style={{ textAlign: 'center', padding: '8px 0 12px' }}>
+                    <div style={{ fontWeight: 700, fontSize: 24, color: 'var(--success)', marginBottom: 4 }}>{KES(total)}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                      Enter customer phone to send an STK push prompt directly to their handset.
+                    </div>
+                  </div>
                 <label className="label">Customer Phone (M-Pesa)</label>
                 <input className="input"
                   value={mpesaPhone}
@@ -843,46 +826,62 @@ export default function PaymentModal({
             {/* ── Tender selector ── */}
             {splitScreen === 'select' && (
               <>
-                {/* Running tally */}
-                <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: splitTenders.length ? 8 : 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>Remaining</span>
-                    <span style={{ fontWeight: 800, fontSize: 22, color: splitRemaining <= 0.01 ? 'var(--success)' : 'var(--danger)' }}>
-                      {KES(splitRemaining)}
-                    </span>
-                  </div>
-                  {splitTenders.map((t, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, color: 'var(--text-muted)', paddingTop: 4, borderTop: '1px solid var(--border)' }}>
-                      <span>
-                        {t.method === 'account' ? (t.accountName || 'Account') : t.method.charAt(0).toUpperCase() + t.method.slice(1)}
-                        {t.ref ? <span style={{ fontSize: 11, marginLeft: 6, fontFamily: 'monospace' }}>{t.ref}</span> : null}
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontWeight: 600, color: 'var(--text)' }}>{KES(t.amount)}</span>
-                        <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14, padding: 0 }}
-                          onClick={() => removeSplitTender(i)}>✕</button>
-                      </div>
-                    </div>
-                  ))}
+                {/* Remaining bar */}
+                <div className="pay-remaining-bar">
+                  <span className="label">Remaining</span>
+                  <span className="amount" style={{ color: splitRemaining <= 0.01 ? 'var(--success)' : 'var(--danger)' }}>
+                    {KES(splitRemaining)}
+                  </span>
                 </div>
+
+                {/* Tenders table */}
+                {splitTenders.length > 0 && (
+                  <table className="pay-tenders-table">
+                    <thead>
+                      <tr>
+                        <th>Method</th>
+                        <th>Reference</th>
+                        <th>Amount</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {splitTenders.map((t, i) => (
+                        <tr key={i}>
+                          <td style={{ fontWeight: 600, textTransform: 'capitalize' }}>
+                            {t.method === 'account' ? (t.accountName || 'Account') : t.method}
+                          </td>
+                          <td style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)' }}>
+                            {t.ref || '—'}
+                          </td>
+                          <td style={{ fontWeight: 700 }}>{KES(t.amount)}</td>
+                          <td>
+                            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }}
+                              onClick={() => removeSplitTender(i)}>Remove</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
 
                 {/* Add payment method buttons */}
                 {splitRemaining > 0.01 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                  <div className="pay-method-grid" style={{ marginBottom: 12 }}>
                     {[
                       { label: 'Cash',    fn: () => { setSplitScreen('cash');    setSplitCashInput('');      setError('') } },
                       { label: 'M-Pesa',  fn: () => { setSplitScreen('mpesa');   setSplitMpesaStage('input'); setSplitMpesaRef(''); setError('') } },
                       { label: 'Card',    fn: () => { setSplitScreen('card');    setSplitCardStatus('');     setSplitCardIntentId(null); setError('') } },
                       { label: 'Account', fn: () => { setSplitScreen('account'); setSplitAcctAmt(splitRemaining.toFixed(2)); setError('') } },
                     ].map(({ label, fn }) => (
-                      <button key={label} className="tender-btn-clean" onClick={fn}>{label}</button>
+                      <button key={label} className="pay-method-tile" onClick={fn}>{label}</button>
                     ))}
                   </div>
                 )}
 
                 {error && <p className="error-msg">{error}</p>}
 
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
                   <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onClose} disabled={processing}>Cancel</button>
                   <button className="btn btn-success btn-lg" style={{ flex: 2 }}
                     onClick={handleSplitFinalize}
@@ -1077,6 +1076,8 @@ export default function PaymentModal({
             )}
           </>
         )}
+
+        </div>
       </div>
     </div>
   )
