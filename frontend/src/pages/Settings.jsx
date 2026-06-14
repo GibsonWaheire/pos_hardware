@@ -7,6 +7,7 @@ import {
   getSuppliers,
   generateAuthCard, revokeAuthCard,
   getNotificationLog, testNotification,
+  testEtimsConnection, listPendingEtims, retryPendingEtims, submitEtims,
 } from '../api'
 
 const ROLES = ['cashier', 'inventory', 'purchasing', 'manager', 'admin', 'supplier']
@@ -74,10 +75,21 @@ export default function Settings() {
   const [testBusy, setTestBusy]     = useState(false)
   const [testResult, setTestResult] = useState(null)
 
+  // eTIMS state
+  const EMPTY_ETIMS = { enabled: false, mode: 'sandbox', tin: '', bhf_id: '00', device_serial: '' }
+  const [etimsForm, setEtimsForm]       = useState(EMPTY_ETIMS)
+  const [etimsSaving, setEtimsSaving]   = useState(false)
+  const [etimsMsg, setEtimsMsg]         = useState('')
+  const [etimsTestResult, setEtimsTestResult] = useState(null)
+  const [etimsTestBusy, setEtimsTestBusy]     = useState(false)
+  const [etimsPending, setEtimsPending]       = useState([])
+  const [etimsRetryBusy, setEtimsRetryBusy]   = useState(false)
+
   useEffect(() => { loadStaff(); loadStore(); loadSuppliers() }, [])
   useEffect(() => {
     if (user?.role === 'admin') {
       getNotificationLog({ limit: 20 }).then(r => setNotifLog(r.data || [])).catch(() => {})
+      listPendingEtims().then(r => setEtimsPending(r.data || [])).catch(() => {})
     }
   }, [])
 
@@ -100,6 +112,9 @@ export default function Settings() {
         setNotifForm(prev => ({ ...prev, ...d.notification_config,
           events: { ...EMPTY_NOTIF.events, ...(d.notification_config.events || {}) }
         }))
+      }
+      if (d.etims_config && Object.keys(d.etims_config).length) {
+        setEtimsForm(prev => ({ ...EMPTY_ETIMS, ...prev, ...d.etims_config }))
       }
     } catch (e) { console.error(e) }
   }
@@ -142,6 +157,43 @@ export default function Settings() {
       setStoreMsg('Store settings saved')
       setTimeout(() => setStoreMsg(''), 3000)
     } catch (e) { setStoreMsg(e.message) } finally { setStoreSaving(false) }
+  }
+
+  async function saveEtimsConfig() {
+    setEtimsSaving(true); setEtimsMsg('')
+    try {
+      await updateStoreConfig({ etims_config: etimsForm })
+      setEtimsMsg('eTIMS settings saved')
+      setTimeout(() => setEtimsMsg(''), 3000)
+    } catch (e) { setEtimsMsg(e.message) } finally { setEtimsSaving(false) }
+  }
+
+  async function handleTestEtims() {
+    setEtimsTestBusy(true); setEtimsTestResult(null)
+    // Save first so backend uses latest values
+    try { await updateStoreConfig({ etims_config: etimsForm }) } catch (_) {}
+    try {
+      const res = await testEtimsConnection()
+      setEtimsTestResult(res.data)
+    } catch (e) { setEtimsTestResult({ ok: false, message: e.message }) } finally { setEtimsTestBusy(false) }
+  }
+
+  async function handleRetryAllEtims() {
+    setEtimsRetryBusy(true)
+    try {
+      const res = await retryPendingEtims()
+      setEtimsMsg(`Retry complete: ${res.data.submitted} submitted, ${res.data.failed} failed`)
+      const pend = await listPendingEtims()
+      setEtimsPending(pend.data || [])
+    } catch (e) { setEtimsMsg(e.message) } finally { setEtimsRetryBusy(false) }
+  }
+
+  async function handleRetryOne(invoiceId) {
+    try {
+      await submitEtims(invoiceId)
+      const pend = await listPendingEtims()
+      setEtimsPending(pend.data || [])
+    } catch (e) { console.error(e) }
   }
 
   function openAdd() {
@@ -531,6 +583,125 @@ export default function Settings() {
                               {n.status}
                             </span>
                             {n.error && <span style={{ fontSize: 10, color: 'var(--danger)', marginLeft: 4 }}>{n.error}</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {/* ── eTIMS / KRA Integration ── */}
+            <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12, marginTop: 8 }}>KRA eTIMS Integration</div>
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
+                Electronic Tax Invoice Management System
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8 }}>
+                  Mandatory for VAT-registered businesses in Kenya
+                </span>
+              </div>
+
+              {/* Enable + mode */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 16, alignItems: 'center', marginBottom: 16, padding: '12px 14px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!etimsForm.enabled}
+                    onChange={e => setEtimsForm({ ...etimsForm, enabled: e.target.checked })} />
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>Enable eTIMS submission</span>
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input type="radio" name="etims_mode" value="sandbox"
+                      checked={etimsForm.mode === 'sandbox'}
+                      onChange={() => setEtimsForm({ ...etimsForm, mode: 'sandbox' })} />
+                    Sandbox (testing)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', marginLeft: 12 }}>
+                    <input type="radio" name="etims_mode" value="production"
+                      checked={etimsForm.mode === 'production'}
+                      onChange={() => setEtimsForm({ ...etimsForm, mode: 'production' })} />
+                    Production
+                  </label>
+                </div>
+              </div>
+
+              {/* Credentials */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="label">KRA TIN</label>
+                  <input className="input" placeholder="P0512345678X"
+                    value={etimsForm.tin}
+                    onChange={e => setEtimsForm({ ...etimsForm, tin: e.target.value })} />
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Your KRA Tax Identification Number</div>
+                </div>
+                <div className="form-group">
+                  <label className="label">Branch ID (bhfId)</label>
+                  <input className="input" placeholder="00"
+                    value={etimsForm.bhf_id}
+                    onChange={e => setEtimsForm({ ...etimsForm, bhf_id: e.target.value })} />
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Main branch = 00</div>
+                </div>
+                <div className="form-group">
+                  <label className="label">Device Serial (VSCU/OSCU)</label>
+                  <input className="input" placeholder="SN1234567890"
+                    value={etimsForm.device_serial}
+                    onChange={e => setEtimsForm({ ...etimsForm, device_serial: e.target.value })} />
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>From your KRA-issued device</div>
+                </div>
+              </div>
+
+              {/* Test connection */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+                <button className="btn btn-ghost" onClick={handleTestEtims} disabled={etimsTestBusy}>
+                  {etimsTestBusy ? 'Testing…' : 'Test Connection'}
+                </button>
+                {etimsTestResult && (
+                  <span style={{ fontSize: 13, fontWeight: 500, color: etimsTestResult.ok ? 'var(--success)' : 'var(--danger)' }}>
+                    {etimsTestResult.ok ? 'Connected — ' : 'Failed — '}{etimsTestResult.message}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                {etimsMsg && <span style={{ fontSize: 13, color: etimsMsg.includes('saved') || etimsMsg.includes('complete') ? 'var(--success)' : 'var(--danger)' }}>{etimsMsg}</span>}
+                <button className="btn btn-primary" onClick={saveEtimsConfig} disabled={etimsSaving}>
+                  {etimsSaving ? 'Saving…' : 'Save eTIMS Settings'}
+                </button>
+              </div>
+            </div>
+
+            {/* Pending / failed eTIMS submissions */}
+            {etimsPending.length > 0 && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>
+                    Pending / Failed eTIMS Submissions ({etimsPending.length})
+                  </div>
+                  <button className="btn btn-primary btn-sm" onClick={handleRetryAllEtims} disabled={etimsRetryBusy}>
+                    {etimsRetryBusy ? 'Retrying…' : 'Retry All'}
+                  </button>
+                </div>
+                <div className="card" style={{ padding: 0, marginBottom: 24 }}>
+                  <table className="table" style={{ fontSize: 12 }}>
+                    <thead>
+                      <tr><th>Invoice</th><th>Date</th><th>Total</th><th>Status</th><th>Error</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {etimsPending.map(inv => (
+                        <tr key={inv.id}>
+                          <td style={{ fontWeight: 500 }}>{inv.invoice_number}</td>
+                          <td style={{ color: 'var(--text-muted)' }}>{inv.created_at ? new Date(inv.created_at).toLocaleDateString('en-KE') : '—'}</td>
+                          <td>KES {Number(inv.total).toLocaleString()}</td>
+                          <td>
+                            <span className={`badge ${inv.etims_status === 'pending' ? 'badge-yellow' : 'badge-red'}`} style={{ fontSize: 10 }}>
+                              {inv.etims_status}
+                            </span>
+                          </td>
+                          <td style={{ color: 'var(--danger)', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {inv.etims_error || '—'}
+                          </td>
+                          <td>
+                            <button className="btn btn-ghost btn-sm" onClick={() => handleRetryOne(inv.id)}>Retry</button>
                           </td>
                         </tr>
                       ))}

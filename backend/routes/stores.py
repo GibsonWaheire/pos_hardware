@@ -35,5 +35,9 @@ def update_config():
     if 'notification_config' in d and session.get('role') == 'admin':
         store.notification_config = json.dumps(d['notification_config'])
 
+    # eTIMS config — admin only
+    if 'etims_config' in d and session.get('role') == 'admin':
+        store.etims_config = json.dumps(d['etims_config'])
+
     db.session.commit()
     return jsonify(store.to_dict())

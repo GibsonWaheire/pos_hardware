@@ -660,6 +660,7 @@ export function printTaxInvoice(invoice, store = {}) {
         <div class="small">Payment Terms: ${invoice.payment_terms || 'Cash on delivery'}</div>
         ${invoice.due_date ? `<div class="small">Due: ${invoice.due_date}</div>` : ''}
         <div class="small">Issued By: ${invoice.issued_by_name || '—'}</div>
+        ${invoice.etims_cu_invoice_number ? `<div class="small" style="color:#15803d;margin-top:3pt">CU Invoice No: <strong>${invoice.etims_cu_invoice_number}</strong></div>` : ''}
       </div>
     </div>
 
@@ -695,6 +696,16 @@ export function printTaxInvoice(invoice, store = {}) {
         <div class="sig-box"><div class="line"></div><div class="name">Manager</div></div>
       </div>
     </div>
+    ${invoice.etims_cu_invoice_number ? `
+    <div style="display:flex;align-items:flex-start;gap:16pt;margin-top:14pt;border:1.5pt solid #15803d;border-radius:4pt;padding:8pt 12pt;background:#f0fdf4">
+      <div style="flex:1">
+        <div style="font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:.5pt;color:#15803d;margin-bottom:4pt">KRA eTIMS Verified Invoice</div>
+        <div class="small">CU Invoice No: <strong>${invoice.etims_cu_invoice_number}</strong></div>
+        ${invoice.etims_submitted_at ? `<div class="small">Submitted: ${new Date(invoice.etims_submitted_at).toLocaleString('en-KE')}</div>` : ''}
+        <div class="small muted" style="margin-top:4pt;font-size:7.5pt">Scan QR code to verify this invoice on the KRA portal.</div>
+      </div>
+      ${invoice.etims_qr_code ? `<img src="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(invoice.etims_qr_code)}&size=100x100&margin=4" style="width:90pt;height:90pt;border:1pt solid #ccc;border-radius:3pt" alt="KRA QR">` : ''}
+    </div>` : ''}
     <div class="doc-footer">
       ${store.name || ''} ${store.tax_number ? '| KRA PIN: ' + store.tax_number : ''} | Generated ${new Date().toLocaleString('en-KE')}
       <br>This is a computer-generated tax invoice. No signature required unless stated above.

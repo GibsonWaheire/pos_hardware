@@ -833,12 +833,16 @@ class Store(db.Model):
     default_low_stock_threshold = db.Column(db.Integer, default=5)    # global low-stock alert level
     session_timeout_minutes = db.Column(db.Integer, default=10)       # idle timeout before lock screen
     notification_config = db.Column(db.Text, nullable=True)           # JSON blob — AT + SMTP + event toggles
+    etims_config        = db.Column(db.Text, nullable=True)           # JSON blob — KRA eTIMS credentials/settings
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
         import json as _json
         notif = {}
         try: notif = _json.loads(self.notification_config) if self.notification_config else {}
+        except: pass
+        etims = {}
+        try: etims = _json.loads(self.etims_config) if self.etims_config else {}
         except: pass
         return {
             'id': self.id, 'name': self.name, 'address': self.address,
@@ -850,6 +854,7 @@ class Store(db.Model):
             'default_low_stock_threshold': self.default_low_stock_threshold or 5,
             'session_timeout_minutes': self.session_timeout_minutes or 10,
             'notification_config': notif,
+            'etims_config': etims,
         }
 
 
@@ -1332,6 +1337,13 @@ class Invoice(db.Model):
 
     created_at     = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # KRA eTIMS fields
+    etims_status           = db.Column(db.String(20), nullable=True)   # pending | submitted | error | not_configured
+    etims_cu_invoice_number = db.Column(db.String(50), nullable=True)  # KRA-assigned CU invoice number
+    etims_qr_code          = db.Column(db.Text, nullable=True)         # QR data string from KRA
+    etims_submitted_at     = db.Column(db.DateTime, nullable=True)
+    etims_error            = db.Column(db.Text, nullable=True)
+
     credit_notes   = db.relationship('CreditNote', backref='invoice', lazy=True)
 
     def to_dict(self):
@@ -1356,6 +1368,11 @@ class Invoice(db.Model):
             'issued_by_name': self.issued_by_name,
             'items': json.loads(self.items_json) if self.items_json else [],
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'etims_status': self.etims_status,
+            'etims_cu_invoice_number': self.etims_cu_invoice_number,
+            'etims_qr_code': self.etims_qr_code,
+            'etims_submitted_at': self.etims_submitted_at.isoformat() if self.etims_submitted_at else None,
+            'etims_error': self.etims_error,
         }
 
 

@@ -1,9 +1,10 @@
 from flask import Blueprint, jsonify, request, session
 from db import db
-from models import Invoice, CreditNote, Sale, SaleItem, Customer
+from models import Invoice, CreditNote, Sale, SaleItem, Customer, Store
 from auth_utils import get_current_user
 from datetime import datetime, date
 import json
+import etims as etims_module
 
 bp = Blueprint('invoices', __name__, url_prefix='/api')
 
@@ -122,7 +123,32 @@ def create_or_get_sale_invoice(sale_id):
     )
     db.session.add(inv)
     db.session.commit()
+
+    # Auto-submit to eTIMS if configured
+    _auto_submit_etims(inv)
+
     return jsonify(inv.to_dict()), 201
+
+
+def _auto_submit_etims(inv):
+    """Submit invoice to KRA eTIMS immediately after creation."""
+    try:
+        store = Store.query.first()
+        if not store:
+            return
+        result = etims_module.submit_invoice(inv, store)
+        inv.etims_status            = result['status']
+        inv.etims_cu_invoice_number = result.get('cu_invoice_number')
+        inv.etims_qr_code           = result.get('qr_code')
+        inv.etims_error             = result.get('error')
+        if result.get('submitted_at'):
+            try:
+                inv.etims_submitted_at = datetime.fromisoformat(result['submitted_at'].replace('Z', '+00:00'))
+            except Exception:
+                pass
+        db.session.commit()
+    except Exception:
+        pass  # never fail invoice creation due to eTIMS
 
 
 @bp.route('/invoices', methods=['GET'])
@@ -171,6 +197,90 @@ def customer_invoices(customer_id):
                 .order_by(Invoice.created_at.desc())
                 .all())
     return jsonify([i.to_dict() for i in invoices])
+
+
+# ── eTIMS endpoints ────────────────────────────────────────────────────────────
+
+@bp.route('/invoices/<int:inv_id>/submit-etims', methods=['POST'])
+def submit_invoice_etims(inv_id):
+    """Manually submit (or retry) an invoice to KRA eTIMS. Manager/admin only."""
+    if _role() not in MANAGER_ROLES:
+        return _deny()
+    inv   = Invoice.query.get_or_404(inv_id)
+    store = Store.query.first()
+    if not store:
+        return jsonify({'error': 'Store not configured'}), 400
+    result = etims_module.submit_invoice(inv, store)
+    inv.etims_status            = result['status']
+    inv.etims_cu_invoice_number = result.get('cu_invoice_number')
+    inv.etims_qr_code           = result.get('qr_code')
+    inv.etims_error             = result.get('error')
+    if result.get('submitted_at'):
+        try:
+            inv.etims_submitted_at = datetime.fromisoformat(result['submitted_at'].replace('Z', '+00:00'))
+        except Exception:
+            pass
+    db.session.commit()
+    return jsonify({'result': result, 'invoice': inv.to_dict()})
+
+
+@bp.route('/invoices/etims-pending', methods=['GET'])
+def list_etims_pending():
+    """List invoices with pending/error eTIMS status. Manager/admin only."""
+    if _role() not in MANAGER_ROLES:
+        return _deny()
+    invoices = (Invoice.query
+                .filter(Invoice.etims_status.in_(['pending', 'error']))
+                .order_by(Invoice.created_at.desc())
+                .limit(100)
+                .all())
+    return jsonify([i.to_dict() for i in invoices])
+
+
+@bp.route('/invoices/etims-retry-all', methods=['POST'])
+def retry_all_etims():
+    """Retry all pending/error eTIMS submissions. Manager/admin only."""
+    if _role() not in MANAGER_ROLES:
+        return _deny()
+    store = Store.query.first()
+    if not store:
+        return jsonify({'error': 'Store not configured'}), 400
+    pending = (Invoice.query
+               .filter(Invoice.etims_status.in_(['pending', 'error']))
+               .limit(50)
+               .all())
+    submitted = 0
+    failed = 0
+    for inv in pending:
+        result = etims_module.submit_invoice(inv, store)
+        inv.etims_status            = result['status']
+        inv.etims_cu_invoice_number = result.get('cu_invoice_number')
+        inv.etims_qr_code           = result.get('qr_code')
+        inv.etims_error             = result.get('error')
+        if result.get('submitted_at'):
+            try:
+                inv.etims_submitted_at = datetime.fromisoformat(result['submitted_at'].replace('Z', '+00:00'))
+            except Exception:
+                pass
+        if result.get('ok'):
+            submitted += 1
+        else:
+            failed += 1
+    db.session.commit()
+    return jsonify({'submitted': submitted, 'failed': failed, 'total': len(pending)})
+
+
+@bp.route('/etims/test-connection', methods=['POST'])
+def test_etims_connection():
+    """Test KRA eTIMS connection with current settings. Admin only."""
+    if _role() != 'admin':
+        return _deny()
+    store = Store.query.first()
+    if not store:
+        return jsonify({'ok': False, 'message': 'Store not configured'}), 400
+    cfg = etims_module.get_etims_config(store)
+    ok, message = etims_module.test_connection(cfg)
+    return jsonify({'ok': ok, 'message': message})
 
 
 # ── Credit Note endpoints ──────────────────────────────────────────────────────

@@ -809,4 +809,10 @@ export const getHardwareStatus = () => withLocal(
   () => local.lsStub({ printer: { type: 'network' }, cash_drawer: { port: '/dev/ttyUSB0' } })
 )
 
+// ── eTIMS / KRA ────────────────────────────────────────────────────────────────
+export const submitEtims         = (invoiceId) => api.post(`/invoices/${invoiceId}/submit-etims`)
+export const retryPendingEtims   = ()           => api.post('/invoices/etims-retry-all')
+export const listPendingEtims    = ()           => api.get('/invoices/etims-pending')
+export const testEtimsConnection = ()           => api.post('/etims/test-connection')
+
 export default api
