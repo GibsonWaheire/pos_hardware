@@ -834,6 +834,7 @@ class Store(db.Model):
     session_timeout_minutes = db.Column(db.Integer, default=10)       # idle timeout before lock screen
     notification_config = db.Column(db.Text, nullable=True)           # JSON blob — AT + SMTP + event toggles
     etims_config        = db.Column(db.Text, nullable=True)           # JSON blob — KRA eTIMS credentials/settings
+    sheets_config       = db.Column(db.Text, nullable=True)           # JSON blob — Google Sheets export settings
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
@@ -843,6 +844,9 @@ class Store(db.Model):
         except: pass
         etims = {}
         try: etims = _json.loads(self.etims_config) if self.etims_config else {}
+        except: pass
+        sheets = {}
+        try: sheets = _json.loads(self.sheets_config) if self.sheets_config else {}
         except: pass
         return {
             'id': self.id, 'name': self.name, 'address': self.address,
@@ -855,6 +859,7 @@ class Store(db.Model):
             'session_timeout_minutes': self.session_timeout_minutes or 10,
             'notification_config': notif,
             'etims_config': etims,
+            'sheets_config': sheets,
         }
 
 

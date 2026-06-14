@@ -76,6 +76,7 @@ from routes.grn import bp as grn_bp
 from routes.invoices import bp as invoices_bp
 from routes.overrides import bp as overrides_bp
 from routes.notifications import bp as notifications_bp
+from routes.sheets import bp as sheets_bp
 
 app.register_blueprint(products_bp)
 app.register_blueprint(sales_bp)
@@ -107,6 +108,7 @@ app.register_blueprint(grn_bp)
 app.register_blueprint(invoices_bp)
 app.register_blueprint(overrides_bp)
 app.register_blueprint(notifications_bp)
+app.register_blueprint(sheets_bp)
 
 # Apply tighter rate limits to auth endpoints
 limiter.limit('10 per minute')(auth_bp)
@@ -131,6 +133,7 @@ def _ensure_columns():
         ('sales',           'tenders_json',                 'TEXT'),
         ('stores',          'notification_config',          'TEXT'),
         ('stores',          'etims_config',                 'TEXT'),
+        ('stores',          'sheets_config',                'TEXT'),
         ('invoices',        'etims_status',                 'VARCHAR(20)'),
         ('invoices',        'etims_cu_invoice_number',      'VARCHAR(50)'),
         ('invoices',        'etims_qr_code',                'TEXT'),
@@ -147,7 +150,28 @@ def _ensure_columns():
 
 
 with app.app_context():
+    db.create_all()
     _ensure_columns()
+
+
+# ── Nightly Google Sheets export (23:45) ──────────────────────────────────────
+
+def _start_scheduler():
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from sheets_export import push_all as _push_all
+        _sched = BackgroundScheduler(daemon=True)
+        _sched.add_job(lambda: _push_all(app), 'cron', hour=23, minute=45,
+                       id='sheets_nightly', replace_existing=True)
+        _sched.start()
+    except ImportError:
+        pass  # APScheduler not installed — nightly push disabled; use "Push Now" in Settings
+
+
+# Only start the scheduler in the main process (not the Werkzeug reloader child)
+import os as _os
+if _os.environ.get('WERKZEUG_RUN_MAIN') != 'false':
+    _start_scheduler()
 
 
 @app.route('/api/health')

@@ -10,3 +10,6 @@ pyserial==3.5
 requests==2.32.3
 psycopg2-binary==2.9.9
 bcrypt==4.2.0
+google-api-python-client==2.136.0
+google-auth==2.30.0
+APScheduler==3.10.4

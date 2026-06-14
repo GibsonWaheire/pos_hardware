@@ -815,4 +815,8 @@ export const retryPendingEtims   = ()           => api.post('/invoices/etims-ret
 export const listPendingEtims    = ()           => api.get('/invoices/etims-pending')
 export const testEtimsConnection = ()           => api.post('/etims/test-connection')
 
+// ── Google Sheets export ───────────────────────────────────────────────────────
+export const pushSheetsNow  = ()  => api.post('/sheets/push-now')
+export const getSheetsStatus = () => api.get('/sheets/status')
+
 export default api

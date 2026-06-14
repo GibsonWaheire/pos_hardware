@@ -8,6 +8,7 @@ import {
   generateAuthCard, revokeAuthCard,
   getNotificationLog, testNotification,
   testEtimsConnection, listPendingEtims, retryPendingEtims, submitEtims,
+  pushSheetsNow, getSheetsStatus,
 } from '../api'
 
 const ROLES = ['cashier', 'inventory', 'purchasing', 'manager', 'admin', 'supplier']
@@ -75,6 +76,18 @@ export default function Settings() {
   const [testBusy, setTestBusy]     = useState(false)
   const [testResult, setTestResult] = useState(null)
 
+  // Google Sheets state
+  const EMPTY_SHEETS = {
+    enabled: false, spreadsheet_id: '', service_account_json: '',
+    tabs: { daily_sales: true, stock_levels: true, shift_reports: true, top_products: true, accounts: true },
+  }
+  const [sheetsForm, setSheetsForm]       = useState(EMPTY_SHEETS)
+  const [sheetsSaving, setSheetsSaving]   = useState(false)
+  const [sheetsMsg, setSheetsMsg]         = useState('')
+  const [sheetsPushBusy, setSheetsPushBusy] = useState(false)
+  const [sheetsPushResult, setSheetsPushResult] = useState(null)
+  const [sheetsStatus, setSheetsStatus]   = useState(null)
+
   // eTIMS state
   const EMPTY_ETIMS = { enabled: false, mode: 'sandbox', tin: '', bhf_id: '00', device_serial: '' }
   const [etimsForm, setEtimsForm]       = useState(EMPTY_ETIMS)
@@ -90,6 +103,7 @@ export default function Settings() {
     if (user?.role === 'admin') {
       getNotificationLog({ limit: 20 }).then(r => setNotifLog(r.data || [])).catch(() => {})
       listPendingEtims().then(r => setEtimsPending(r.data || [])).catch(() => {})
+      getSheetsStatus().then(r => setSheetsStatus(r.data)).catch(() => {})
     }
   }, [])
 
@@ -115,6 +129,11 @@ export default function Settings() {
       }
       if (d.etims_config && Object.keys(d.etims_config).length) {
         setEtimsForm(prev => ({ ...EMPTY_ETIMS, ...prev, ...d.etims_config }))
+      }
+      if (d.sheets_config && Object.keys(d.sheets_config).length) {
+        setSheetsForm(prev => ({ ...EMPTY_SHEETS, ...prev, ...d.sheets_config,
+          tabs: { ...EMPTY_SHEETS.tabs, ...(d.sheets_config.tabs || {}) }
+        }))
       }
     } catch (e) { console.error(e) }
   }
@@ -157,6 +176,26 @@ export default function Settings() {
       setStoreMsg('Store settings saved')
       setTimeout(() => setStoreMsg(''), 3000)
     } catch (e) { setStoreMsg(e.message) } finally { setStoreSaving(false) }
+  }
+
+  async function saveSheetsConfig() {
+    setSheetsSaving(true); setSheetsMsg('')
+    try {
+      await updateStoreConfig({ sheets_config: sheetsForm })
+      setSheetsMsg('Google Sheets settings saved')
+      setTimeout(() => setSheetsMsg(''), 3000)
+    } catch (e) { setSheetsMsg(e.message) } finally { setSheetsSaving(false) }
+  }
+
+  async function handlePushNow() {
+    setSheetsPushBusy(true); setSheetsPushResult(null)
+    // Save latest form values first
+    try { await updateStoreConfig({ sheets_config: sheetsForm }) } catch (_) {}
+    try {
+      const res = await pushSheetsNow()
+      setSheetsPushResult(res.data)
+      getSheetsStatus().then(r => setSheetsStatus(r.data)).catch(() => {})
+    } catch (e) { setSheetsPushResult({ ok: false, error: e.message }) } finally { setSheetsPushBusy(false) }
   }
 
   async function saveEtimsConfig() {
@@ -591,6 +630,104 @@ export default function Settings() {
                 </div>
               </>
             )}
+
+            {/* ── Google Sheets Export ── */}
+            <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12, marginTop: 8 }}>Google Sheets Export</div>
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
+                Nightly one-way push to Google Sheets
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8 }}>
+                  Runs automatically at 23:45 every night
+                </span>
+              </div>
+
+              {/* Enable */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 14px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!sheetsForm.enabled}
+                    onChange={e => setSheetsForm({ ...sheetsForm, enabled: e.target.checked })} />
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>Enable nightly Google Sheets export</span>
+                </label>
+              </div>
+
+              {/* Spreadsheet */}
+              <div className="form-group">
+                <label className="label">Spreadsheet URL or ID</label>
+                <input className="input" placeholder="https://docs.google.com/spreadsheets/d/… or just the ID"
+                  value={sheetsForm.spreadsheet_id}
+                  onChange={e => setSheetsForm({ ...sheetsForm, spreadsheet_id: e.target.value })} />
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
+                  Share the spreadsheet with the service account email (Editor access)
+                </div>
+              </div>
+
+              {/* Service account JSON */}
+              <div className="form-group">
+                <label className="label">Service Account Key (JSON)</label>
+                <textarea className="input" rows={5}
+                  placeholder={'Paste the full contents of your service account JSON key file here…\n{\n  "type": "service_account",\n  "project_id": "...",\n  ...\n}'}
+                  value={sheetsForm.service_account_json}
+                  onChange={e => setSheetsForm({ ...sheetsForm, service_account_json: e.target.value })}
+                  style={{ fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} />
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
+                  Create a service account in Google Cloud Console → APIs &amp; Services → Credentials → Service Accounts → Keys
+                </div>
+              </div>
+
+              {/* Tab toggles */}
+              <div style={{ fontWeight: 600, fontSize: 13, margin: '12px 0 8px' }}>Tabs to export</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 16 }}>
+                {[
+                  { key: 'daily_sales',   label: 'Daily Sales' },
+                  { key: 'stock_levels',  label: 'Stock Levels' },
+                  { key: 'shift_reports', label: 'Shift Reports' },
+                  { key: 'top_products',  label: 'Top Products' },
+                  { key: 'accounts',      label: 'Accounts' },
+                ].map(({ key, label }) => (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', padding: '8px 10px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
+                    <input type="checkbox"
+                      checked={!!sheetsForm.tabs?.[key]}
+                      onChange={e => setSheetsForm(f => ({ ...f, tabs: { ...f.tabs, [key]: e.target.checked } }))} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+
+              {/* Last push status */}
+              {sheetsStatus?.last_push_at && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, padding: '8px 12px', background: 'var(--surface2)', borderRadius: 6 }}>
+                  Last push: {new Date(sheetsStatus.last_push_at).toLocaleString('en-KE')}
+                  {sheetsStatus.last_push_result && (
+                    <span style={{ marginLeft: 8, color: sheetsStatus.last_push_result.ok ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                      {sheetsStatus.last_push_result.ok
+                        ? `✓ OK — ${(sheetsStatus.last_push_result.pushed || []).join(', ')}`
+                        : `✗ ${sheetsStatus.last_push_result.error}`}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Push result */}
+              {sheetsPushResult && (
+                <div style={{ marginBottom: 12, padding: '8px 12px', background: sheetsPushResult.ok ? '#f0fdf4' : '#fef2f2', border: `1px solid ${sheetsPushResult.ok ? 'var(--success)' : 'var(--danger)'}`, borderRadius: 6, fontSize: 13 }}>
+                  {sheetsPushResult.ok
+                    ? `Pushed: ${(sheetsPushResult.pushed || []).join(', ')}`
+                    : `Error: ${sheetsPushResult.error}`}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
+                <button className="btn btn-ghost" onClick={handlePushNow} disabled={sheetsPushBusy}>
+                  {sheetsPushBusy ? 'Pushing…' : 'Push Now'}
+                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {sheetsMsg && <span style={{ fontSize: 13, color: sheetsMsg.includes('saved') ? 'var(--success)' : 'var(--danger)' }}>{sheetsMsg}</span>}
+                  <button className="btn btn-primary" onClick={saveSheetsConfig} disabled={sheetsSaving}>
+                    {sheetsSaving ? 'Saving…' : 'Save Sheets Settings'}
+                  </button>
+                </div>
+              </div>
+            </div>
 
             {/* ── eTIMS / KRA Integration ── */}
             <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12, marginTop: 8 }}>KRA eTIMS Integration</div>

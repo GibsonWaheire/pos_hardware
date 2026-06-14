@@ -39,5 +39,9 @@ def update_config():
     if 'etims_config' in d and session.get('role') == 'admin':
         store.etims_config = json.dumps(d['etims_config'])
 
+    # Google Sheets config — admin only
+    if 'sheets_config' in d and session.get('role') == 'admin':
+        store.sheets_config = json.dumps(d['sheets_config'])
+
     db.session.commit()
     return jsonify(store.to_dict())
