@@ -108,8 +108,8 @@ def adjust_stock():
     db.session.add(mv)
     db.session.commit()
     log_action(user, 'stock_adjust', 'product', product.id, product.name,
-               extra={'reason': reason, 'qty_change': actual_change,
-                      'before': before, 'after': product.stock_qty})
+               details={'reason': reason, 'qty_change': actual_change,
+                        'before': before, 'after': product.stock_qty})
     return jsonify({'product': product.to_dict(), 'adjustment': adj.to_dict()})
 
 
@@ -270,7 +270,7 @@ def approve_damage_report(report_id):
 
     db.session.commit()
     log_action(user, 'approve', 'damage_report', report.id, report.report_number,
-               extra={'product': report.product_name, 'qty': report.qty})
+               details={'product': report.product_name, 'qty': report.qty})
     return jsonify(report.to_dict())
 
 
@@ -292,5 +292,5 @@ def reject_damage_report(report_id):
     report.review_notes = data.get('notes', '')
     db.session.commit()
     log_action(user, 'reject', 'damage_report', report.id, report.report_number,
-               extra={'product': report.product_name, 'qty': report.qty})
+               details={'product': report.product_name, 'qty': report.qty})
     return jsonify(report.to_dict())

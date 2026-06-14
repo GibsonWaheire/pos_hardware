@@ -8,7 +8,7 @@ authorization and is recorded here for audit purposes.
 from flask import Blueprint, jsonify, request
 from db import db
 from models import VoidLog, Sale, Staff, Product
-from auth_utils import get_current_user
+from auth_utils import get_current_user, log_action
 from datetime import datetime
 
 bp = Blueprint('voids', __name__, url_prefix='/api/voids')
@@ -75,6 +75,13 @@ def void_sale():
         amount=sale.total,
     )
     db.session.add(log)
+    log_action(
+        user, 'void_sale', 'sale', sale.id, sale.receipt_number,
+        details={'total': sale.total, 'reason': data.get('reason', ''),
+                 'cashier': cashier_name, 'manager': manager.name},
+        authorizer={'id': manager.id, 'name': manager.name, 'role': manager.role},
+        auth_method='pin',
+    )
     db.session.commit()
 
     return jsonify({'sale': sale.to_dict(), 'void_log': log.to_dict()})
@@ -104,6 +111,12 @@ def no_sale():
         reason=data.get('reason', 'No-sale / count'),
     )
     db.session.add(log)
+    log_action(
+        user, 'no_sale', 'cash_drawer', None, 'No-Sale',
+        details={'reason': data.get('reason', 'No-sale / count'), 'cashier': cashier_name, 'manager': manager.name},
+        authorizer={'id': manager.id, 'name': manager.name, 'role': manager.role},
+        auth_method='pin',
+    )
     db.session.commit()
 
     # Optionally open cash drawer

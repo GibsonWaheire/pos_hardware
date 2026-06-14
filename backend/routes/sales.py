@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from db import db
 from models import Sale, SaleItem, Product, OfflineQueue, CustomerAccount, AccountTransaction, OverrideApproval
-from auth_utils import get_current_user
+from auth_utils import get_current_user, log_action
 from datetime import datetime, date
 from hardware.printer import print_receipt
 from hardware.cash_drawer import open_drawer
@@ -254,6 +254,23 @@ def create_sale():
 
     db.session.commit()
 
+    # Audit log — every sale must be accountable
+    log_action(
+        user, 'sale', 'sale', sale.id, sale.receipt_number,
+        details={
+            'total': sale.total,
+            'payment_method': sale.payment_method,
+            'items': [
+                {'name': i.product_name, 'qty': i.qty, 'unit_price': i.unit_price, 'line_total': i.line_total}
+                for i in sale_items
+            ],
+            'cashier': cashier_name,
+            'discount_total': round(discount_total, 2),
+            'tax_amount': round(tax_amount, 2),
+        },
+    )
+    db.session.commit()
+
     # Hardware actions (non-blocking — failures don't abort the sale)
     sale_dict = sale.to_dict()
     try:
@@ -320,6 +337,12 @@ def void_sale(sale_id):
                 product.stock_qty += item.qty
 
     sale.status = 'voided'
+    user = get_current_user()
+    log_action(
+        user, 'void', 'sale', sale.id, sale.receipt_number,
+        details={'total': sale.total, 'cashier': sale.cashier_name,
+                 'voided_by': user['name'] if user else 'unknown'},
+    )
     db.session.commit()
     return jsonify(sale.to_dict())
 

@@ -739,6 +739,8 @@ export const getAuditUsers = () => withLocal(
   () => api.get('/audit/users'),
   () => local.lsStub([])
 )
+export const getReconciliation = (params) =>
+  api.get('/audit/reconciliation', { params })
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 

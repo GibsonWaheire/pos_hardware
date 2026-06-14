@@ -1846,3 +1846,126 @@ export function printBarcodeLabel(product, format = 'label') {
   w.document.write(html)
   w.document.close()
 }
+
+// ── Reconciliation / Day Audit Report ─────────────────────────────────────────
+
+export function printReconciliation(data, store = {}) {
+  const { date_from, date_to, summary = {}, events = [] } = data
+  const storeName = store.name || 'Store'
+  const fmtDate = (iso) => {
+    if (!iso) return ''
+    return new Date(iso).toLocaleString('en-KE', {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
+  }
+  const fmt = (n) => `KES ${(+n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  const SOURCE_LABEL = {
+    sale:     'Sale',
+    void:     'Void',
+    override: 'Override',
+    stock:    'Stock Move',
+    audit:    'System',
+  }
+  const TYPE_COLOR = {
+    completed:  '#16a34a',
+    voided:     '#dc2626',
+    void_sale:  '#dc2626',
+    no_sale:    '#f59e0b',
+    override:   '#7c3aed',
+    sale_adj:   '#2563eb',
+    stock:      '#0891b2',
+  }
+
+  const headerRow = `<tr style="background:#1e3a5f;color:#fff;font-size:9pt;">
+    <th style="padding:4px 6px;text-align:left;width:130px">Time</th>
+    <th style="padding:4px 6px;text-align:left;width:70px">Source</th>
+    <th style="padding:4px 6px;text-align:left;width:80px">Type</th>
+    <th style="padding:4px 6px;text-align:left">User</th>
+    <th style="padding:4px 6px;text-align:left">Entity / Receipt</th>
+    <th style="padding:4px 6px;text-align:right">Amount (KES)</th>
+    <th style="padding:4px 6px;text-align:left">Details</th>
+  </tr>`
+
+  const rows = events.map(e => {
+    const color = TYPE_COLOR[e.type] || '#374151'
+    let amount = ''
+    let detail = ''
+
+    if (e.source === 'sale') {
+      amount = fmt(e.details?.total)
+      const items = (e.details?.items || [])
+        .map(i => `${i.product_name} x${i.qty} @ ${fmt(i.unit_price)} = ${fmt(i.line_total)}`)
+        .join('<br>')
+      const pay = e.details?.payment_method || ''
+      const tenders = e.details?.tenders
+      const payInfo = tenders
+        ? tenders.map(t => `${t.method}: ${fmt(t.amount)}`).join(', ')
+        : pay
+      detail = `${payInfo}${items ? '<br>' + items : ''}`
+    } else if (e.source === 'void') {
+      amount = fmt(e.details?.amount)
+      detail = `Reason: ${e.details?.reason || '—'} | Manager: ${e.details?.manager || '—'}`
+    } else if (e.source === 'override') {
+      detail = `${e.details?.action || ''}: ${e.details?.item_name || ''} | ${e.details?.original_qty ?? '?'} → ${e.details?.new_qty ?? '?'} | Auth: ${e.authorizer || '—'}`
+    } else if (e.source === 'stock') {
+      const ch = e.details?.qty_change ?? 0
+      detail = `${ch >= 0 ? '+' : ''}${ch} units (${e.details?.qty_before} → ${e.details?.qty_after}) | ${e.details?.notes || ''}`
+    } else if (e.source === 'audit') {
+      const d = e.details
+      detail = d ? Object.entries(d).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(' | ') : ''
+    }
+
+    return `<tr style="border-bottom:1px solid #e5e7eb;font-size:8.5pt;vertical-align:top;">
+      <td style="padding:3px 6px;white-space:nowrap">${fmtDate(e.time)}</td>
+      <td style="padding:3px 6px">${SOURCE_LABEL[e.source] || e.source}</td>
+      <td style="padding:3px 6px;color:${color};font-weight:600">${e.type || ''}</td>
+      <td style="padding:3px 6px">${e.user || '—'}<br><span style="color:#6b7280;font-size:7.5pt">${e.user_role || ''}</span></td>
+      <td style="padding:3px 6px">${e.entity || '—'}</td>
+      <td style="padding:3px 6px;text-align:right;font-weight:600">${amount}</td>
+      <td style="padding:3px 6px;color:#374151;font-size:8pt">${detail}</td>
+    </tr>`
+  }).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Reconciliation Report — ${date_from}${date_to !== date_from ? ' to ' + date_to : ''}</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; background: #fff; padding: 15mm 18mm; }
+@media print { @page { size: A4 landscape; margin: 0; } body { padding: 12mm 15mm; } }
+h1 { font-size: 16pt; margin-bottom: 2px; }
+h2 { font-size: 11pt; color: #555; margin-bottom: 12px; font-weight: normal; }
+.summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.stat { background: #f3f4f6; border-radius: 6px; padding: 8px 14px; min-width: 120px; }
+.stat-label { font-size: 8pt; color: #6b7280; text-transform: uppercase; }
+.stat-value { font-size: 13pt; font-weight: 700; color: #111; }
+.stat-value.green { color: #16a34a; }
+.stat-value.red   { color: #dc2626; }
+table { width: 100%; border-collapse: collapse; }
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+</style>
+</head><body>
+<h1>${storeName} — Reconciliation Report</h1>
+<h2>Period: ${date_from}${date_to !== date_from ? ' to ' + date_to : ''} &nbsp;|&nbsp; Printed: ${new Date().toLocaleString('en-KE')}</h2>
+
+<div class="summary">
+  <div class="stat"><div class="stat-label">Sales</div><div class="stat-value">${summary.sales_count ?? 0}</div></div>
+  <div class="stat"><div class="stat-label">Total Revenue</div><div class="stat-value green">${fmt(summary.total_revenue)}</div></div>
+  <div class="stat"><div class="stat-label">Discounts</div><div class="stat-value">${fmt(summary.total_discounts)}</div></div>
+  <div class="stat"><div class="stat-label">Tax Collected</div><div class="stat-value">${fmt(summary.total_tax)}</div></div>
+  <div class="stat"><div class="stat-label">Voided</div><div class="stat-value red">${summary.voided_count ?? 0} (${fmt(summary.void_amount)})</div></div>
+  <div class="stat"><div class="stat-label">Overrides</div><div class="stat-value">${summary.override_count ?? 0}</div></div>
+  <div class="stat"><div class="stat-label">Stock Moves</div><div class="stat-value">${summary.stock_move_count ?? 0}</div></div>
+  <div class="stat"><div class="stat-label">Total Events</div><div class="stat-value">${summary.event_count ?? 0}</div></div>
+</div>
+
+<table>
+  <thead>${headerRow}</thead>
+  <tbody>${rows || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#6b7280">No events in this period</td></tr>'}</tbody>
+</table>
+</body></html>`
+
+  printDoc(`Reconciliation ${date_from}`, html)
+}
