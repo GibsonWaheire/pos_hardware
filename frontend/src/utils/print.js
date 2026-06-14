@@ -1127,11 +1127,34 @@ export function printSaleReceipt(sale, store = {}) {
       <span class="total-label">TOTAL</span><span class="total-val">${fmt(sale.total)}</span>
     </div>
     <div class="solid-div"></div>
-    <div class="row"><span>Payment:</span><span style="text-transform:capitalize">${pm.replace(/_/g, ' ')}</span></div>
-    ${pm === 'cash' ? `
-      <div class="row"><span>Tendered</span><span>${fmt(sale.cash_tendered)}</span></div>
-      <div class="row bold"><span>Change</span><span>${fmt(sale.change_given)}</span></div>` : ''}
-    ${pm === 'mpesa' && sale.mpesa_ref ? `<div class="row"><span>M-Pesa Ref:</span><span>${sale.mpesa_ref}</span></div>` : ''}
+    ${(function() {
+      const tenders = (() => { try { return JSON.parse(sale.tenders_json || 'null') } catch { return null } })()
+      if (tenders && tenders.length > 0) {
+        const rows = tenders.map(t => {
+          const label = t.method === 'cash'    ? 'Cash'
+                      : t.method === 'mpesa'   ? 'M-Pesa'
+                      : t.method === 'card'    ? 'Card'
+                      : t.method === 'account' ? `Account${t.accountName ? ' — ' + t.accountName : ''}`
+                      : t.method
+          const detail = t.method === 'mpesa' && t.ref  ? `<div class="row" style="font-size:8.5pt;color:#555"><span style="padding-left:8pt">Ref:</span><span>${t.ref}</span></div>` : ''
+          return `<div class="row"><span>${label}</span><span>${fmt(t.amount)}</span></div>${detail}`
+        }).join('')
+        const change = sale.change_given > 0 ? `<div class="row bold"><span>Change</span><span>${fmt(sale.change_given)}</span></div>` : ''
+        return `<div class="row" style="font-weight:700">Payment breakdown</div>${rows}${change}`
+      }
+      if (pm === 'cash') return `
+        <div class="row"><span>Payment</span><span>Cash</span></div>
+        <div class="row"><span>Tendered</span><span>${fmt(sale.cash_tendered)}</span></div>
+        <div class="row bold"><span>Change</span><span>${fmt(sale.change_given)}</span></div>`
+      if (pm === 'mpesa') return `
+        <div class="row"><span>Payment</span><span>M-Pesa</span></div>
+        ${sale.mpesa_ref ? `<div class="row"><span>Ref</span><span>${sale.mpesa_ref}</span></div>` : ''}`
+      if (pm === 'card') return `<div class="row"><span>Payment</span><span>Card</span></div>`
+      if (pm === 'account') return `
+        <div class="row"><span>Payment</span><span>Account</span></div>
+        ${sale.account_name ? `<div class="row"><span>Account</span><span>${sale.account_name}</span></div>` : ''}`
+      return `<div class="row"><span>Payment</span><span style="text-transform:capitalize">${pm.replace(/_/g,' ')}</span></div>`
+    })()}
     <div class="divider"></div>
     <div style="margin:3mm 0 1mm;font-size:8.5pt">Customer Signature</div>
     <div class="sig-line"></div>

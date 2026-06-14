@@ -127,6 +127,8 @@ def _ensure_columns():
         ('staff',           'login_attempts',               'INTEGER DEFAULT 0'),
         ('staff',           'locked_until',                 'DATETIME'),
         ('products',        'image_url',                    'VARCHAR(500)'),
+        ('sales',           'mpesa_amount',                 'REAL DEFAULT 0.0'),
+        ('sales',           'tenders_json',                 'TEXT'),
     ]
     with db.engine.connect() as conn:
         for table, col, col_type in cols_to_add:

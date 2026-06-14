@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  getProducts, getCategories, getProductByBarcode, getProductByPlu,
+  getProducts, getProductByBarcode, getProductByPlu,
   getCurrentShift, openShift, getAccountByCustomer, getLoyaltyConfig,
   getSales, getStoreConfig, printReceipt,
 } from '../api'
@@ -10,7 +10,6 @@ import { useIdleTimeout } from '../hooks/useIdleTimeout'
 import { printSaleReceipt } from '../utils/print'
 import { parkSale, getParkedSales, retrieveSale, discardSale } from '../utils/parkedSales'
 import Cart from '../components/Cart'
-import CategorySidebar from '../components/CategorySidebar'
 import IdleScreen from '../components/IdleScreen'
 import IdleCheckout from '../components/IdleCheckout'
 import PaymentModal from '../components/PaymentModal'
@@ -64,28 +63,6 @@ export default function POS() {
     if (shiftStatus !== 'open') return
     getStoreConfig().then(r => setStoreConfig(r.data || {})).catch(() => {})
   }, [shiftStatus])
-
-  // ── Category sidebar ──────────────────────────────────────────────────────
-  const [categories, setCategories]           = useState([])
-  const [selectedCategory, setSelectedCategory] = useState('')
-  useEffect(() => {
-    if (shiftStatus !== 'open') return
-    getCategories().then(r => setCategories(r.data || [])).catch(() => {})
-  }, [shiftStatus])
-
-  // ── Browse product tiles (shown when search is empty) ─────────────────────
-  const [browseProducts, setBrowseProducts] = useState([])
-  const [browseLoading, setBrowseLoading]   = useState(false)
-  useEffect(() => {
-    if (shiftStatus !== 'open') return
-    setBrowseLoading(true)
-    const params = { active: 'true', limit: 120 }
-    if (selectedCategory) params.category_id = selectedCategory
-    getProducts(params)
-      .then(r => setBrowseProducts(r.data || []))
-      .catch(() => setBrowseProducts([]))
-      .finally(() => setBrowseLoading(false))
-  }, [shiftStatus, selectedCategory])
 
   // ── Idle / attract screen (90s) ───────────────────────────────────────────
   const [attracted, setAttracted] = useState(false)
@@ -603,21 +580,13 @@ export default function POS() {
 
       {attracted && <IdleScreen storeName={storeConfig.name} onDismiss={() => setAttracted(false)} />}
 
-      {/* ══ Panel 1: Category sidebar ══ */}
-      <CategorySidebar
-        categories={categories}
-        selected={selectedCategory}
-        onSelect={cat => { setSelectedCategory(cat); setSearchQuery(''); setSearchResults([]); setNoResults(false) }}
-      />
-
-      {/* ══ Panel 2: Product browse / search ══ */}
-      <div className="pos-product-panel">
-        {/* Search bar */}
+      {/* ══ Left: Compact search panel ══ */}
+      <div className="pos-search-panel">
         <div className="pos-search-wrap">
           <input
             ref={searchRef}
             className="pos-search-input"
-            placeholder="Search item or scan barcode  (F3 / /)"
+            placeholder="Search or scan barcode  (F3)"
             value={searchQuery}
             onChange={e => { setSearchQuery(e.target.value); setNoResults(false) }}
             onKeyDown={handleSearchKey}
@@ -626,7 +595,6 @@ export default function POS() {
           />
         </div>
 
-        {/* Zero-price error banner */}
         {zeroPriceError && (
           <div style={{
             padding: '8px 16px', background: '#ef444420', borderBottom: '2px solid #ef4444',
@@ -638,7 +606,6 @@ export default function POS() {
 
         {searchLoading && <div className="search-loading">Searching…</div>}
 
-        {/* Search results (list view when typing) */}
         {!searchLoading && searchResults.length > 0 && (
           <div className="search-results">
             {searchResults.map((p, i) => {
@@ -652,10 +619,6 @@ export default function POS() {
                   onClick={() => blocked ? showZeroPriceError(`"${p.name}" has no price set. Contact your manager.`) : addToCart(p)}
                   onMouseEnter={() => !blocked && setSelectedIdx(i)}
                 >
-                  {p.image_url
-                    ? <img className="sri-img" src={p.image_url} alt={p.name} />
-                    : <div className="sri-placeholder" />
-                  }
                   <span className="sri-name">
                     {p.name}
                     <span className="sri-unit">/{unit}</span>
@@ -670,7 +633,6 @@ export default function POS() {
           </div>
         )}
 
-        {/* No search results */}
         {!searchLoading && noResults && (
           <div className="search-no-result">
             <div>No product found for <strong>"{searchQuery}"</strong></div>
@@ -687,81 +649,35 @@ export default function POS() {
           </div>
         )}
 
-        {/* Browse tile grid (shown when no search query) */}
         {!searchQuery && !searchLoading && !noResults && (
-          browseLoading ? (
-            <div className="search-loading">Loading products…</div>
-          ) : browseProducts.length === 0 ? (
-            <div style={{ padding: 32, color: 'var(--text-muted)', fontSize: 13, textAlign: 'center' }}>
-              No products in this category
-            </div>
-          ) : (
-            <div className="product-tile-grid">
-              {browseProducts.map(p => {
-                const unit       = p.is_weight_based ? (p.weight_unit || 'kg') : (p.weight_unit || 'pc')
-                const hasNoPrice = !p.price || p.price <= 0
-                const blocked    = hasNoPrice && user?.role === 'cashier'
-                const isOOS      = p.stock_qty <= 0
-                const isLow      = p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 5)
-                return (
-                  <div
-                    key={p.id}
-                    className={`product-tile${isOOS ? ' tile-oos' : ''}${blocked ? ' tile-blocked' : ''}`}
-                    onClick={() => {
-                      if (blocked) { showZeroPriceError(`"${p.name}" has no price set. Contact your manager.`); return }
-                      addToCart(p)
-                    }}
-                    title={p.name}
-                  >
-                    <div className="tile-img-wrap">
-                      {p.image_url
-                        ? <img className="tile-img" src={p.image_url} alt={p.name} />
-                        : <span className="tile-icon">📦</span>
-                      }
-                      {isOOS && <div className="tile-oos-overlay">Out of Stock</div>}
-                      {isLow && !isOOS && <div className="tile-low-badge" />}
-                    </div>
-                    <div className="tile-info">
-                      <div className="tile-name">{p.name}</div>
-                      <div className="tile-unit">/{unit}</div>
-                      {hasNoPrice
-                        ? <span className="tile-no-price">No price</span>
-                        : <div className="tile-price">{fmt(p.price)}</div>
-                      }
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: 24, gap: 6 }}>
+            <div style={{ fontSize: 28, opacity: 0.2 }}>🔍</div>
+            <div>Search or scan to add items</div>
+          </div>
         )}
 
-        {/* Footer */}
         <div className="search-footer" style={{ marginTop: 'auto' }}>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            {browseProducts.length > 0 && !searchQuery ? `${browseProducts.length} products` : ''}
-          </span>
           <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={openHistory}>
             History
           </button>
         </div>
       </div>
 
-      {/* ══ Panel 3: Bill / Cart column ══ */}
+      {/* ══ Right: Bill / Cart (main panel) ══ */}
       <div className="pos-bill">
 
-        {/* Scan/add flash */}
+        {/* Scan/add flash — large customer-facing overlay */}
         {lastAdded && (
-          <div className="scan-flash">
-            {lastAdded.image_url
-              ? <img className="scan-flash-img" src={lastAdded.image_url} alt={lastAdded.name} />
-              : <div className="scan-flash-placeholder">🛒</div>
-            }
-            <div className="scan-flash-info">
-              <div className="scan-flash-name">{lastAdded.name}</div>
-              <div className="scan-flash-price">{fmt(lastAdded.price)}</div>
+          <div className="scan-flash-overlay">
+            <div className="scan-flash-card">
+              {lastAdded.image_url
+                ? <img className="scan-flash-card-img" src={lastAdded.image_url} alt={lastAdded.name} />
+                : <div className="scan-flash-card-placeholder" />
+              }
+              <div className="scan-flash-card-name">{lastAdded.name}</div>
+              <div className="scan-flash-card-price">{fmt(lastAdded.price)}</div>
+              <div className="scan-flash-card-badge">Added to bill</div>
             </div>
-            <div className="scan-flash-check">✓</div>
           </div>
         )}
 

@@ -89,7 +89,10 @@ export default function Login() {
   }
 
   const pressDept = (d) => press(d, deptPin, setDeptPin, submitDept)
-  const pressPers = (d) => press(d, persPin, setPersPin, submitPersonal)
+  const pressPers = (d) => {
+    if (staffList.length > 1 && !staffId) { setError('Select your name first'); return }
+    press(d, persPin, setPersPin, submitPersonal)
+  }
 
   // Keyboard support
   const onKey = useCallback((e) => {
@@ -100,7 +103,7 @@ export default function Login() {
       if (step === 1) pressDept('⌫')
       else            pressPers('⌫')
     }
-  }, [step, deptPin, persPin])
+  }, [step, deptPin, persPin, staffId, staffList.length])
 
   useEffect(() => {
     window.addEventListener('keydown', onKey)

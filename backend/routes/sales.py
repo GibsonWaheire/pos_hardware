@@ -46,8 +46,10 @@ def create_sale():
     if not items_data:
         return jsonify({'error': 'Sale must have at least one item'}), 400
 
+    tenders = data.get('tenders')   # multi-tender array (overrides payment_method when present)
+
     payment_method = data.get('payment_method', 'cash')
-    if payment_method not in ('cash', 'card', 'split', 'mpesa', 'account'):
+    if not tenders and payment_method not in ('cash', 'card', 'split', 'mpesa', 'account'):
         return jsonify({'error': 'payment_method must be cash, card, split, mpesa, or account'}), 400
 
     # Build sale items and deduct stock
@@ -113,31 +115,79 @@ def create_sale():
             return jsonify({'error': f'Override approval {oid} has already been used'}), 400
         validated_approvals.append(approval)
 
-    # Phase 7 — customer account payment
+    # ── Resolve payment fields (multi-tender or single method) ─────────────────
     account = None
     account_balance_before = None
     account_balance_after = None
+    tenders_json_str = None
 
-    if payment_method == 'account':
-        acct_id = data.get('account_id')
-        if not acct_id:
-            return jsonify({'error': 'account_id required for account payment'}), 400
-        account = CustomerAccount.query.get(acct_id)
-        if not account or not account.is_active:
-            return jsonify({'error': 'Account not found or inactive'}), 404
-        available = round(account.balance + account.credit_limit, 2)
-        if total > available:
-            return jsonify({
-                'error': f'Insufficient balance. Available: KES {available:,.2f}, Required: KES {total:,.2f}'
-            }), 400
-        account_balance_before = account.balance
-        account.balance = round(account.balance - total, 2)
-        account.total_charged = round(account.total_charged + total, 2)
-        account_balance_after = account.balance
+    if tenders:
+        # Multi-tender: derive everything from the tenders list
+        payment_method = 'split'
+        cash_tendered  = sum(float(t.get('amount', 0)) for t in tenders if t.get('method') == 'cash')
+        mpesa_amount   = sum(float(t.get('amount', 0)) for t in tenders if t.get('method') == 'mpesa')
+        card_amount    = sum(float(t.get('amount', 0)) for t in tenders if t.get('method') == 'card')
+        acct_tenders   = [t for t in tenders if t.get('method') == 'account']
 
-    cash_tendered = float(data.get('cash_tendered') or 0)
-    card_amount = float(data.get('card_amount') or 0)
-    change_given = round(cash_tendered - total, 2) if payment_method in ('cash', 'split') else 0.0
+        total_tendered = round(cash_tendered + mpesa_amount + card_amount +
+                               sum(float(t.get('amount', 0)) for t in acct_tenders), 2)
+        if total_tendered < total:
+            return jsonify({'error': f'Total tendered ({total_tendered:.2f}) is less than sale total ({total:.2f})'}), 400
+
+        change_given  = round(max(0, total_tendered - total), 2)
+        mpesa_ref_val = next((t.get('ref') for t in tenders if t.get('method') == 'mpesa' and t.get('ref')), None)
+        stripe_intent = next((t.get('intentId') for t in tenders if t.get('method') == 'card' and t.get('intentId')), None)
+        tenders_json_str = json.dumps(tenders)
+
+        # Process all account tenders
+        primary_acct_id = None
+        for at in acct_tenders:
+            acct_id  = at.get('accountId') or at.get('account_id')
+            acct_amt = float(at.get('amount', 0))
+            if not acct_id:
+                continue
+            acct = CustomerAccount.query.get(int(acct_id))
+            if not acct or not acct.is_active:
+                return jsonify({'error': 'Account not found or inactive'}), 404
+            available = round(acct.balance + acct.credit_limit, 2)
+            if acct_amt > available:
+                return jsonify({'error': f'Insufficient balance on account. Available: KES {available:,.2f}'}), 400
+            if account is None:
+                account = acct
+                account_balance_before = acct.balance
+                primary_acct_id = acct.id
+            acct.balance = round(acct.balance - acct_amt, 2)
+            acct.total_charged = round(acct.total_charged + acct_amt, 2)
+        if account:
+            account_balance_after = account.balance
+
+    else:
+        # Single-method legacy path
+        cash_tendered = float(data.get('cash_tendered') or 0)
+        card_amount   = float(data.get('card_amount') or 0)
+        mpesa_amount  = 0.0
+        change_given  = round(cash_tendered - total, 2) if payment_method in ('cash', 'split') else 0.0
+        mpesa_ref_val = data.get('mpesa_ref') or None
+        stripe_intent = data.get('stripe_payment_intent_id')
+        primary_acct_id = None
+
+        if payment_method == 'account':
+            acct_id = data.get('account_id')
+            if not acct_id:
+                return jsonify({'error': 'account_id required for account payment'}), 400
+            account = CustomerAccount.query.get(acct_id)
+            if not account or not account.is_active:
+                return jsonify({'error': 'Account not found or inactive'}), 404
+            available = round(account.balance + account.credit_limit, 2)
+            if total > available:
+                return jsonify({
+                    'error': f'Insufficient balance. Available: KES {available:,.2f}, Required: KES {total:,.2f}'
+                }), 400
+            account_balance_before = account.balance
+            account.balance = round(account.balance - total, 2)
+            account.total_charged = round(account.total_charged + total, 2)
+            account_balance_after = account.balance
+            primary_acct_id = account.id
 
     sale = Sale(
         receipt_number=generate_receipt_number(),
@@ -146,35 +196,56 @@ def create_sale():
         discount_total=round(discount_total, 2),
         total=total,
         payment_method=payment_method,
-        cash_tendered=cash_tendered if payment_method in ('cash', 'split') else None,
+        cash_tendered=cash_tendered if (payment_method in ('cash', 'split') or cash_tendered) else None,
         change_given=change_given,
         card_amount=card_amount,
+        mpesa_amount=mpesa_amount,
         cashier_id=cashier_id,
         cashier_name=cashier_name,
         offline_id=offline_id,
-        stripe_payment_intent_id=data.get('stripe_payment_intent_id'),
-        mpesa_ref=data.get('mpesa_ref') or None,
-        account_id=account.id if account else None,
+        stripe_payment_intent_id=stripe_intent,
+        mpesa_ref=mpesa_ref_val,
+        account_id=primary_acct_id,
         account_balance_before=account_balance_before,
         account_balance_after=account_balance_after,
+        tenders_json=tenders_json_str,
     )
     sale.items = sale_items
 
     db.session.add(sale)
     db.session.flush()   # get sale.id before committing
 
-    # Create account charge transaction
+    # Create account charge transaction(s)
     if account:
-        txn = AccountTransaction(
-            account_id=account.id,
-            type='charge',
-            amount=-total,   # negative = money out of account
-            balance_after=account_balance_after,
-            sale_id=sale.id,
-            cashier_name=cashier_name,
-            notes=f'Sale charged to account',
-        )
-        db.session.add(txn)
+        if tenders:
+            # Multi-tender: create one transaction per account tender
+            for at in acct_tenders:
+                acct_id = at.get('accountId') or at.get('account_id')
+                if not acct_id:
+                    continue
+                acct = CustomerAccount.query.get(int(acct_id))
+                if acct:
+                    txn = AccountTransaction(
+                        account_id=acct.id,
+                        type='charge',
+                        amount=-float(at.get('amount', 0)),
+                        balance_after=acct.balance,
+                        sale_id=sale.id,
+                        cashier_name=cashier_name,
+                        notes='Sale charged to account (split payment)',
+                    )
+                    db.session.add(txn)
+        else:
+            txn = AccountTransaction(
+                account_id=account.id,
+                type='charge',
+                amount=-total,
+                balance_after=account_balance_after,
+                sale_id=sale.id,
+                cashier_name=cashier_name,
+                notes='Sale charged to account',
+            )
+            db.session.add(txn)
 
     # Mark override approvals as used and link to this sale
     for approval in validated_approvals:
@@ -190,7 +261,7 @@ def create_sale():
     except Exception as e:
         print(f'Printer error (non-fatal): {e}')
 
-    if payment_method in ('cash', 'split'):
+    if payment_method in ('cash', 'split') or cash_tendered > 0:
         try:
             open_drawer()
         except Exception as e:

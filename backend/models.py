@@ -231,9 +231,11 @@ class Sale(db.Model):
 
     # Phase 7 — M-Pesa and customer account (deposit/credit)
     mpesa_ref = db.Column(db.String(50))            # M-Pesa confirmation code
+    mpesa_amount = db.Column(db.Float, default=0.0) # M-Pesa portion in multi-tender
     account_id = db.Column(db.Integer, db.ForeignKey('customer_accounts.id'), nullable=True)
     account_balance_before = db.Column(db.Float)   # balance before this charge
     account_balance_after = db.Column(db.Float)    # balance after this charge
+    tenders_json = db.Column(db.Text, nullable=True)  # JSON list of tenders for multi-method payment
 
     items = db.relationship('SaleItem', backref='sale', lazy=True, cascade='all, delete-orphan')
     returns = db.relationship('Return', backref='original_sale', lazy=True)
@@ -245,6 +247,7 @@ class Sale(db.Model):
             'discount_total': self.discount_total, 'total': self.total,
             'payment_method': self.payment_method, 'cash_tendered': self.cash_tendered,
             'change_given': self.change_given, 'card_amount': self.card_amount,
+            'mpesa_amount': self.mpesa_amount or 0.0,
             'cashier_name': self.cashier_name, 'shift_id': self.shift_id,
             'customer_id': self.customer_id, 'customer_name': self.customer_name,
             'loyalty_points_earned': self.loyalty_points_earned,
