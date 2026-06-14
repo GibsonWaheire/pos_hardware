@@ -101,6 +101,10 @@ Every feature gating decision must follow this table.
 | 32 | Hold Sale / Parked Transactions — up to 3 localStorage slots, 2-hour auto-expire, Hold button + note modal, Parked(N) badge, Retrieve modal with age/expiry display, Discard | ✅ |
 | 30 | Security Hardening — bcrypt PIN hashing, Flask-Limiter rate limiting, login lockout, session idle timeout + lock screen, HTTPS/secure cookies, input validation (validate_str/validate_positive/validate_email), audit log completeness across inventory/customers/products, remove hardcoded PINs | ✅ |
 | 39 | Shift Reconciliation Gate — mandatory per-tender reconciliation before close, cashier 403 on close, manager reconciliation modal in Reports, Print & Close / Close Without Printing, Shift History table with variance columns, A4 printShiftReconciliation | ✅ |
+| 40 | UI/UX Pass — IdleScreen customer-facing attract mode (60s welcome + 30s product slides), scan flash enlarged to 280px customer-visible card, PaymentModal 2-panel wide layout with method tiles + split tender table | ✅ |
+| 36 | Google Sheets Export — nightly push (APScheduler 23:45), 5 tabs, service account JSON auth, Settings UI, Push Now button | ✅ |
+| 37 | eTIMS / KRA Integration — eTIMS API client, auto-submit on invoice create, sandbox mode, QR code on printed invoices, Settings eTIMS tab, pending/retry endpoints | ✅ |
+| 41 | Comprehensive Audit Logging Foundation — log_action on every sale, void, no-sale, override, stock adjustment; reconciliation API endpoint combining all event sources; printReconciliation A4 landscape report | ✅ (partial — AuditLog.jsx page **TODO tomorrow**) |
 
 ---
 
@@ -1254,6 +1258,31 @@ Every document the system must be able to produce:
 - Files: `backend/etims.py` (new), `backend/models.py`, `backend/routes/invoices.py`, `frontend/src/pages/Settings.jsx`, `frontend/src/utils/print.js`
 
 > **Note:** KRA eTIMS is mandatory for VAT-registered businesses in Kenya as of 2024. Prioritize this before going live.
+
+---
+
+### Phase 41 — Comprehensive Audit & Reconciliation (PRIORITY — IN PROGRESS)
+
+**Goal:** Every action by every user is logged, viewable, and printable. Managers can produce a full day report showing every transaction, override, stock change, and login — for accountability and cash reconciliation.
+
+#### What's done (committed):
+- `backend/routes/sales.py`: `log_action` on every sale creation (with full item list) and every void
+- `backend/routes/voids.py`: `log_action` on `void_sale` and `no_sale` (manager-authorized)
+- `backend/routes/inventory.py`: fixed `extra=` → `details=` bug in log_action calls
+- `backend/routes/audit.py`: `/api/audit/reconciliation` — unified endpoint merging audit_logs + full sales with items + void_logs + override_approvals + stock_movements, sorted by time, with summary stats
+- `frontend/src/api.js`: `getReconciliation(params)` export
+- `frontend/src/utils/print.js`: `printReconciliation(data, store)` — A4 landscape with summary tiles + full event table
+
+#### TODO tomorrow — AuditLog.jsx page:
+- New page at `/audit-log` (manager + admin only)
+- Date range picker (default today)
+- Filter tabs: All / Sales / Voids & No-Sales / Overrides / Stock Changes / System
+- Summary bar: sales count, total revenue, void count, override count
+- Full chronological event table with expandable detail rows
+- Each sale row expands to show full item list
+- "Print Reconciliation Report" button → `printReconciliation()`
+- Add to `App.jsx`: route + nav entry "Audit" with icon (manager + admin)
+- Nav position: after Reports, before Settings
 
 ---
 
