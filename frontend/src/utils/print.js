@@ -1599,6 +1599,42 @@ export function printShiftReconciliation(report) {
     return v < 0 ? `SHORT ${kes(Math.abs(v))}` : `OVER ${kes(v)}`
   }
 
+  // ── Antitheft alert data ─────────────────────────────────────────────────
+  const voidedTxns    = (txns.list || []).filter(t => t.status !== 'completed')
+  const removedItems  = (ov.details || []).filter(d => d.action === 'REMOVE_ITEM')
+  const qtyAdjusts    = (ov.details || []).filter(d => d.action === 'ADJUST_QTY')
+  const hasAlerts     = voidedTxns.length > 0 || removedItems.length > 0 || qtyAdjusts.length > 0 || ov.flagged
+
+  const alertVoidRows = voidedTxns.map(t => `
+    <tr>
+      <td>${dt(t.time)}</td>
+      <td class="mono">${esc(t.receipt_number || '—')}</td>
+      <td style="text-transform:capitalize">${esc(t.tender || '—')}</td>
+      <td class="right" style="color:#a00;font-weight:700">${kes(t.amount)}</td>
+      <td style="color:#a00;font-weight:600">VOIDED</td>
+    </tr>
+  `).join('')
+
+  const alertRemoveRows = removedItems.map(d => `
+    <tr>
+      <td>${dt(d.time)}</td>
+      <td>${esc(d.cashier_name || '—')}</td>
+      <td>${esc(d.item_name || '—')}</td>
+      <td class="right">${d.original_qty || 0} → 0</td>
+      <td class="right" style="color:#a00;font-weight:700">${kes(d.value_impact || 0)}</td>
+    </tr>
+  `).join('')
+
+  const alertQtyRows = qtyAdjusts.map(d => `
+    <tr>
+      <td>${dt(d.time)}</td>
+      <td>${esc(d.cashier_name || '—')}</td>
+      <td>${esc(d.item_name || '—')}</td>
+      <td class="right">${d.original_qty || 0} → ${d.new_qty ?? 0}</td>
+      <td class="right" style="color:#7a5c00;font-weight:700">${(d.value_impact || 0) >= 0 ? '+' : ''}${kes(d.value_impact || 0)}</td>
+    </tr>
+  `).join('')
+
   const tenderRows = tenders.map(t => `
     <tr>
       <td style="font-weight:500;text-transform:capitalize">${esc(t.tender)}</td>
@@ -1664,6 +1700,15 @@ export function printShiftReconciliation(report) {
     .footer { margin-top: 12pt; font-size: 7.5pt; color: #666; border-top: 0.5pt solid #ccc; padding-top: 6pt; text-align: center; }
     .flagged-warn { background: #fee2e2; border: 1pt solid #fca5a5; padding: 4pt 8pt; margin: 4pt 0; font-size: 8.5pt; color: #a00; }
     .cwp-warn { background: #fef3c7; border: 1pt solid #f59e0b; padding: 4pt 8pt; margin-bottom: 8pt; font-size: 8.5pt; color: #7a5c00; }
+    .alert-box { border: 2.5pt solid #b91c1c; border-radius: 3pt; margin-bottom: 14pt; page-break-inside: avoid; }
+    .alert-box-hdr { background: #b91c1c; color: #fff; padding: 5pt 10pt; font-size: 10pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1pt; display: flex; justify-content: space-between; align-items: center; }
+    .alert-box-hdr span { font-size: 8pt; font-weight: 400; letter-spacing: 0; text-transform: none; }
+    .alert-sub { background: #fee2e2; padding: 3pt 10pt; font-size: 8pt; font-weight: 700; color: #7f1d1d; text-transform: uppercase; letter-spacing: 0.5pt; margin-top: 0; border-top: 1pt solid #fca5a5; }
+    .alert-box table { margin: 0; }
+    .alert-box td, .alert-box th { padding: 2.5pt 8pt; }
+    .alert-box thead tr { background: #fecaca; }
+    .alert-box tbody tr:nth-child(even) td { background: #fff5f5; }
+    .alert-none { padding: 10pt; font-size: 9pt; color: #555; font-style: italic; text-align: center; }
   </style></head><body>
 
   <!-- Header -->
@@ -1701,6 +1746,38 @@ export function printShiftReconciliation(report) {
   <div class="overall">
     Overall: ${esc(overallStatus)}${hasDisc ? ' — DISCREPANCY DETECTED' : ' — ALL TENDERS BALANCED'}
   </div>
+
+  <!-- Antitheft Alerts -->
+  ${hasAlerts ? `
+  <div class="alert-box">
+    <div class="alert-box-hdr">
+      &#9888; Antitheft Alerts
+      <span>${voidedTxns.length} void${voidedTxns.length !== 1 ? 's' : ''} &nbsp;·&nbsp; ${removedItems.length} removed item${removedItems.length !== 1 ? 's' : ''} &nbsp;·&nbsp; ${qtyAdjusts.length} qty adjustment${qtyAdjusts.length !== 1 ? 's' : ''}${ov.flagged ? ' &nbsp;·&nbsp; ⚑ HIGH OVERRIDE %' : ''}</span>
+    </div>
+
+    ${ov.flagged ? `<div class="flagged-warn" style="margin:0;border-radius:0;border-left:none;border-right:none;border-top:none">Override activity is ${ov.pct_of_sales}% of total sales — investigate before filing</div>` : ''}
+
+    ${voidedTxns.length > 0 ? `
+    <div class="alert-sub">Voided / Cancelled Sales (${voidedTxns.length})</div>
+    <table>
+      <thead><tr><th>Time</th><th>Receipt #</th><th>Tender</th><th class="right">Amount</th><th>Status</th></tr></thead>
+      <tbody>${alertVoidRows}</tbody>
+    </table>` : ''}
+
+    ${removedItems.length > 0 ? `
+    <div class="alert-sub">Items Removed from Sales (${removedItems.length})</div>
+    <table>
+      <thead><tr><th>Time</th><th>Cashier</th><th>Item removed</th><th class="right">Qty before</th><th class="right">Value impact</th></tr></thead>
+      <tbody>${alertRemoveRows}</tbody>
+    </table>` : ''}
+
+    ${qtyAdjusts.length > 0 ? `
+    <div class="alert-sub">Quantity Adjustments (${qtyAdjusts.length})</div>
+    <table>
+      <thead><tr><th>Time</th><th>Cashier</th><th>Item</th><th class="right">Qty change</th><th class="right">Value impact</th></tr></thead>
+      <tbody>${alertQtyRows}</tbody>
+    </table>` : ''}
+  </div>` : '<div style="margin-bottom:14pt;font-size:8.5pt;color:#007700;padding:6pt 0">&#10003; No antitheft flags for this shift.</div>'}
 
   <!-- Section 1: Tender reconciliation -->
   <section>
