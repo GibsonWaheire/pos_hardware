@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   getProducts, getProductByBarcode, getProductByPlu,
   getCurrentShift, openShift, getAccountByCustomer, getLoyaltyConfig,
-  getSales, getStoreConfig, printReceipt,
+  getSales, getStoreConfig, printReceipt, getCategories,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
@@ -82,6 +82,15 @@ export default function POS() {
   const searchRef   = useRef(null)
   const debounceRef = useRef(null)
 
+  // ── Category pills ────────────────────────────────────────────────────────
+  const [categories, setCategories] = useState([])
+  const [activeCat, setActiveCat]   = useState(null)
+
+  useEffect(() => {
+    if (shiftStatus !== 'open') return
+    getCategories().then(r => setCategories(r.data || [])).catch(() => {})
+  }, [shiftStatus])
+
   // Auto-focus search when shift opens; F3 or '/' focuses from anywhere
   useEffect(() => {
     if (shiftStatus === 'open') setTimeout(() => searchRef.current?.focus(), 100)
@@ -99,19 +108,24 @@ export default function POS() {
     return () => window.removeEventListener('keydown', onGlobalKey)
   }, [shiftStatus])
 
-  // Debounced product search
+  // Debounced product search (also fires on category change)
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    const q = searchQuery.trim()
+    if (!q && !activeCat) {
       setSearchResults([])
       setNoResults(false)
       setSelectedIdx(0)
       return
     }
     clearTimeout(debounceRef.current)
+    const delay = q ? 200 : 0  // instant on category tap, debounced on typing
     debounceRef.current = setTimeout(async () => {
       setSearchLoading(true)
       try {
-        const res = await getProducts({ q: searchQuery.trim(), active: 'true', limit: 20 })
+        const params = { active: 'true', limit: 30 }
+        if (q) params.q = q
+        if (activeCat) params.category_id = activeCat
+        const res = await getProducts(params)
         const data = res.data || []
         setSearchResults(data)
         setNoResults(data.length === 0)
@@ -120,9 +134,9 @@ export default function POS() {
         setSearchResults([])
       }
       setSearchLoading(false)
-    }, 200)
+    }, delay)
     return () => clearTimeout(debounceRef.current)
-  }, [searchQuery])
+  }, [searchQuery, activeCat])
 
   // ── Scan/add flash ────────────────────────────────────────────────────────
   const [lastAdded, setLastAdded] = useState(null) // { name, price, image_url }
@@ -593,6 +607,21 @@ export default function POS() {
             autoComplete="off"
             autoFocus
           />
+          {categories.length > 0 && (
+            <div className="cat-pills">
+              <button
+                className={`cat-pill${!activeCat ? ' active' : ''}`}
+                onClick={() => setActiveCat(null)}
+              >All</button>
+              {categories.map(c => (
+                <button
+                  key={c.id}
+                  className={`cat-pill${activeCat === c.id ? ' active' : ''}`}
+                  onClick={() => setActiveCat(c.id)}
+                >{c.name}</button>
+              ))}
+            </div>
+          )}
         </div>
 
         {zeroPriceError && (
@@ -649,7 +678,7 @@ export default function POS() {
           </div>
         )}
 
-        {!searchQuery && !searchLoading && !noResults && (
+        {!searchQuery && !activeCat && !searchLoading && !noResults && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: 24, gap: 6 }}>
             <div style={{ fontSize: 28, opacity: 0.2 }}>🔍</div>
             <div>Search or scan to add items</div>
