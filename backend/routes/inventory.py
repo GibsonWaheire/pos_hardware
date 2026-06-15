@@ -46,7 +46,7 @@ def overview():
 def adjust_stock():
     """Manually adjust stock. Blocked for purchasing/supplier roles."""
     role = session.get('role', '')
-    if role in ('purchasing', 'supplier', 'cashier'):
+    if role in ('purchasing', 'supplier', 'cashier', 'receiving'):
         return jsonify({'error': 'Not authorised to adjust stock'}), 403
     data = request.json or {}
     product_id = data.get('product_id')
@@ -142,9 +142,9 @@ def stock_levels():
 
 @bp.route('/movements', methods=['GET'])
 def stock_movements():
-    """Unified stock movement log. inventory + manager + admin."""
+    """Unified stock movement log. inventory + receiving + manager + admin."""
     role = session.get('role', '')
-    if role not in ('inventory', 'manager', 'admin'):
+    if role not in ('inventory', 'receiving', 'manager', 'admin'):
         return jsonify({'error': 'Access denied'}), 403
 
     product_id    = request.args.get('product_id')
@@ -183,7 +183,7 @@ def _gen_dmg_number():
 @bp.route('/damage-reports', methods=['GET'])
 def list_damage_reports():
     role = session.get('role', '')
-    if role not in ('inventory', 'manager', 'admin'):
+    if role not in ('inventory', 'receiving', 'manager', 'admin'):
         return jsonify({'error': 'Access denied'}), 403
     status = request.args.get('status')
     query = DamageReport.query
@@ -196,7 +196,7 @@ def list_damage_reports():
 @bp.route('/damage-reports', methods=['POST'])
 def create_damage_report():
     role = session.get('role', '')
-    if role not in ('inventory', 'manager', 'admin'):
+    if role not in ('inventory', 'receiving', 'manager', 'admin'):
         return jsonify({'error': 'Access denied'}), 403
     data = request.json or {}
     if not data.get('product_id') or not data.get('qty'):

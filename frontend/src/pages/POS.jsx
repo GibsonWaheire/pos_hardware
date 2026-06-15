@@ -758,10 +758,9 @@ export default function POS() {
         {/* Reprint last sale + parked retrieve shortcut */}
         {(lastSale || parkedSales.length > 0) && (
           <div className="bill-reprint-row">
-            {lastSale && <>
-              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={reprintLastEsc}>ESC/POS</button>
-              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={reprintLastReceipt}>Print</button>
-            </>}
+            {lastSale && (
+              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={reprintLastEsc}>Reprint</button>
+            )}
             {parkedSales.length > 0 && (
               <button className="btn btn-ghost btn-sm" style={{ color: 'var(--warning)', flex: lastSale ? undefined : 1 }}
                 onClick={() => setRetrieveOpen(true)}>
@@ -1062,11 +1061,9 @@ export default function POS() {
                         <td style={{ fontSize: 12, textTransform: 'capitalize', color: 'var(--text-muted)' }}>
                           {(s.payment_method || '').replace(/_/g, ' ')}
                         </td>
-                        <td style={{ display: 'flex', gap: 4 }}>
+                        <td>
                           <button className="btn btn-ghost btn-sm" onClick={() => handleHistoryEscReprint(s)}
-                            disabled={s.status === 'voided'}>ESC</button>
-                          <button className="btn btn-ghost btn-sm" onClick={() => handleHistoryBrowserReprint(s)}
-                            disabled={s.status === 'voided'}>Print</button>
+                            disabled={s.status === 'voided'}>Reprint</button>
                         </td>
                       </tr>
                     ))}

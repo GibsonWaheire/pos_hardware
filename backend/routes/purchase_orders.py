@@ -42,6 +42,7 @@ def list_pos():
     if role == 'purchasing':
         query = query.filter_by(created_by_id=staff_id)
 
+    # Receiving role sees all POs (they receive against any PO)
     # Supplier role sees only POs for their linked supplier
     elif role == 'supplier':
         member = Staff.query.get(staff_id) if staff_id else None
@@ -67,6 +68,7 @@ def get_po(po_id):
     if role == 'purchasing' and po.created_by_id != staff_id:
         return jsonify({'error': 'Forbidden'}), 403
 
+    # Receiving can see any PO (needed to process GRNs)
     # Supplier can only see POs for their supplier
     if role == 'supplier':
         member = Staff.query.get(staff_id) if staff_id else None
@@ -80,9 +82,9 @@ def get_po(po_id):
 def create_po():
     role, staff_id, staff_name = _session_role()
 
-    # Supplier role cannot create POs
-    if role == 'supplier':
-        return jsonify({'error': 'Suppliers cannot create purchase orders'}), 403
+    # Supplier and receiving roles cannot create POs
+    if role in ('supplier', 'receiving'):
+        return jsonify({'error': 'Not authorised to create purchase orders'}), 403
 
     data = request.json or {}
     items_data = data.get('items', [])
@@ -208,7 +210,7 @@ def receive_po(po_id):
     if po.status not in ('ordered', 'partial', 'draft'):
         return jsonify({'error': f'Cannot receive from status: {po.status}'}), 400
 
-    # Purchaser can only receive their own POs
+    # Purchaser can only receive their own POs; receiving role can receive any PO
     if role == 'purchasing' and po.created_by_id != staff_id:
         return jsonify({'error': 'Forbidden'}), 403
 

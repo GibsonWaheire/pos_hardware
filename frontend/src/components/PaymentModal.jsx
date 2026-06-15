@@ -78,16 +78,11 @@ export default function PaymentModal({
     getLoyaltyConfig().then(r => setLoyaltyConfig(r.data || {})).catch(() => {})
   }, [])
 
-  // Auto-print receipt and open drawer when sale completes
+  // Auto-print receipt via ESC/POS and open drawer when sale completes
   useEffect(() => {
     if (!completedSale) return
-    // Auto ESC/POS print; fall back to browser print on failure
-    printReceipt(completedSale.id).catch(async () => {
-      try {
-        const r = await getStoreConfig()
-        printSaleReceipt(completedSale, r.data || {})
-      } catch {}
-    })
+    // ESC/POS only — silently continue if printer unavailable
+    printReceipt(completedSale.id).catch(() => {})
     // Auto-open cash drawer for cash or split payments
     const m = completedSale.payment_method
     if (m === 'cash' || m === 'split') {
@@ -549,10 +544,9 @@ export default function PaymentModal({
 
           {printMsg && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{printMsg}</div>}
 
-          {/* Reprint / extras — auto-print already fired, these are manual backups */}
+          {/* Reprint / extras — auto-print already fired, this is a manual backup */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleReprint}>Reprint ESC/POS</button>
-            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={printBrowserReceipt}>Reprint (Browser)</button>
+            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleReprint}>Reprint Receipt</button>
             {(saleMethod === 'cash' || saleMethod === 'split') && (
               <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleOpenDrawer}>Open Drawer</button>
             )}

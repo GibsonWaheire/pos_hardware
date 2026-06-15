@@ -25,32 +25,34 @@ Every feature gating decision must follow this table.
 | **inventory** | Warehouse / store keeper | Inventory |
 | **purchasing** | Procurement officer | Purchase Orders |
 | **supplier** | External vendor (limited portal) | Purchase Orders |
+| **receiving** | Receiver bay — receives goods, creates GRNs, raises damage reports | Purchase Orders |
 | **manager** | Store manager, approves & reports | Dashboard |
 | **admin** | IT / owner, full system access | Dashboard |
 
 ### What each role sees
 
-| Page / Feature | cashier | inventory | purchasing | supplier | manager | admin |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Checkout (POS)** | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Quotes** | ✅ create | ❌ | ❌ | ❌ | ✅ full | ✅ full |
-| **Dashboard** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Products** | ❌ | ✅ full | 👁 view only | ❌ | ✅ full | ✅ full |
-| **Inventory** | ❌ | ✅ full (no revenue) | 👁 qty/names only | ❌ | ✅ full | ✅ full |
-| **Suppliers** | ❌ | ❌ | ✅ full | 👁 own profile | ✅ full | ✅ full |
-| **Purchase Orders** | ❌ | 👁 view + receive | ✅ create/manage | 👁 own POs only | ✅ full + approve | ✅ full |
-| **Returns** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Shifts** | 👁 own current | ❌ | ❌ | ❌ | ✅ full | ✅ full |
-| **Customers** | ✅ basic lookup | ❌ | ❌ | ❌ | ✅ full | ✅ full |
-| **Accounts** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Loyalty** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Reports — Sales/Revenue** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Reports — Cashier/Shift** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Reports — Inventory** | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| **Reports — Purchasing/PO** | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ |
-| **Terminals** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Cloud Sync** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Settings** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Page / Feature | cashier | inventory | purchasing | supplier | receiving | manager | admin |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Checkout (POS)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Quotes** | ✅ create | ❌ | ❌ | ❌ | ❌ | ✅ full | ✅ full |
+| **Dashboard** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Products** | ❌ | ✅ full | 👁 view only | ❌ | ❌ | ✅ full | ✅ full |
+| **Inventory** | ❌ | ✅ full (no revenue) | 👁 qty/names only | ❌ | 👁 stock qty only | ✅ full | ✅ full |
+| **Suppliers** | ❌ | ❌ | ✅ full | 👁 own profile | ❌ | ✅ full | ✅ full |
+| **Purchase Orders** | ❌ | 👁 view | ✅ create/manage | 👁 own POs only | ✅ view + receive | ✅ full + approve | ✅ full |
+| **GRNs / Damage Reports** | ❌ | ✅ create/view | ❌ | ❌ | ✅ create/view | ✅ approve/reject | ✅ full |
+| **Returns** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Shifts** | 👁 own current | ❌ | ❌ | ❌ | ❌ | ✅ full | ✅ full |
+| **Customers** | ✅ basic lookup | ❌ | ❌ | ❌ | ❌ | ✅ full | ✅ full |
+| **Accounts** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Loyalty** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Reports — Sales/Revenue** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Reports — Cashier/Shift** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Reports — Inventory** | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Reports — Purchasing/PO** | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
+| **Terminals** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Cloud Sync** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Settings** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
 
 ### Data visibility rules
 - **Revenue / sales totals / transaction amounts** → manager + admin ONLY

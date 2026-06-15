@@ -55,6 +55,9 @@ const NAV = [
   { to: '/inventory',       label: 'Stock',     icon: '🗂️',            roles: ['purchasing'] },
   { to: '/suppliers',       label: 'Suppliers', icon: '🚚',             roles: ['purchasing','manager','admin'] },
   { to: '/purchase-orders', label: 'Orders',    icon: '📋',             roles: ['supplier','purchasing','manager','admin'] },
+  // Receiving bay
+  { to: '/purchase-orders', label: 'Receive',   icon: '📥',             roles: ['receiving'] },
+  { to: '/inventory',       label: 'Stock',     icon: '🗂️',            roles: ['receiving'] },
   // Admin
   { to: '/cloud-sync',      label: 'Cloud',     icon: '☁️',             roles: ['admin'] },
 ]
@@ -64,6 +67,7 @@ const HOME_BY_ROLE = {
   inventory:  '/inventory',
   purchasing: '/purchase-orders',
   supplier:   '/purchase-orders',
+  receiving:  '/purchase-orders',
   manager:    '/dashboard',
   admin:      '/dashboard',
 }
@@ -73,6 +77,7 @@ const ROLE_COLOUR = {
   inventory:  '#22c55e',
   purchasing: '#f59e0b',
   supplier:   '#06b6d4',
+  receiving:  '#14b8a6',
   manager:    '#a855f7',
   admin:      '#ef4444',
 }
@@ -222,19 +227,19 @@ function AppInner() {
       </nav>
 
       <div style={mainWrap}>
-        {/* Offline banner */}
-        {!isBackendUp && (
+        {/* Offline banner — managers/admin only; cashier doesn't need to know */}
+        {!isBackendUp && user?.role !== 'cashier' && (
           <div style={{
             background: '#f59e0b', color: '#000', textAlign: 'center',
             padding: '6px 16px', fontSize: 13, fontWeight: 600, flexShrink: 0,
           }}>
-            Offline — sales and transactions are saved locally and will sync when connection is restored
+            Offline — sales queued locally, will sync on reconnect
             {pendingCount > 0 && <span style={{ marginLeft: 12, background: '#00000033', borderRadius: 10, padding: '1px 8px' }}>{pendingCount} queued</span>}
           </div>
         )}
 
-        {/* Sync result toast */}
-        {syncResult && syncResult.synced > 0 && (
+        {/* Sync result toast — managers/admin only */}
+        {syncResult && syncResult.synced > 0 && user?.role !== 'cashier' && (
           <div style={{
             background: 'var(--success)', color: '#fff', textAlign: 'center',
             padding: '6px 16px', fontSize: 13, fontWeight: 600, flexShrink: 0,
@@ -274,9 +279,9 @@ function AppInner() {
           <Route path="/dashboard"       element={<RoleGuard roles={['manager','admin']}><Dashboard /></RoleGuard>} />
           <Route path="/quotes"          element={<RoleGuard roles={['cashier','manager','admin']}><Quotes /></RoleGuard>} />
           <Route path="/products"        element={<RoleGuard roles={['inventory','purchasing','manager','admin']}><Products /></RoleGuard>} />
-          <Route path="/inventory"       element={<RoleGuard roles={['inventory','purchasing','manager','admin']}><Inventory /></RoleGuard>} />
+          <Route path="/inventory"       element={<RoleGuard roles={['inventory','receiving','purchasing','manager','admin']}><Inventory /></RoleGuard>} />
           <Route path="/suppliers"       element={<RoleGuard roles={['purchasing','manager','admin']}><Suppliers /></RoleGuard>} />
-          <Route path="/purchase-orders" element={<RoleGuard roles={['supplier','purchasing','manager','admin']}><PurchaseOrders /></RoleGuard>} />
+          <Route path="/purchase-orders" element={<RoleGuard roles={['supplier','receiving','purchasing','manager','admin']}><PurchaseOrders /></RoleGuard>} />
           <Route path="/returns"         element={<RoleGuard roles={['manager','admin']}><ReturnsPage /></RoleGuard>} />
           <Route path="/shifts"          element={<RoleGuard roles={['manager','admin']}><Shifts /></RoleGuard>} />
           <Route path="/customers"       element={<RoleGuard roles={['cashier','manager','admin']}><Customers /></RoleGuard>} />
