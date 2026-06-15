@@ -132,6 +132,10 @@ Every feature gating decision must follow this table.
 | 58 | Staff Management + Receiver Dashboard — StaffManagement.jsx (CRUD, PIN reset, deactivate/unlock, activity log); ReceiverDashboard.jsx (home for receiving role: pending POs, GRNs, damage reports); Shift History merged into Cashier tab in Reports; sidebar reorganised with section dividers | ✅ |
 | 59 | Sales analytics charts — Charts.jsx reusable SVG components (LineChart, BarChart, DonutChart, HorizontalBars); Sales tab: revenue trend, payment donut, transactions/day bar, top products bars; Category tab: revenue bars + share donut; Cashier tab: horizontal bars | ✅ |
 | 60 | Barcode label printing — printBarcodeLabels() multi-product/qty/format; LabelPrintModal (format picker, per-product qty, sheet estimate); Products batch select + per-row Label button; auto-offered on PO receive | ✅ |
+| 61 | Session UX & anti-theft hardening (2025-06-15) — two-phase shift close (close → print separately); staff protection (manager blocked from editing/deactivating admin accounts); admin Open Shift button removed; fix 500 on shift close (missing DB columns); fix Pending/Filed/Refresh filters in Cashier & Shifts tab; Audit Log moved from sidebar into Reports as a tab; sidebar spacing/overflow fixed | ✅ |
+| 62 | Antitheft alerts on printed shift report — red-bordered Alerts box before Section 1: voided sales table, removed-items table, qty-adjustment table, high-override-% flag. Clean shifts show green "No flags" confirmation | ✅ |
+| 63 | **TOMORROW — Sidebar compression steps 3–6** — EOD tab inside Dashboard; Accounts + Loyalty tabs inside Customers; Terminals + Cloud Sync tabs inside Settings. Each sub-page accepts `embedded` prop to hide its page-header. Remove 5 nav items (EOD, Accounts, Loyalty, Terminals, Cloud) from NAV array. Routes stay for URL-addressability. | TODO |
+| 64 | **TOMORROW — Void & override reason capture** — (A) Every override (REMOVE_ITEM / ADJUST_QTY) must include a reason before manager authorises: add `reason` field to `ManagerAuthModal` when `overridePayload` is set; add `reason` column to `OverrideApproval` model + `_ensure_columns()`; store in `/overrides/approve` and `/overrides/self-approve`. (B) Voids of completed sales: currently `voidSaleWithPin` exists in api.js but is never called from UI — add a Void Sale button in Reports → Sales History rows (status=completed) → modal: reason text input + manager PIN → call `voidSaleWithPin`. (C) Show reason on printed shift report in the Antitheft Alerts section (already has `d.reason` slot to fill) and in AuditLog event detail. | TODO |
 
 ---
 
@@ -1300,16 +1304,18 @@ Every document the system must be able to produce:
 - `frontend/src/api.js`: `getReconciliation(params)` export
 - `frontend/src/utils/print.js`: `printReconciliation(data, store)` — A4 landscape with summary tiles + full event table
 
-#### TODO tomorrow — AuditLog.jsx page:
-- New page at `/audit-log` (manager + admin only)
-- Date range picker (default today)
-- Filter tabs: All / Sales / Voids & No-Sales / Overrides / Stock Changes / System
-- Summary bar: sales count, total revenue, void count, override count
-- Full chronological event table with expandable detail rows
-- Each sale row expands to show full item list
-- "Print Reconciliation Report" button → `printReconciliation()`
-- Add to `App.jsx`: route + nav entry "Audit" with icon (manager + admin)
-- Nav position: after Reports, before Settings
+#### AuditLog.jsx — DONE ✅
+Built and embedded inside Reports as the "Audit" tab. Full event table, date range, filter tabs, summary bar, print reconciliation button. Removed from sidebar (was nav item, now tab).
+
+#### Session 2025-06-15 additions (committed):
+- Two-phase shift close: close shift first, print report separately
+- Staff protection: manager blocked from editing admin accounts in StaffManagement.jsx
+- Admin role: Open Shift button hidden everywhere
+- 500 fix on shift close: `stores.printer_config` + `sales.etims_*` columns added to `_ensure_columns()`
+- Cashier & Shifts filter fix: always fetch all reports, client-side filter with correct DB status values (GENERATED/PRINTED/FILED)
+- Antitheft alerts section added to `printShiftReconciliation()` in `utils/print.js` — see Phase 62
+
+#### Next: Phases 63 + 64 (see Remaining/Backlog table)
 
 ---
 
