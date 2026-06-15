@@ -243,7 +243,7 @@ function AppInner() {
           )}
 
           {/* Role dot at bottom of sidebar */}
-          <div style={{ padding: '12px 0 4px', borderTop: '1px solid var(--border)', width: '100%', display: 'flex', justifyContent: 'center' }}>
+          <div style={{ padding: '12px 0 4px', borderTop: '1px solid var(--border)', width: '100%', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
             <div style={{ ...roleDot, background: ROLE_COLOUR[user.role] || '#888' }} title={user.role} />
           </div>
         </nav>
