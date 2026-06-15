@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request, session
 from models import AuditLog, Sale, SaleItem, VoidLog, OverrideApproval, StockMovement
 from db import db
+from auth_utils import get_current_user, log_action
 from datetime import datetime, date
 
 bp = Blueprint('audit', __name__, url_prefix='/api/audit')
@@ -233,6 +234,7 @@ def reconciliation():
 
     # Summary stats for header
     completed_sales = [e for e in events if e['source'] == 'sale' and e['type'] == 'completed']
+
     voided_sales    = [e for e in events if e['source'] == 'sale' and e['type'] == 'voided']
     total_revenue   = sum(e['details'].get('total', 0) for e in completed_sales)
     total_discounts = sum(e['details'].get('discount_total', 0) for e in completed_sales)
@@ -257,3 +259,23 @@ def reconciliation():
         },
         'events': events,
     })
+
+
+@bp.route('/eod/complete', methods=['POST'])
+def eod_complete():
+    """Log an end-of-day completion event. Manager/admin only."""
+    role = session.get('role', '')
+    if role not in ('manager', 'admin'):
+        return jsonify({'error': 'Access denied'}), 403
+
+    user = get_current_user()
+    data = request.json or {}
+    log_action(user, 'eod_complete', 'shift', None, date.today().isoformat(),
+               details={
+                   'checks_passed': data.get('checks_passed', []),
+                   'manual_confirmed': data.get('manual_confirmed', []),
+                   'today_sales': data.get('today_sales'),
+                   'today_revenue': data.get('today_revenue'),
+               })
+    db.session.commit()
+    return jsonify({'ok': True, 'logged_at': datetime.utcnow().isoformat()})
