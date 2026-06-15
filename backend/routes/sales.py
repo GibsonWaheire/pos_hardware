@@ -138,7 +138,7 @@ def create_sale():
         if total_tendered < total:
             return jsonify({'error': f'Total tendered ({total_tendered:.2f}) is less than sale total ({total:.2f})'}), 400
 
-        change_given  = round(max(0, total_tendered - total), 2)
+        change_given  = round(max(0, total_tendered - total))   # rounded to whole KES
         mpesa_ref_val = next((t.get('ref') for t in tenders if t.get('method') == 'mpesa' and t.get('ref')), None)
         stripe_intent = next((t.get('intentId') for t in tenders if t.get('method') == 'card' and t.get('intentId')), None)
         tenders_json_str = json.dumps(tenders)
@@ -170,7 +170,7 @@ def create_sale():
         cash_tendered = float(data.get('cash_tendered') or 0)
         card_amount   = float(data.get('card_amount') or 0)
         mpesa_amount  = 0.0
-        change_given  = round(cash_tendered - total, 2) if payment_method in ('cash', 'split') else 0.0
+        change_given  = round(max(0, cash_tendered - total)) if payment_method in ('cash', 'split') else 0.0  # whole KES
         mpesa_ref_val = data.get('mpesa_ref') or None
         stripe_intent = data.get('stripe_payment_intent_id')
         primary_acct_id = None

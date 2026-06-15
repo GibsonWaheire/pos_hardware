@@ -26,6 +26,7 @@ const EMPTY_STORE = {
   returns_approval_threshold: 5000,
   default_tax_rate: 16,      // stored as percent in UI, converted to decimal on save
   default_low_stock_threshold: 5,
+  allow_cashier_self_close: false,
 }
 
 const ROLE_LABELS = {
@@ -381,7 +382,8 @@ export default function Settings() {
           </table>
         </div>
 
-        {/* ── Store Configuration ── */}
+        {/* ── Store Configuration — admin only ── */}
+        {user?.role === 'admin' && <>
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12, marginTop: 8 }}>Store Configuration</div>
         <div className="card" style={{ marginBottom: 24 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -441,10 +443,18 @@ export default function Settings() {
               <input className="input" placeholder="e.g. No refunds after 7 days" value={storeForm.receipt_footer} onChange={e => setStoreForm({ ...storeForm, receipt_footer: e.target.value })} />
             </div>
           </div>
-          {/* Business rules */}
-          <div style={{ fontWeight: 600, fontSize: 13, margin: '16px 0 10px', paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-            Business Rules
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginTop: 12 }}>
+            {storeMsg && <span style={{ fontSize: 13, color: storeMsg.includes('saved') ? 'var(--success)' : 'var(--danger)' }}>{storeMsg}</span>}
+            <button className="btn btn-primary" onClick={saveStore} disabled={storeSaving}>
+              {storeSaving ? 'Saving...' : 'Save Store Settings'}
+            </button>
           </div>
+        </div>
+        </>}
+
+        {/* ── Business Rules — manager + admin ── */}
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12, marginTop: 8 }}>Business Rules</div>
+        <div className="card" style={{ marginBottom: 24 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label className="label">Returns Approval Threshold (KES)</label>
@@ -469,10 +479,22 @@ export default function Settings() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginTop: 4 }}>
+          {/* Shift options */}
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', width: 'fit-content' }}>
+              <input type="checkbox" checked={!!storeForm.allow_cashier_self_close}
+                onChange={e => setStoreForm({ ...storeForm, allow_cashier_self_close: e.target.checked })} />
+              <span style={{ fontWeight: 500, fontSize: 13 }}>Allow cashier to close shift without manager</span>
+            </label>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, marginLeft: 26 }}>
+              When enabled, cashiers can fully close their shift and generate a report directly, without waiting for manager approval.
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginTop: 12 }}>
             {storeMsg && <span style={{ fontSize: 13, color: storeMsg.includes('saved') ? 'var(--success)' : 'var(--danger)' }}>{storeMsg}</span>}
             <button className="btn btn-primary" onClick={saveStore} disabled={storeSaving}>
-              {storeSaving ? 'Saving...' : 'Save Store Settings'}
+              {storeSaving ? 'Saving...' : 'Save Business Rules'}
             </button>
           </div>
         </div>

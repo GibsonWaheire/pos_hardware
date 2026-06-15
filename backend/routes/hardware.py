@@ -18,9 +18,12 @@ def print_receipt_endpoint(sale_id):
     from hardware.printer import print_receipt
 
     sale = Sale.query.get_or_404(sale_id)
+    from hardware.printer import _get_printer_config
+    cfg = _get_printer_config()
+    dev_mode = cfg.get('type', 'none') == 'none'
     success = print_receipt(sale.to_dict())
     if success:
-        return jsonify({'message': 'Receipt printed'})
+        return jsonify({'message': 'Receipt printed', 'dev_mode': dev_mode})
     return jsonify({'error': 'Printer unavailable — check connection and PRINTER_TYPE in .env'}), 503
 
 

@@ -844,6 +844,7 @@ class Store(db.Model):
     etims_config        = db.Column(db.Text, nullable=True)           # JSON blob — KRA eTIMS credentials/settings
     sheets_config       = db.Column(db.Text, nullable=True)           # JSON blob — Google Sheets export settings
     printer_config      = db.Column(db.Text, nullable=True)           # JSON blob — ESC/POS printer connection settings
+    allow_cashier_self_close = db.Column(db.Boolean, default=False)   # when True, cashier can fully close shift without manager
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
@@ -873,6 +874,7 @@ class Store(db.Model):
             'etims_config': etims,
             'sheets_config': sheets,
             'printer_config': printer,
+            'allow_cashier_self_close': bool(self.allow_cashier_self_close),
         }
 
 

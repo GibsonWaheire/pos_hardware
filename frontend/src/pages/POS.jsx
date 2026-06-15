@@ -3,7 +3,7 @@ import {
   getProducts, getProductByBarcode, getProductByPlu,
   getCurrentShift, openShift, getAccountByCustomer, getLoyaltyConfig,
   getSales, getStoreConfig, printReceipt, getCategories,
-  selfApproveOverride, cashierEndShift,
+  selfApproveOverride, cashierEndShift, closeShift,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
@@ -36,6 +36,7 @@ export default function POS() {
   const [gateError, setGateError]     = useState('')
 
   const isElevated = ['manager', 'admin'].includes(user?.role)
+  const [openShiftId, setOpenShiftId] = useState(null)
 
   useEffect(() => {
     if (!user) return
@@ -54,6 +55,7 @@ export default function POS() {
           return
         }
         if (SHIFT_KEY) sessionStorage.setItem(SHIFT_KEY, '1')
+        setOpenShiftId(shift.id)
         setShiftStatus('open')
       } else {
         // Elevated users bypass the "no shift" gate — they can open one themselves
@@ -507,10 +509,19 @@ export default function POS() {
   async function handleEndShift() {
     setEndShiftBusy(true); setEndShiftMsg('')
     try {
-      await cashierEndShift({
-        actual_cash: parseFloat(endShiftCash) || 0,
-        notes: endShiftNotes,
-      })
+      const selfClose = storeConfig.allow_cashier_self_close && openShiftId
+      if (selfClose) {
+        await closeShift(openShiftId, {
+          actual_cash: parseFloat(endShiftCash) || 0,
+          notes: endShiftNotes,
+          reconciliation_submitted: true,
+        })
+      } else {
+        await cashierEndShift({
+          actual_cash: parseFloat(endShiftCash) || 0,
+          notes: endShiftNotes,
+        })
+      }
       setEndShiftDone(true)
       if (SHIFT_KEY) sessionStorage.removeItem(SHIFT_KEY)
       setTimeout(() => {
@@ -555,6 +566,14 @@ export default function POS() {
   const cartSubtotal    = cartItems.reduce((s, i) => s + i.unit_price * i.qty, 0)
   const cartDiscount    = cartItems.reduce((s, i) => s + i.discount * i.qty, 0)
   const cartTax         = cartItems.reduce((s, i) => s + (i.unit_price - i.discount) * i.qty * i.tax_rate, 0)
+  // VAT grouped by rate for bill display: { '0.16': { label: '16%', amount: X }, ... }
+  const vatByRate = cartItems.reduce((acc, i) => {
+    if (!i.tax_rate) return acc
+    const key = i.tax_rate.toFixed(4)
+    if (!acc[key]) acc[key] = { label: `${(i.tax_rate * 100 % 1 === 0 ? (i.tax_rate * 100).toFixed(0) : (i.tax_rate * 100).toFixed(1))}%`, amount: 0 }
+    acc[key].amount += (i.unit_price - i.discount) * i.qty * i.tax_rate
+    return acc
+  }, {})
   const kesPerPoint     = (loyaltyConfig.cents_per_point || 1) / 100
   const tierDiscount    = customer?.tier_discount_percent
     ? (cartSubtotal - cartDiscount) * (customer.tier_discount_percent / 100) : 0
@@ -950,7 +969,11 @@ export default function POS() {
               {cartDiscount > 0 && <div className="totals-row" style={{ color: 'var(--warning)' }}><span>Discounts</span><span>−{fmt(cartDiscount)}</span></div>}
               {tierDiscount > 0 && <div className="totals-row" style={{ color: 'var(--success)' }}><span>{customer?.tier_name}</span><span>−{fmt(tierDiscount)}</span></div>}
               {pointsRedeemAmt > 0 && <div className="totals-row" style={{ color: 'var(--success)' }}><span>Points</span><span>−{fmt(pointsRedeemAmt)}</span></div>}
-              {cartTax > 0 && <div className="totals-row"><span>VAT</span><span>{fmt(cartTax)}</span></div>}
+              {Object.values(vatByRate).map(g => (
+                <div key={g.label} className="totals-row" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                  <span>VAT {g.label}</span><span>{fmt(g.amount)}</span>
+                </div>
+              ))}
             </>
           )}
           <div className="totals-row grand"><span>Total</span><span>{fmt(cartTotal)}</span></div>
@@ -1176,13 +1199,21 @@ export default function POS() {
             {endShiftDone ? (
               <div style={{ textAlign: 'center', padding: '24px 0' }}>
                 <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>Shift submitted for manager review</div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>You can now hand over to the next cashier.</div>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                  {storeConfig.allow_cashier_self_close ? 'Shift closed' : 'Shift submitted for manager review'}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  {storeConfig.allow_cashier_self_close
+                    ? 'The shift has been closed and a report generated.'
+                    : 'You can now hand over to the next cashier.'}
+                </div>
               </div>
             ) : (
               <>
                 <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
-                  Count your cash drawer and enter the total. The manager will review and finalize the close.
+                  {storeConfig.allow_cashier_self_close
+                    ? 'Count your cash drawer and enter the total. This will close the shift immediately.'
+                    : 'Count your cash drawer and enter the total. The manager will review and finalize the close.'}
                 </p>
                 <div className="form-group" style={{ marginBottom: 12 }}>
                   <label className="label">Cash in Drawer (KES)</label>
@@ -1201,7 +1232,7 @@ export default function POS() {
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                   <button className="btn btn-secondary" onClick={() => setEndShiftOpen(false)} disabled={endShiftBusy}>Cancel</button>
                   <button className="btn btn-danger" onClick={handleEndShift} disabled={endShiftBusy}>
-                    {endShiftBusy ? 'Submitting…' : 'Submit & End Shift'}
+                    {endShiftBusy ? 'Processing…' : storeConfig.allow_cashier_self_close ? 'Close Shift' : 'Submit & End Shift'}
                   </button>
                 </div>
               </>

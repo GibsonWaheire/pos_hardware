@@ -108,8 +108,13 @@ export default function Cart({
               </div>
               <div className="cart-item-sub">
                 {fmt(item.unit_price)} ea
-                {item.discount > 0 && <span style={{ color: 'var(--warning)' }}> · -{fmt(item.discount)} off</span>}
-                {item.tax_rate > 0  && <span> · {(item.tax_rate * 100).toFixed(0)}% VAT</span>}
+                {item.discount > 0 && <span style={{ color: 'var(--warning)' }}> · −{fmt(item.discount)} off</span>}
+                {item.tax_rate > 0 && (
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    {' · '}VAT {(item.tax_rate * 100).toFixed(0)}%
+                    {': '}+{fmt((item.unit_price - item.discount) * item.tax_rate)}
+                  </span>
+                )}
               </div>
             </div>
 

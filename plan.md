@@ -117,11 +117,11 @@ Every feature gating decision must follow this table.
 
 | # | Feature | Status |
 |---|---|---|
-| 45 | AuditLog.jsx page — full audit trail UI (Phase 41 foundation done, page not built) | TODO |
-| 46 | Inventory KES bug — Inventory.jsx price column still shows $ sign | TODO |
+| 45 | AuditLog.jsx page — full audit trail UI (Phase 41 foundation done, page not built) | ✅ Done — page already built; DB migration fixed 500 on shift close |
+| 46 | Inventory KES bug — Inventory.jsx price column still shows $ sign | ✅ Already fixed — all values use fmt() from useCurrency() |
 | 47 | Cash drawer via printer RJ-11 — currently uses separate serial port; should send kick through printer connection | TODO |
 | 48 | Card terminal (Stripe) — requires STRIPE_SECRET_KEY; stub in place | TODO |
-| 49 | Cashier shift self-close option — optional setting `allow_cashier_self_close` so cashier can fully close without manager in simple deployments | TODO |
+| 49 | Cashier shift self-close option — optional setting `allow_cashier_self_close` so cashier can fully close without manager in simple deployments | ✅ |
 
 ---
 

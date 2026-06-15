@@ -265,21 +265,34 @@ def close_shift(shift_id):
     }
     """
     user = get_current_user()
-
-    # Cashiers cannot close shifts — they use cashier-end instead
-    if user and user.get('role') == 'cashier':
-        return jsonify({'error': 'Use "End Shift" to submit your cash count. Manager will finalize the close.'}), 403
+    role = user.get('role') if user else None
 
     shift = Shift.query.get_or_404(shift_id)
     if shift.status not in ('open', 'pending_close'):
         return jsonify({'error': 'Shift is not open'}), 400
 
+    # Check if cashier self-close is enabled in store settings
+    from models import Store
+    store = Store.query.first()
+    cashier_self_close_allowed = bool(store.allow_cashier_self_close) if store else False
+
+    # Cashiers blocked unless self-close is enabled AND it's their own shift
+    if role == 'cashier':
+        if not cashier_self_close_allowed:
+            return jsonify({'error': 'Use "End Shift" to submit your cash count. Manager will finalize the close.'}), 403
+        if shift.cashier_id and shift.cashier_id != user.get('id'):
+            return jsonify({'error': 'You can only close your own shift'}), 403
+
     data = request.json or {}
-    role          = user.get('role') if user else None
     is_admin      = role == 'admin'
     is_manager    = role in ('manager', 'admin')
+    is_cashier    = role == 'cashier'
     admin_bypass  = bool(data.get('admin_bypass')) and is_admin
     recon_submitted = bool(data.get('reconciliation_submitted'))
+
+    # Cashier self-close counts as reconciliation submitted
+    if is_cashier and cashier_self_close_allowed:
+        recon_submitted = True
 
     # Manager can close without reconciliation if they're closing a cashier's pending shift
     # (cashier already submitted their count); admin can always bypass

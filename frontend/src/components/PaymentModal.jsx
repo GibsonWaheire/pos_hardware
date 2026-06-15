@@ -81,13 +81,23 @@ export default function PaymentModal({
     getStoreConfig().then(r => setStore(r.data || {})).catch(() => {})
   }, [])
 
-  // Auto-print receipt via ESC/POS and open drawer when sale completes
+  // Auto-print receipt via ESC/POS (falls back to browser print if unavailable)
   useEffect(() => {
     if (!completedSale) return
     setPrintStatus('printing')
     printReceipt(completedSale.id)
-      .then(() => setPrintStatus('done'))
-      .catch(() => setPrintStatus('error'))
+      .then(res => {
+        if (res.data?.dev_mode) {
+          // No thermal printer configured — open browser print dialog
+          printSaleReceipt(completedSale, store)
+        }
+        setPrintStatus('done')
+      })
+      .catch(() => {
+        // ESC/POS failed — fall back to browser print
+        printSaleReceipt(completedSale, store)
+        setPrintStatus('error')
+      })
     // Auto-open cash drawer for cash or split payments
     const m = completedSale.payment_method
     if (m === 'cash' || m === 'split') {
@@ -110,7 +120,7 @@ export default function PaymentModal({
   const [acctSearching, setAcctSearching] = useState(false)
 
   const cashAmount = parseFloat(cashInput) || 0
-  const change = Math.max(0, cashAmount - total)
+  const change = Math.round(Math.max(0, cashAmount - total))   // whole KES — no coins
 
   // ── Shared payload builder ────────────────────────────────────────────────
 
@@ -625,14 +635,38 @@ export default function PaymentModal({
               </div>
             )}
 
-            {saleMethod === 'cash' && (
-              <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Cash tendered</span><span>{KES(completedSale.cash_tendered)}</span>
+            {saleMethod === 'cash' && completedSale.change_given > 0 && (
+              <div style={{
+                borderRadius: 12, marginBottom: 16, overflow: 'hidden',
+                boxShadow: '0 4px 20px rgba(21,128,61,0.4)',
+              }}>
+                {/* Change banner */}
+                <div style={{
+                  background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                  padding: '20px 24px 16px',
+                  textAlign: 'center',
+                }}>
+                  <div style={{ color: '#bbf7d0', fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>
+                    Change Due
+                  </div>
+                  <div style={{ color: '#ffffff', fontWeight: 900, fontSize: 52, lineHeight: 1, letterSpacing: -1 }}>
+                    {KES(completedSale.change_given)}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--success)', marginTop: 4 }}>
-                  <span>Change</span><span>{KES(completedSale.change_given)}</span>
+                {/* Cash tendered sub-row */}
+                <div style={{
+                  background: '#dcfce7', padding: '8px 16px',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  fontSize: 12, color: '#15803d',
+                }}>
+                  <span>Cash tendered</span>
+                  <span style={{ fontWeight: 600 }}>{KES(completedSale.cash_tendered)}</span>
                 </div>
+              </div>
+            )}
+            {saleMethod === 'cash' && !(completedSale.change_given > 0) && completedSale.cash_tendered > 0 && (
+              <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
+                <span>Cash tendered</span><span style={{ fontWeight: 600 }}>{KES(completedSale.cash_tendered)}</span>
               </div>
             )}
             {saleMethod === 'mpesa' && completedSale.mpesa_ref && (
@@ -687,7 +721,25 @@ export default function PaymentModal({
       <div className="pay-totals">
         <div className="pay-totals-row"><span>Subtotal</span><span>{KES(subtotal)}</span></div>
         {discountTotal > 0 && <div className="pay-totals-row" style={{ color: 'var(--warning)' }}><span>Discounts</span><span>−{KES(discountTotal)}</span></div>}
-        {taxAmount > 0 && <div className="pay-totals-row"><span>VAT (16%)</span><span>{KES(taxAmount)}</span></div>}
+        {taxAmount > 0 && (() => {
+          const groups = (items || []).reduce((acc, i) => {
+            if (!i.tax_rate) return acc
+            const key = i.tax_rate.toFixed(4)
+            const pct = i.tax_rate * 100
+            const label = `${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}%`
+            if (!acc[key]) acc[key] = { label, amount: 0 }
+            acc[key].amount += (i.unit_price - i.discount) * i.qty * i.tax_rate
+            return acc
+          }, {})
+          const entries = Object.values(groups)
+          return entries.length > 0
+            ? entries.map(g => (
+                <div key={g.label} className="pay-totals-row">
+                  <span>VAT {g.label}</span><span>{KES(g.amount)}</span>
+                </div>
+              ))
+            : <div className="pay-totals-row"><span>VAT</span><span>{KES(taxAmount)}</span></div>
+        })()}
         <div className="pay-totals-row total"><span>TOTAL</span><span>{KES(total)}</span></div>
       </div>
     </div>
@@ -741,8 +793,14 @@ export default function PaymentModal({
                 {currency} {cashInput || '0.00'}
               </div>
               {cashAmount >= total && (
-                <div style={{ textAlign: 'center', color: 'var(--success)', fontWeight: 700, marginBottom: 8, fontSize: 15 }}>
-                  Change: {KES(change)}
+                <div style={{
+                  textAlign: 'center', marginBottom: 8,
+                  background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                  borderRadius: 10, padding: '10px 12px',
+                  boxShadow: '0 2px 8px rgba(21,128,61,0.35)',
+                }}>
+                  <div style={{ color: '#bbf7d0', fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 2 }}>Change Due</div>
+                  <div style={{ color: '#fff', fontWeight: 800, fontSize: 34, lineHeight: 1.1, letterSpacing: 0.5 }}>{KES(change)}</div>
                 </div>
               )}
               <NumPad value={cashInput} onChange={setCashInput} />
@@ -1054,8 +1112,14 @@ export default function PaymentModal({
                   {currency} {splitCashInput || '0.00'}
                 </div>
                 {parseFloat(splitCashInput) > splitRemaining && (
-                  <div style={{ textAlign: 'center', color: 'var(--success)', fontSize: 13, marginBottom: 4 }}>
-                    Change: {KES((parseFloat(splitCashInput) || 0) - splitRemaining)}
+                  <div style={{
+                    textAlign: 'center', marginBottom: 6,
+                    background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                    borderRadius: 10, padding: '8px 12px',
+                    boxShadow: '0 2px 8px rgba(21,128,61,0.35)',
+                  }}>
+                    <div style={{ color: '#bbf7d0', fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 1 }}>Change Due</div>
+                    <div style={{ color: '#fff', fontWeight: 800, fontSize: 28, lineHeight: 1.1 }}>{KES(Math.round((parseFloat(splitCashInput) || 0) - splitRemaining))}</div>
                   </div>
                 )}
                 <NumPad value={splitCashInput} onChange={setSplitCashInput} />
