@@ -39,7 +39,7 @@ function typeLabel(ev) {
   return (ev.type || '').toUpperCase().replace(/_/g, ' ')
 }
 
-export default function AuditLog() {
+export default function AuditLog({ embedded = false }) {
   const { fmt } = useCurrency()
   const [dateFrom, setDateFrom] = useState(todayStr())
   const [dateTo, setDateTo]     = useState(todayStr())
@@ -87,27 +87,37 @@ export default function AuditLog() {
   const events = allEvents.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE)
   const s = data?.summary || {}
 
+  const controls = (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <input type="date" className="input" style={{ width: 140 }}
+        value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+      <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>to</span>
+      <input type="date" className="input" style={{ width: 140 }}
+        value={dateTo} onChange={e => setDateTo(e.target.value)} />
+      <button className="btn btn-ghost" onClick={load} disabled={loading}>
+        {loading ? 'Loading…' : 'Refresh'}
+      </button>
+      {data && (
+        <button className="btn btn-primary" onClick={() => printReconciliation(data, store)}>
+          Print Report
+        </button>
+      )}
+    </div>
+  )
+
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: embedded ? '100%' : '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div className="page-header">
-        <span className="page-title">Audit Log</span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input type="date" className="input" style={{ width: 140 }}
-            value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
-          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>to</span>
-          <input type="date" className="input" style={{ width: 140 }}
-            value={dateTo} onChange={e => setDateTo(e.target.value)} />
-          <button className="btn btn-ghost" onClick={load} disabled={loading}>
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
-          {data && (
-            <button className="btn btn-primary" onClick={() => printReconciliation(data, store)}>
-              Print Report
-            </button>
-          )}
+      {embedded ? (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 0 12px', flexShrink: 0 }}>
+          {controls}
         </div>
-      </div>
+      ) : (
+        <div className="page-header">
+          <span className="page-title">Audit Log</span>
+          {controls}
+        </div>
+      )}
 
       {/* Summary tiles */}
       {data && (

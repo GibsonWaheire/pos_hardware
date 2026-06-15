@@ -13,6 +13,7 @@ import {
   printSalesReport, printCashierReport, printInventoryReport, printPurchasingReport, printReturnsReport,
   printShiftReportDoc, printShiftReconciliation,
 } from '../utils/print'
+import AuditLog from './AuditLog'
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
 function daysAgo(n) {
@@ -241,6 +242,7 @@ export default function Reports() {
     { key: 'inventory',      label: 'Inventory',         roles: ['inventory', 'manager', 'admin'] },
     { key: 'purchasing',     label: 'Purchasing',        roles: ['purchasing', 'manager', 'admin'] },
     { key: 'returns',        label: 'Returns',           roles: ['manager', 'admin'] },
+    { key: 'audit',          label: 'Audit Log',         roles: ['manager', 'admin'] },
   ]
   const TABS = ALL_TABS.filter(t => t.roles.includes(user?.role))
   const activeTab = TABS.find(t => t.key === tab) ? tab : (TABS[0]?.key || 'inventory')
@@ -274,7 +276,7 @@ export default function Reports() {
         <div className="page-header">
           <span className="page-title">Reports</span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {activeTab !== 'inventory' && activeTab !== 'purchasing' && activeTab !== 'returns' && (
+            {activeTab !== 'inventory' && activeTab !== 'purchasing' && activeTab !== 'returns' && activeTab !== 'audit' && (
               <>
                 <input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 140 }} />
                 <span style={{ color: 'var(--text-muted)' }}>to</span>
@@ -845,8 +847,10 @@ export default function Reports() {
             </>
           )}
 
-          {/* ── Shift History tab ── */}
-          {loading && activeTab !== 'cashier' && <div className="empty-state">Loading...</div>}
+          {/* ── Audit Log tab ── */}
+          {activeTab === 'audit' && <AuditLog embedded />}
+
+          {loading && activeTab !== 'cashier' && activeTab !== 'audit' && <div className="empty-state">Loading...</div>}
         </div>
       </div>
 

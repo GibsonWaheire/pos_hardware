@@ -42,7 +42,6 @@ const NAV = [
   // ── Manager / Admin — Operations ─────────────────────────────────────────────
   { to: '/dashboard',       label: 'Dashboard', icon: '📊',             roles: ['manager','admin'] },
   { to: '/reports',         label: 'Reports',   icon: '📈',             roles: ['manager','admin'] },
-  { to: '/audit-log',       label: 'Audit Log', icon: '🔍',             roles: ['manager','admin'] },
   { to: '/eod-checklist',   label: 'EOD',       icon: '🌙',             roles: ['manager','admin'] },
 
   // ── Manager / Admin — Sales & Customers ──────────────────────────────────────
