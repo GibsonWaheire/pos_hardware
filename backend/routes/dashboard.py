@@ -172,8 +172,21 @@ def manager_dashboard():
         DamageReport.status.in_(['raised', 'pending_approval'])
     ).order_by(DamageReport.raised_at).all()
 
-    # ── Shift status ──────────────────────────────────────────────────────────
-    open_shift = Shift.query.filter_by(status='open').order_by(Shift.opened_at.desc()).first()
+    # ── Shift status + revenue since shift opened ─────────────────────────────
+    open_shift = Shift.query.filter(Shift.status.in_(['open', 'pending_close'])).order_by(Shift.opened_at.desc()).first()
+    shift_stats = None
+    if open_shift and open_shift.opened_at:
+        shift_sales = [s for s in open_shift.sales if s.status == 'completed']
+        shift_revenue = sum(s.total for s in shift_sales)
+        shift_by_method = {}
+        for s in shift_sales:
+            m = s.payment_method
+            shift_by_method[m] = shift_by_method.get(m, 0) + s.total
+        shift_stats = {
+            'transactions': len(shift_sales),
+            'revenue': round(shift_revenue, 2),
+            'by_method': {k: round(v, 2) for k, v in shift_by_method.items()},
+        }
 
     # ── Shift reports needing attention (not yet printed) ────────────────────
     unprinted_count  = ShiftReport.query.filter_by(print_count=0).count()
@@ -219,6 +232,7 @@ def manager_dashboard():
             'damage_reports': [_dmg(d) for d in pending_damage],
         },
         'shift': open_shift.to_dict() if open_shift else None,
+        'shift_stats': shift_stats,
         'alerts': {
             'unprinted_shift_reports': unprinted_count,
             'unfiled_shift_reports':   unfiled_count,

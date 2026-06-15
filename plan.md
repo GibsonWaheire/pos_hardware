@@ -118,6 +118,7 @@ Every feature gating decision must follow this table.
 | # | Feature | Status |
 |---|---|---|
 | 45 | AuditLog.jsx page — full audit trail UI (Phase 41 foundation done, page not built) | ✅ Done — page already built; DB migration fixed 500 on shift close |
+| 51 | Dashboard Polish — today hero card, shift status at top, tender breakdown, alert strip, auto-refresh, date header | ✅ |
 | 46 | Inventory KES bug — Inventory.jsx price column still shows $ sign | ✅ Already fixed — all values use fmt() from useCurrency() |
 | 47 | Cash drawer via printer RJ-11 — currently uses separate serial port; should send kick through printer connection | TODO |
 | 48 | Card terminal (Stripe) — requires STRIPE_SECRET_KEY; stub in place | TODO |
