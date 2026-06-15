@@ -60,6 +60,8 @@ export default function PaymentModal({
   const [error, setError] = useState('')
   const [completedSale, setCompletedSale] = useState(null)
   const [printMsg, setPrintMsg] = useState('')
+  const [printStatus, setPrintStatus] = useState('idle')  // idle | printing | done | error
+  const [store, setStore] = useState({})
   const [pointsEarned, setPointsEarned] = useState(null)  // { points_earned, new_balance }
 
   // Loyalty split tender state
@@ -76,13 +78,16 @@ export default function PaymentModal({
 
   useEffect(() => {
     getLoyaltyConfig().then(r => setLoyaltyConfig(r.data || {})).catch(() => {})
+    getStoreConfig().then(r => setStore(r.data || {})).catch(() => {})
   }, [])
 
   // Auto-print receipt via ESC/POS and open drawer when sale completes
   useEffect(() => {
     if (!completedSale) return
-    // ESC/POS only — silently continue if printer unavailable
-    printReceipt(completedSale.id).catch(() => {})
+    setPrintStatus('printing')
+    printReceipt(completedSale.id)
+      .then(() => setPrintStatus('done'))
+      .catch(() => setPrintStatus('error'))
     // Auto-open cash drawer for cash or split payments
     const m = completedSale.payment_method
     if (m === 'cash' || m === 'split') {
@@ -509,54 +514,151 @@ export default function PaymentModal({
 
   if (completedSale) {
     const saleMethod = completedSale.payment_method || ''
+    const saleDate = completedSale.created_at
+      ? (() => { try { return new Date(completedSale.created_at).toLocaleString('en-KE', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return '' } })()
+      : ''
+
+    const ReceiptPreview = () => (
+      <div style={{
+        background: '#fff', color: '#111', fontFamily: 'monospace', fontSize: 12,
+        width: 280, padding: '16px 14px', borderRadius: 4,
+        boxShadow: '0 2px 12px rgba(0,0,0,0.18)',
+        position: 'relative', overflowY: 'auto', maxHeight: '70vh',
+        // tear-off top edge
+        borderTop: '2px dashed #ccc',
+      }}>
+        {/* Print status indicator */}
+        <div style={{
+          position: 'absolute', top: 6, right: 8, fontSize: 10,
+          color: printStatus === 'printing' ? '#f59e0b' : printStatus === 'done' ? '#16a34a' : '#6b7280',
+          display: 'flex', alignItems: 'center', gap: 4,
+        }}>
+          {printStatus === 'printing' && <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', animation: 'pulse-dot 1s infinite' }} />}
+          {printStatus === 'printing' ? 'Printing…' : printStatus === 'done' ? '✓ Printed' : ''}
+        </div>
+
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{store.name || 'POS Store'}</div>
+          {store.address && <div style={{ fontSize: 10, color: '#555' }}>{store.address}</div>}
+          {store.phone && <div style={{ fontSize: 10, color: '#555' }}>Tel: {store.phone}</div>}
+          {store.tax_number && <div style={{ fontSize: 10, color: '#555' }}>KRA PIN: {store.tax_number}</div>}
+        </div>
+        <div style={{ borderTop: '1px dashed #999', margin: '6px 0' }} />
+
+        {/* Receipt meta */}
+        <div style={{ fontSize: 10, marginBottom: 6 }}>
+          <div>Receipt : {completedSale.receipt_number}</div>
+          <div>Date    : {saleDate}</div>
+          {completedSale.cashier_name && <div>Cashier : {completedSale.cashier_name}</div>}
+        </div>
+        <div style={{ borderTop: '1px dashed #999', margin: '6px 0' }} />
+
+        {/* Items */}
+        {(completedSale.items || []).map((item, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
+            <span style={{ flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginRight: 4 }}>
+              {item.product_name} x{item.qty}
+            </span>
+            <span style={{ whiteSpace: 'nowrap' }}>KES {Number(item.line_total ?? item.unit_price * item.qty).toLocaleString('en-KE', { minimumFractionDigits: 2 })}</span>
+          </div>
+        ))}
+        <div style={{ borderTop: '1px dashed #999', margin: '6px 0' }} />
+
+        {/* Totals */}
+        {completedSale.discount_total > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+            <span>Discounts</span><span>-KES {Number(completedSale.discount_total).toLocaleString('en-KE', { minimumFractionDigits: 2 })}</span>
+          </div>
+        )}
+        {completedSale.tax_amount > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+            <span>VAT</span><span>KES {Number(completedSale.tax_amount).toLocaleString('en-KE', { minimumFractionDigits: 2 })}</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 13, margin: '4px 0' }}>
+          <span>TOTAL</span><span>KES {Number(completedSale.total).toLocaleString('en-KE', { minimumFractionDigits: 2 })}</span>
+        </div>
+        <div style={{ borderTop: '1px dashed #999', margin: '6px 0' }} />
+
+        {/* Payment */}
+        <div style={{ fontSize: 11 }}>
+          <div>Payment : {saleMethod.toUpperCase().replace(/_/g, ' ')}</div>
+          {saleMethod === 'cash' && completedSale.cash_tendered > 0 && <>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Cash Tendered</span><span>KES {Number(completedSale.cash_tendered).toLocaleString('en-KE', { minimumFractionDigits: 2 })}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Change</span><span>KES {Number(completedSale.change_given || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 })}</span>
+            </div>
+          </>}
+          {saleMethod === 'mpesa' && completedSale.mpesa_ref && <div>M-Pesa : {completedSale.mpesa_ref}</div>}
+        </div>
+
+        {/* Footer */}
+        <div style={{ borderTop: '1px dashed #999', margin: '6px 0' }} />
+        <div style={{ textAlign: 'center', fontSize: 10, color: '#555' }}>
+          {store.receipt_footer || 'Thank you for your business!'}
+        </div>
+        <div style={{ height: 16 }} />
+        {/* tear-off bottom */}
+        <div style={{ borderBottom: '2px dashed #ccc', marginBottom: -14 }} />
+      </div>
+    )
+
     return (
       <div className="modal-overlay">
-        <div className="modal" style={{ textAlign: 'center', maxWidth: 440 }}>
-          <div style={{ fontWeight: 700, fontSize: 22, marginBottom: 4, letterSpacing: 0.2 }}>SALE COMPLETE</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 4 }}>{completedSale.receipt_number}</div>
-          <div style={{ fontWeight: 700, fontSize: 32, color: 'var(--success)', marginBottom: pointsEarned ? 8 : 16 }}>
-            {KES(completedSale.total)}
-          </div>
-
-          {pointsEarned && (
-            <div style={{ background: '#ffd70022', border: '1px solid #ffd700', borderRadius: 8, padding: '8px 16px', marginBottom: 16, fontSize: 13 }}>
-              <span style={{ fontWeight: 700, color: '#b8860b' }}>+{pointsEarned.points_earned} pts earned</span>
-              <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>Balance: {pointsEarned.new_balance.toLocaleString()} pts</span>
-              {pointsEarned.tier && <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>· {pointsEarned.tier}</span>}
+        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', justifyContent: 'center', padding: 32, maxWidth: '90vw' }}>
+          {/* Left — sale summary & actions */}
+          <div className="modal" style={{ textAlign: 'center', width: 380, flexShrink: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 22, marginBottom: 4, letterSpacing: 0.2 }}>SALE COMPLETE</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 4 }}>{completedSale.receipt_number}</div>
+            <div style={{ fontWeight: 700, fontSize: 32, color: 'var(--success)', marginBottom: pointsEarned ? 8 : 16 }}>
+              {KES(completedSale.total)}
             </div>
-          )}
 
-          {saleMethod === 'cash' && (
-            <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Cash tendered</span><span>{KES(completedSale.cash_tendered)}</span>
+            {pointsEarned && (
+              <div style={{ background: '#ffd70022', border: '1px solid #ffd700', borderRadius: 8, padding: '8px 16px', marginBottom: 16, fontSize: 13 }}>
+                <span style={{ fontWeight: 700, color: '#b8860b' }}>+{pointsEarned.points_earned} pts earned</span>
+                <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>Balance: {pointsEarned.new_balance.toLocaleString()} pts</span>
+                {pointsEarned.tier && <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>· {pointsEarned.tier}</span>}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--success)', marginTop: 4 }}>
-                <span>Change</span><span>{KES(completedSale.change_given)}</span>
-              </div>
-            </div>
-          )}
-          {saleMethod === 'mpesa' && completedSale.mpesa_ref && (
-            <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '8px 16px', marginBottom: 16, fontSize: 13 }}>
-              M-Pesa ref: <strong>{completedSale.mpesa_ref}</strong>
-            </div>
-          )}
-
-          {printMsg && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{printMsg}</div>}
-
-          {/* Reprint / extras — auto-print already fired, this is a manual backup */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleReprint}>Reprint Receipt</button>
-            {(saleMethod === 'cash' || saleMethod === 'split') && (
-              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleOpenDrawer}>Open Drawer</button>
             )}
+
+            {saleMethod === 'cash' && (
+              <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Cash tendered</span><span>{KES(completedSale.cash_tendered)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--success)', marginTop: 4 }}>
+                  <span>Change</span><span>{KES(completedSale.change_given)}</span>
+                </div>
+              </div>
+            )}
+            {saleMethod === 'mpesa' && completedSale.mpesa_ref && (
+              <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '8px 16px', marginBottom: 16, fontSize: 13 }}>
+                M-Pesa ref: <strong>{completedSale.mpesa_ref}</strong>
+              </div>
+            )}
+
+            {printMsg && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{printMsg}</div>}
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleReprint}>Reprint Receipt</button>
+              {(saleMethod === 'cash' || saleMethod === 'split') && (
+                <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleOpenDrawer}>Open Drawer</button>
+              )}
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={handlePrintInvoice}>Print Invoice (A4)</button>
+            </div>
+            <button className="btn btn-success btn-lg" style={{ width: '100%', fontSize: 18, padding: '14px', letterSpacing: 0.5 }} onClick={onClose}>
+              New Sale &nbsp;<span style={{ fontSize: 13, opacity: 0.7 }}>[Enter]</span>
+            </button>
           </div>
-          <div style={{ marginBottom: 12 }}>
-            <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={handlePrintInvoice}>Print Invoice (A4)</button>
-          </div>
-          <button className="btn btn-success btn-lg" style={{ width: '100%', fontSize: 18, padding: '14px', letterSpacing: 0.5 }} onClick={onClose}>
-            New Sale &nbsp;<span style={{ fontSize: 13, opacity: 0.7 }}>[Enter]</span>
-          </button>
+
+          {/* Right — thermal receipt preview */}
+          <ReceiptPreview />
         </div>
       </div>
     )

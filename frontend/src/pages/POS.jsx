@@ -238,6 +238,9 @@ export default function POS() {
   const [salesHistory, setSalesHistory]     = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyMsg, setHistoryMsg]         = useState('')
+  const today = new Date().toISOString().split('T')[0]
+  const [historyDateFrom, setHistoryDateFrom] = useState(today)
+  const [historyDateTo, setHistoryDateTo]     = useState(today)
 
   // Payment
   const [paymentOpen, setPaymentOpen] = useState(false)
@@ -518,14 +521,38 @@ export default function POS() {
   }
 
   // ── Sales history ─────────────────────────────────────────────────────────
-  async function openHistory() {
-    setHistoryOpen(true); setHistoryLoading(true); setHistoryMsg('')
+  const isCashier = user?.role === 'cashier'
+  const MAX_CASHIER_DAYS = 4
+
+  async function fetchHistory(dateFrom, dateTo) {
+    setHistoryLoading(true); setHistoryMsg('')
     try {
-      const today = new Date().toISOString().split('T')[0]
-      const res = await getSales({ cashier_id: user.id, date_from: today, limit: 50 })
+      // Cashier can only see their own sales, max 4-day window
+      const params = { date_from: dateFrom, date_to: dateTo + 'T23:59:59', limit: 200 }
+      if (isCashier) params.cashier_id = user.id
+      const res = await getSales(params)
       setSalesHistory(res.data || [])
     } catch {}
     finally { setHistoryLoading(false) }
+  }
+
+  async function openHistory() {
+    setHistoryOpen(true)
+    await fetchHistory(historyDateFrom, historyDateTo)
+  }
+
+  function handleHistoryFilter() {
+    // Enforce 4-day cap for cashier
+    if (isCashier) {
+      const from = new Date(historyDateFrom)
+      const to   = new Date(historyDateTo)
+      const diffDays = (to - from) / 86400000
+      if (diffDays > MAX_CASHIER_DAYS - 1) {
+        setHistoryMsg(`Cashiers can view up to ${MAX_CASHIER_DAYS} days of history`)
+        return
+      }
+    }
+    fetchHistory(historyDateFrom, historyDateTo)
   }
 
   async function handleHistoryEscReprint(sale) {
@@ -1064,29 +1091,83 @@ export default function POS() {
       {/* Sales history */}
       {historyOpen && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setHistoryOpen(false)}>
-          <div className="modal" style={{ width: 680, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div className="modal-title" style={{ marginBottom: 0 }}>Today's Sales</div>
+          <div className="modal" style={{ width: 740, maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div className="modal-title" style={{ marginBottom: 0 }}>Sales History</div>
               <button className="btn btn-ghost btn-sm" onClick={() => setHistoryOpen(false)}>✕</button>
             </div>
-            {historyMsg && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{historyMsg}</div>}
+
+            {/* Date filter */}
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <label style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>From</label>
+                <input type="date" className="input" style={{ padding: '4px 8px', fontSize: 13 }}
+                  value={historyDateFrom}
+                  max={historyDateTo}
+                  onChange={e => {
+                    const v = e.target.value
+                    if (isCashier) {
+                      // Keep within 4-day window
+                      const to = new Date(historyDateTo)
+                      const from = new Date(v)
+                      if ((to - from) / 86400000 > MAX_CASHIER_DAYS - 1) {
+                        const newTo = new Date(from)
+                        newTo.setDate(newTo.getDate() + MAX_CASHIER_DAYS - 1)
+                        setHistoryDateTo(newTo.toISOString().split('T')[0])
+                      }
+                    }
+                    setHistoryDateFrom(v)
+                  }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <label style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>To</label>
+                <input type="date" className="input" style={{ padding: '4px 8px', fontSize: 13 }}
+                  value={historyDateTo}
+                  min={historyDateFrom}
+                  max={!isCashier ? undefined : (() => {
+                    const d = new Date(historyDateFrom)
+                    d.setDate(d.getDate() + MAX_CASHIER_DAYS - 1)
+                    return d.toISOString().split('T')[0]
+                  })()}
+                  onChange={e => setHistoryDateTo(e.target.value)} />
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={handleHistoryFilter}
+                disabled={historyLoading}>
+                {historyLoading ? 'Loading…' : 'Search'}
+              </button>
+              {isCashier && (
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Max {MAX_CASHIER_DAYS} days</span>
+              )}
+            </div>
+
+            {historyMsg && <div style={{ fontSize: 12, color: 'var(--warning)', marginBottom: 8 }}>{historyMsg}</div>}
+
             {historyLoading ? (
               <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>Loading…</div>
             ) : salesHistory.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>No sales today</div>
+              <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>No sales found for this period</div>
             ) : (
               <div style={{ overflowY: 'auto', flex: 1 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                  {salesHistory.length} transaction{salesHistory.length !== 1 ? 's' : ''} &nbsp;·&nbsp;
+                  Total: <strong>{fmt(salesHistory.filter(s => s.status !== 'voided').reduce((a, s) => a + (s.total || 0), 0))}</strong>
+                </div>
                 <table className="table">
                   <thead>
-                    <tr><th>Time</th><th>Receipt</th><th>Customer</th><th>Total</th><th>Method</th><th></th></tr>
+                    <tr>
+                      <th>Date / Time</th><th>Receipt</th>
+                      {!isCashier && <th>Cashier</th>}
+                      <th>Customer</th><th>Total</th><th>Method</th><th></th>
+                    </tr>
                   </thead>
                   <tbody>
                     {salesHistory.map(s => (
-                      <tr key={s.id} style={{ opacity: s.status === 'voided' ? 0.5 : 1 }}>
+                      <tr key={s.id} style={{ opacity: s.status === 'voided' ? 0.45 : 1 }}>
                         <td style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                          {new Date(s.created_at).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })}
+                          {new Date(s.created_at).toLocaleString('en-KE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                         </td>
                         <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{s.receipt_number}</td>
+                        {!isCashier && <td style={{ fontSize: 12 }}>{s.cashier_name || '—'}</td>}
                         <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{s.customer_name || '—'}</td>
                         <td style={{ fontWeight: 600 }}>
                           {fmt(s.total)}
