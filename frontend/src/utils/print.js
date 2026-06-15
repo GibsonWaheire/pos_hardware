@@ -1785,66 +1785,98 @@ export function printShiftReconciliation(report) {
  * Print a barcode label for a product.
  * format: 'label' (58mm single) | 'a4' (30-up Avery sheet)
  */
-export function printBarcodeLabel(product, format = 'label') {
-  const barcodeVal = product.barcode || product.plu_code || String(product.id)
-  const name       = product.name || ''
+// ── Barcode label printing ────────────────────────────────────────────────────
+// printBarcodeLabels(items, format, storeName)
+//
+//   items    — array of { product, qty } where qty = number of label copies
+//   format   — '58mm' | 'a4'
+//   storeName — optional store name printed on each label
+//
+// Replaces the old single-product printBarcodeLabel.
+// The legacy export alias is kept for backward compat.
 
-  function labelHtml(p, bv) {
+export function printBarcodeLabels(items = [], format = '58mm', storeName = '') {
+  if (!items.length) return
+
+  function bv(p) { return p.barcode || p.plu_code || String(p.id) }
+
+  function labelHtml(p) {
+    const code = bv(p)
     return `
       <div class="label">
+        ${storeName ? `<div class="lbl-store">${storeName}</div>` : ''}
         <div class="lbl-name">${p.name || ''}</div>
-        <svg class="lbl-barcode" data-val="${bv}"></svg>
+        <svg class="lbl-barcode" data-val="${code}"></svg>
         <div class="lbl-meta">
-          ${bv !== String(p.id) ? `<span class="lbl-code">${bv}</span>` : ''}
+          <span class="lbl-code">${code !== String(p.id) ? code : ''}</span>
           ${p.price != null ? `<span class="lbl-price">KES ${Number(p.price).toFixed(2)}</span>` : ''}
         </div>
       </div>`
   }
 
-  const isA4     = format === 'a4'
-  const copies   = isA4 ? 30 : 1
-  const labelsHtml = Array.from({ length: copies }, () => labelHtml(product, barcodeVal)).join('')
+  // Expand items × qty into flat label list
+  const labels = items.flatMap(({ product, qty = 1 }) =>
+    Array.from({ length: Math.max(1, qty) }, () => labelHtml(product))
+  )
+
+  const isA4 = format === 'a4'
+  const title = items.length === 1 ? (items[0].product.name || 'Label') : `${labels.length} Labels`
 
   const css = isA4 ? `
-    @page { size: A4; margin: 12mm 8mm; }
+    @page { size: A4; margin: 10mm 8mm; }
     body { margin: 0; font-family: Arial, sans-serif; }
-    .sheet { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
-    .label { border: 0.3mm solid #ccc; border-radius: 2mm; padding: 3mm 4mm; display: flex; flex-direction: column; align-items: center; gap: 1.5mm; page-break-inside: avoid; }
-    .lbl-name { font-size: 8pt; font-weight: 700; text-align: center; max-height: 2.4em; overflow: hidden; }
-    .lbl-barcode { width: 100%; height: 14mm; }
-    .lbl-meta { display: flex; justify-content: space-between; width: 100%; font-size: 7pt; color: #333; }
+    .sheet { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
+    .label { border: 0.3mm solid #ccc; border-radius: 2mm; padding: 3mm 4mm; display: flex; flex-direction: column; align-items: center; gap: 1mm; page-break-inside: avoid; min-height: 28mm; }
+    .lbl-store { font-size: 6pt; color: #888; text-transform: uppercase; letter-spacing: 0.5pt; }
+    .lbl-name { font-size: 8pt; font-weight: 700; text-align: center; line-height: 1.2; }
+    .lbl-barcode { width: 100%; height: 13mm; }
+    .lbl-meta { display: flex; justify-content: space-between; width: 100%; font-size: 7pt; color: #333; margin-top: 1mm; }
     .lbl-price { font-weight: 700; }
+    .lbl-code { color: #666; }
   ` : `
-    @page { size: 58mm 40mm; margin: 2mm; }
+    @page { size: 58mm 35mm; margin: 1.5mm; }
     body { margin: 0; font-family: Arial, sans-serif; }
     .sheet { display: block; }
-    .label { display: flex; flex-direction: column; align-items: center; gap: 1mm; padding: 1mm; }
+    .label { display: flex; flex-direction: column; align-items: center; gap: 0.5mm; padding: 1mm; page-break-after: always; }
+    .label:last-child { page-break-after: auto; }
+    .lbl-store { font-size: 6pt; color: #888; text-transform: uppercase; }
     .lbl-name { font-size: 9pt; font-weight: 700; text-align: center; }
-    .lbl-barcode { width: 52mm; height: 16mm; }
-    .lbl-meta { display: flex; justify-content: space-between; width: 100%; font-size: 8pt; }
+    .lbl-barcode { width: 52mm; height: 14mm; }
+    .lbl-meta { display: flex; justify-content: space-between; width: 54mm; font-size: 8pt; }
     .lbl-price { font-weight: 700; font-size: 10pt; }
+    .lbl-code { font-size: 7pt; color: #666; }
   `
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Label \u2014 ${name}</title>
+<title>${title}</title>
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
 <style>${css}</style>
 </head><body>
-<div class="sheet">${labelsHtml}</div>
+<div class="sheet">${labels.join('')}</div>
 <script>
   try {
     document.querySelectorAll('.lbl-barcode').forEach(function(el) {
-      JsBarcode(el, el.dataset.val, { format:'CODE128', width:1.4, height:40, displayValue:false, margin:0 });
+      if (el.dataset.val) {
+        JsBarcode(el, el.dataset.val, { format:'CODE128', width:1.4, height:36, displayValue:true, fontSize:8, margin:2 });
+      }
     });
-  } catch(e) {}
+  } catch(e) { console.error(e); }
   window.onload = function() { window.print(); };
 <\/script>
 </body></html>`
 
-  const w = window.open('', '_blank', 'width=600,height=400')
+  const w = window.open('', '_blank', 'width=700,height=500')
   if (!w) return
   w.document.write(html)
   w.document.close()
+}
+
+// Legacy single-product alias
+export function printBarcodeLabel(product, format = 'label') {
+  printBarcodeLabels(
+    [{ product, qty: format === 'a4' ? 30 : 1 }],
+    format === 'a4' ? 'a4' : '58mm'
+  )
 }
 
 // ── Reconciliation / Day Audit Report ─────────────────────────────────────────

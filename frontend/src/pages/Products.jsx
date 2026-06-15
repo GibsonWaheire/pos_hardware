@@ -6,8 +6,8 @@ import {
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
-import { printBarcodeLabel } from '../utils/print'
 import Pagination from '../components/Pagination'
+import LabelPrintModal from '../components/LabelPrintModal'
 
 const PAGE_SIZE = 25
 
@@ -37,6 +37,17 @@ export default function Products() {
   const [editProduct, setEditProduct] = useState(null) // product being edited (for image)
   const fileInputRef = useRef(null)
   const csvInputRef = useRef(null)
+
+  // Label printing
+  const [labelModal, setLabelModal]   = useState(null)  // null | [product, ...]
+  const [selected, setSelected]       = useState(new Set())
+
+  function toggleSelect(id) { setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s }) }
+  function toggleSelectAll() {
+    const pageIds = products.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(p => p.id)
+    const allSelected = pageIds.every(id => selected.has(id))
+    setSelected(prev => { const s = new Set(prev); pageIds.forEach(id => allSelected ? s.delete(id) : s.add(id)); return s })
+  }
 
   // CSV import state
   const [importModal, setImportModal] = useState(false)
@@ -256,7 +267,13 @@ export default function Products() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <div className="page-header">
         <span className="page-title">Products</span>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {selected.size > 0 && (
+            <button className="btn btn-ghost" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
+              onClick={() => setLabelModal(products.filter(p => selected.has(p.id)))}>
+              Print Labels ({selected.size})
+            </button>
+          )}
           {(user?.role === 'manager' || user?.role === 'admin') && (
             <button className="btn btn-ghost" onClick={handleExportCSV}>Export CSV</button>
           )}
@@ -280,6 +297,12 @@ export default function Products() {
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: 32, paddingRight: 0 }}>
+                  <input type="checkbox"
+                    checked={products.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).length > 0 && products.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).every(p => selected.has(p.id))}
+                    onChange={toggleSelectAll}
+                  />
+                </th>
                 <th style={{ width: 48 }}></th>
                 <th>Name</th>
                 <th>Barcode</th>
@@ -293,9 +316,12 @@ export default function Products() {
             </thead>
             <tbody>
               {products.length === 0 ? (
-                <tr><td colSpan={8} className="empty-state">No products yet</td></tr>
+                <tr><td colSpan={9} className="empty-state">No products yet</td></tr>
               ) : products.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(p => (
-                <tr key={p.id}>
+                <tr key={p.id} style={{ background: selected.has(p.id) ? 'var(--accent)08' : undefined }}>
+                  <td style={{ paddingRight: 0 }}>
+                    <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)} />
+                  </td>
                   <td>
                     {p.image_url
                       ? <img src={p.image_url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
@@ -328,10 +354,8 @@ export default function Products() {
                     </span>
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    {(p.barcode || p.name) && (
-                      <button className="btn btn-ghost btn-sm" style={{ marginRight: 4 }}
-                        onClick={() => printBarcodeLabel(p, 'label')}>Label</button>
-                    )}
+                    <button className="btn btn-ghost btn-sm" style={{ marginRight: 4 }}
+                      onClick={() => setLabelModal([p])}>Label</button>
                     {!readOnly && (
                       <>
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)} style={{ marginRight: 4 }}>Edit</button>
@@ -574,6 +598,11 @@ export default function Products() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Label print modal */}
+      {labelModal && (
+        <LabelPrintModal products={labelModal} onClose={() => setLabelModal(null)} />
       )}
     </div>
   )

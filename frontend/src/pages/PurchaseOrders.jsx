@@ -11,6 +11,7 @@ import {
   getSuppliers, getProducts, getStoreConfig, getProductsBelowReorder,
 } from '../api'
 import { printDoc, A4_CSS, printDeliveryNote, printPOForSupplier } from '../utils/print'
+import LabelPrintModal from '../components/LabelPrintModal'
 
 const STATUS_BADGE = {
   draft:            'badge-blue',
@@ -136,6 +137,8 @@ export default function PurchaseOrders() {
     setModal({ mode: 'receive', po })
   }
 
+  const [labelModal, setLabelModal] = useState(null)  // null | [product, ...]
+
   async function handleReceive() {
     setSaving(true); setError('')
     try {
@@ -143,9 +146,19 @@ export default function PurchaseOrders() {
         .filter(([, qty]) => parseInt(qty) > 0)
         .map(([id, qty]) => ({ po_item_id: parseInt(id), qty_received: parseInt(qty) }))
       if (!items.length) { setError('Enter at least one qty'); setSaving(false); return }
-      await receivePO(modal.po.id, { items })
+      const res = await receivePO(modal.po.id, { items })
+      // Offer to print labels for received products
+      const receivedProducts = (modal.po.items || [])
+        .filter(item => {
+          const qty = parseInt(receiveData[item.id] || 0)
+          return qty > 0 && item.product
+        })
+        .map(item => item.product || { id: item.product_id, name: item.product_name, barcode: item.barcode, price: item.unit_cost })
       setModal(null)
       load()
+      if (receivedProducts.length > 0) {
+        setLabelModal(receivedProducts)
+      }
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
@@ -700,6 +713,11 @@ export default function PurchaseOrders() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Label print modal — offered after PO receive */}
+      {labelModal && (
+        <LabelPrintModal products={labelModal} onClose={() => setLabelModal(null)} />
       )}
     </div>
   )
