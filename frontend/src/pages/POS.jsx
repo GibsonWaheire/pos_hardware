@@ -796,30 +796,61 @@ export default function POS() {
         {searchLoading && <div className="search-loading">Searching…</div>}
 
         {!searchLoading && searchResults.length > 0 && (
-          <div className="search-results">
-            {searchResults.map((p, i) => {
-              const unit       = p.is_weight_based ? (p.weight_unit || 'kg') : (p.weight_unit || 'pc')
-              const hasNoPrice = !p.price || p.price <= 0
-              const blocked    = hasNoPrice && user?.role === 'cashier'
-              return (
-                <div
-                  key={p.id}
-                  className={`search-result-item${i === selectedIdx ? ' active' : ''}${blocked ? ' sri-blocked' : ''}`}
-                  onClick={() => blocked ? showZeroPriceError(`"${p.name}" has no price set. Contact your manager.`) : addToCart(p)}
-                  onMouseEnter={() => !blocked && setSelectedIdx(i)}
-                >
-                  <span className="sri-name">
-                    {p.name}
-                    <span className="sri-unit">/{unit}</span>
-                  </span>
-                  {hasNoPrice
-                    ? <span className="sri-no-price">No price</span>
-                    : <span className="sri-price">{fmt(p.price)}</span>
-                  }
-                </div>
-              )
-            })}
-          </div>
+          activeCat && !searchQuery.trim()
+            /* ── Category tile grid (with images) ── */
+            ? <div className="pos-product-grid">
+                {searchResults.map(p => {
+                  const unit       = p.is_weight_based ? (p.weight_unit || 'kg') : (p.weight_unit || 'pc')
+                  const hasNoPrice = !p.price || p.price <= 0
+                  const blocked    = hasNoPrice && user?.role === 'cashier'
+                  return (
+                    <div
+                      key={p.id}
+                      className={`pos-product-tile${blocked ? ' tile-blocked' : ''}`}
+                      onClick={() => blocked ? showZeroPriceError(`"${p.name}" has no price set. Contact your manager.`) : addToCart(p)}
+                    >
+                      {p.image_url
+                        ? <img className="tile-img" src={p.image_url} alt={p.name} />
+                        : <div className="tile-img-placeholder">🔩</div>
+                      }
+                      <div className="tile-name">{p.name}<span className="tile-unit">/{unit}</span></div>
+                      {hasNoPrice
+                        ? <div className="tile-no-price">No price</div>
+                        : <div className="tile-price">{fmt(p.price)}</div>
+                      }
+                    </div>
+                  )
+                })}
+              </div>
+            /* ── Search list (with thumbnail) ── */
+            : <div className="search-results">
+                {searchResults.map((p, i) => {
+                  const unit       = p.is_weight_based ? (p.weight_unit || 'kg') : (p.weight_unit || 'pc')
+                  const hasNoPrice = !p.price || p.price <= 0
+                  const blocked    = hasNoPrice && user?.role === 'cashier'
+                  return (
+                    <div
+                      key={p.id}
+                      className={`search-result-item${i === selectedIdx ? ' active' : ''}${blocked ? ' sri-blocked' : ''}`}
+                      onClick={() => blocked ? showZeroPriceError(`"${p.name}" has no price set. Contact your manager.`) : addToCart(p)}
+                      onMouseEnter={() => !blocked && setSelectedIdx(i)}
+                    >
+                      {p.image_url
+                        ? <img src={p.image_url} alt="" className="sri-thumb" />
+                        : <div className="sri-thumb-placeholder" />
+                      }
+                      <span className="sri-name">
+                        {p.name}
+                        <span className="sri-unit">/{unit}</span>
+                      </span>
+                      {hasNoPrice
+                        ? <span className="sri-no-price">No price</span>
+                        : <span className="sri-price">{fmt(p.price)}</span>
+                      }
+                    </div>
+                  )
+                })}
+              </div>
         )}
 
         {!searchLoading && noResults && (
