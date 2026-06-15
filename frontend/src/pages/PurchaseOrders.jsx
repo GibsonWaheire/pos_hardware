@@ -8,7 +8,7 @@ import { useCurrency } from '../context/CurrencyContext'
 import {
   getPurchaseOrders, createPurchaseOrder, markPOOrdered, receivePO, cancelPO,
   getPendingPOs, approvePO, rejectPO, confirmPO, markPODispatched,
-  getSuppliers, getProducts, getStoreConfig,
+  getSuppliers, getProducts, getStoreConfig, getProductsBelowReorder,
 } from '../api'
 import { printDoc, A4_CSS, printDeliveryNote, printPOForSupplier } from '../utils/print'
 
@@ -41,6 +41,8 @@ export default function PurchaseOrders() {
   const [dispatchForm, setDispatchForm] = useState({ delivery_date: '', driver_name: '', vehicle_ref: '', tracking_ref: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [reorderGroups, setReorderGroups] = useState([])
+  const [reorderOpen, setReorderOpen] = useState(true)
 
   useEffect(() => { load() }, [])
 
@@ -60,13 +62,22 @@ export default function PurchaseOrders() {
 
   async function load() {
     try {
-      const calls = [getPurchaseOrders(), getSuppliers(), getProducts()]
+      const calls = [getPurchaseOrders(), getSuppliers(), getProducts(), getProductsBelowReorder()]
       if (role === 'manager' || role === 'admin') calls.push(getPendingPOs())
       const results = await Promise.all(calls)
       setPOs(results[0].data)
       setSuppliers(results[1].data)
       setProducts(results[2].data)
-      if (results[3]) setPendingPOs(results[3].data)
+      // Group reorder products by supplier
+      const below = results[3].data || []
+      const grps = {}
+      below.forEach(p => {
+        const key = p.supplier_id || '__none__'
+        if (!grps[key]) grps[key] = { supplier_id: p.supplier_id || null, supplier_name: p.supplier_name || 'No Supplier Assigned', items: [] }
+        grps[key].items.push(p)
+      })
+      setReorderGroups(Object.values(grps))
+      if (results[4]) setPendingPOs(results[4].data)
     } catch (e) { console.error(e) }
   }
 
@@ -317,6 +328,64 @@ export default function PurchaseOrders() {
       </div>
 
       <div className="page-body" style={{ flex: 1, overflow: 'auto' }}>
+
+        {/* ── Reorder Alerts (visible to purchasing, manager, admin) ── */}
+        {reorderGroups.length > 0 && role !== 'supplier' && (
+          <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid var(--danger)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reorderOpen ? 12 : 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--danger)' }}>
+                Reorder Alerts — {reorderGroups.reduce((s, g) => s + g.items.length, 0)} products need restocking
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setReorderOpen(o => !o)}>
+                {reorderOpen ? 'Collapse' : 'Expand'}
+              </button>
+            </div>
+            {reorderOpen && reorderGroups.map(group => (
+              <div key={group.supplier_id || '__none__'} style={{
+                marginBottom: 10, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{group.supplier_name}</span>
+                  <button className="btn btn-primary btn-sm" onClick={() => {
+                    setCreateForm({
+                      supplier_id: group.supplier_id ? String(group.supplier_id) : '',
+                      notes: `Reorder — ${group.supplier_name}`,
+                      items: group.items.map(p => ({
+                        product_id: String(p.id), product_name: p.name,
+                        qty_ordered: p.reorder_qty > 0 ? p.reorder_qty : 1, unit_cost: 0,
+                      })),
+                    })
+                    setError(''); setModal('create')
+                  }}>
+                    Create PO ({group.items.length} items)
+                  </button>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      <th style={{ padding: '6px 14px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500 }}>Product</th>
+                      <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--text-muted)', fontWeight: 500 }}>Stock</th>
+                      <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--text-muted)', fontWeight: 500 }}>Reorder At</th>
+                      <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--text-muted)', fontWeight: 500 }}>Reorder Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.items.map(p => (
+                      <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '7px 14px', fontWeight: 500 }}>{p.name}</td>
+                        <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 700, color: p.stock_qty === 0 ? 'var(--danger)' : 'var(--warning)' }}>
+                          {p.stock_qty}
+                        </td>
+                        <td style={{ padding: '7px 14px', textAlign: 'right', color: 'var(--text-muted)' }}>{p.reorder_point}</td>
+                        <td style={{ padding: '7px 14px', textAlign: 'right', color: 'var(--text-muted)' }}>{p.reorder_qty || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* ── Pending Approvals section (manager/admin) ── */}
         {(role === 'manager' || role === 'admin') && pendingPos.length > 0 && (

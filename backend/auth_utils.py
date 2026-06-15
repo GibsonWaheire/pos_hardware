@@ -164,22 +164,40 @@ def log_action(user, action, entity_type, entity_id=None, entity_name=None,
         print(f'[audit] log_action failed: {e}')
 
 
-def prune_old_logs(audit_days=30, stock_days=90):
+def prune_old_logs():
     """
-    Delete old audit_log and stock_movement rows to keep the DB lean.
-    Called automatically on every shift close. Non-destructive to sales data.
-    - audit_logs: entries older than audit_days (default 30)
-    - stock_movements: entries older than stock_days (default 90)
+    Tiered log retention — called automatically on every shift close.
+    Retention policy:
+      auth events (login/logout/pin_change)  →  7 days
+      all other audit events                 →  90 days
+      stock_movements                        →  90 days
+    Sales, returns, products etc. are in their own tables and NOT touched here.
     """
     try:
         from models import AuditLog, StockMovement
-        cutoff_audit = datetime.utcnow() - timedelta(days=audit_days)
-        cutoff_stock = datetime.utcnow() - timedelta(days=stock_days)
+        now = datetime.utcnow()
 
-        deleted_audit = AuditLog.query.filter(AuditLog.created_at < cutoff_audit).delete()
-        deleted_stock = StockMovement.query.filter(StockMovement.created_at < cutoff_stock).delete()
+        AUTH_ACTIONS = ('login', 'logout', 'pin_change', 'lock', 'unlock', 'session_expire')
+
+        # Short-lived: auth/session events
+        cutoff_auth = now - timedelta(days=7)
+        n_auth = AuditLog.query.filter(
+            AuditLog.created_at < cutoff_auth,
+            AuditLog.action.in_(AUTH_ACTIONS),
+        ).delete(synchronize_session=False)
+
+        # Standard: all other audit events (financial accountability)
+        cutoff_std = now - timedelta(days=90)
+        n_std = AuditLog.query.filter(
+            AuditLog.created_at < cutoff_std,
+            ~AuditLog.action.in_(AUTH_ACTIONS),
+        ).delete(synchronize_session=False)
+
+        # Stock movements
+        n_stock = StockMovement.query.filter(StockMovement.created_at < cutoff_std).delete(synchronize_session=False)
+
         db.session.commit()
-        print(f'[prune] Removed {deleted_audit} audit entries (>{audit_days}d) and {deleted_stock} stock movements (>{stock_days}d)')
+        print(f'[prune] Removed {n_auth} auth events (>7d), {n_std} audit events (>90d), {n_stock} stock movements (>90d)')
     except Exception as e:
         db.session.rollback()
         print(f'[prune] Log pruning failed (non-fatal): {e}')

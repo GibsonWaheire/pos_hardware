@@ -123,6 +123,11 @@ Every feature gating decision must follow this table.
 | 47 | Cash drawer via printer RJ-11 — currently uses separate serial port; should send kick through printer connection | TODO |
 | 48 | Card terminal (Stripe) — requires STRIPE_SECRET_KEY; stub in place | TODO |
 | 49 | Cashier shift self-close option — optional setting `allow_cashier_self_close` so cashier can fully close without manager in simple deployments | ✅ |
+| 52 | End-of-day checklist — guided EOD workflow for manager: auto-checks shift/reports/approvals/sync/stock, manual confirmations, logs audit event | ✅ |
+| 53 | Pagination across all list views — reusable Pagination component (prev/next/page numbers), applied to 11 pages; Suppliers converted to expandable table; Admin nav: Checkout removed | ✅ |
+| 54 | Shift close improvements — pending_close shifts now visible to manager (cashier banner, pre-filled cash count); Print Report and Close Shift separated into independent buttons; `hasPrinted` state tracks if report was printed before close | ✅ |
+| 55 | Log decluttering — `prune_old_logs()` runs on every shift close: auth events pruned after 7 days, all other audit/stock events after 90 days | ✅ |
+| 56 | Reorder alerts in Purchase Orders — purchasing role sees reorder widget at top of PO page grouped by supplier with one-click "Create PO" pre-fill | ✅ |
 
 ---
 
