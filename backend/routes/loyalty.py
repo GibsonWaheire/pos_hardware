@@ -2,8 +2,8 @@
 Loyalty program routes.
 
 Points system config (environment variables or defaults):
-  LOYALTY_POINTS_PER_DOLLAR  = 1   (earn 1 point per $1 spent)
-  LOYALTY_CENTS_PER_POINT    = 1   (1 point = $0.01 redemption value)
+  LOYALTY_POINTS_PER_KES  = 0.01  (earn 1 point per 100 KES spent)
+  LOYALTY_KES_PER_POINT   = 1.0   (1 point = KES 1.00 on redemption)
 
 Tier upgrade is evaluated automatically after each sale.
 """
@@ -15,8 +15,14 @@ import os
 
 bp = Blueprint('loyalty', __name__, url_prefix='/api/loyalty')
 
-POINTS_PER_DOLLAR = float(os.getenv('LOYALTY_POINTS_PER_DOLLAR', 1))
-CENTS_PER_POINT = float(os.getenv('LOYALTY_CENTS_PER_POINT', 1))  # 1 point = $0.01
+# 1 point earned per 100 KES (0.01 points per KES)
+POINTS_PER_KES = float(os.getenv('LOYALTY_POINTS_PER_KES', 0.01))
+# 1 point redeems for KES 1  (stored as "cents per point × 100" for legacy compat)
+KES_PER_POINT  = float(os.getenv('LOYALTY_KES_PER_POINT', 1.0))
+
+# Legacy aliases used in earn/redeem formulas
+POINTS_PER_DOLLAR = POINTS_PER_KES
+CENTS_PER_POINT   = KES_PER_POINT * 100   # formula: points * CENTS_PER_POINT / 100 = KES
 
 
 # ── Tiers ─────────────────────────────────────────────────────────────────────
@@ -175,12 +181,48 @@ def manual_adjust():
     return jsonify({'new_balance': customer.loyalty_points, 'customer': customer.to_dict()})
 
 
+@bp.route('/lookup', methods=['GET'])
+def lookup_customer():
+    """
+    Look up a loyalty customer by phone number or member_id.
+    Used at POS to attach loyalty before/during payment.
+    """
+    phone     = request.args.get('phone', '').strip()
+    member_id = request.args.get('member_id', '').strip()
+    if not phone and not member_id:
+        return jsonify({'error': 'phone or member_id required'}), 400
+
+    customer = None
+    if phone:
+        # Normalise: strip leading zeros / +254 for local matching
+        normalised = phone.lstrip('+').lstrip('0')
+        customer = (Customer.query
+                    .filter(Customer.phone.ilike(f'%{normalised[-9:]}'))
+                    .filter_by(is_active=True)
+                    .first())
+    if not customer and member_id:
+        customer = Customer.query.filter_by(member_id=member_id, is_active=True).first()
+
+    if not customer:
+        return jsonify({'error': 'No loyalty account found'}), 404
+
+    kes_per_point = CENTS_PER_POINT / 100
+    return jsonify({
+        'customer': customer.to_dict(),
+        'points_balance': customer.loyalty_points,
+        'redemption_value_kes': round(customer.loyalty_points * kes_per_point, 2),
+        'kes_per_point': kes_per_point,
+    })
+
+
 @bp.route('/config', methods=['GET'])
 def get_config():
     return jsonify({
-        'points_per_kes': POINTS_PER_DOLLAR,
+        'points_per_kes': POINTS_PER_KES,
+        'kes_per_point': KES_PER_POINT,
         'cents_per_point': CENTS_PER_POINT,
-        'redemption_rate': f'1 point = KES {CENTS_PER_POINT / 100:.4f}',
+        'redemption_rate': f'1 point = KES {KES_PER_POINT:.2f}',
+        'earn_rate': f'1 point per KES {round(1 / POINTS_PER_KES):.0f}',
     })
 
 

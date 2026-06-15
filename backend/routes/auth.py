@@ -292,6 +292,41 @@ def revoke_card(staff_id):
     return jsonify({'message': 'Card revoked', 'staff': member.to_dict()})
 
 
+@bp.route('/verify-manager', methods=['POST'])
+def verify_manager():
+    """
+    Verify that a PIN belongs to an active manager or admin.
+    Used by POS for inline manager approvals (loyalty redemption, etc.)
+    Returns manager info if valid; 403 otherwise.
+    Does NOT create a session.
+    """
+    data = request.json or {}
+    pin  = str(data.get('pin', '')).strip()
+    if not pin:
+        return jsonify({'error': 'PIN required'}), 400
+
+    managers = Staff.query.filter(
+        Staff.role.in_(['manager', 'admin']),
+        Staff.is_active == True,
+    ).all()
+
+    for m in managers:
+        locked, _ = _check_lockout(m)
+        if locked:
+            continue
+        if (m.personal_pin and check_pin(pin, m.personal_pin)) or \
+           (m.pin and check_pin(pin, m.pin)):
+            _record_success(m)
+            return jsonify({
+                'id':   m.id,
+                'name': m.name,
+                'role': m.role,
+            })
+        _record_failure(m)
+
+    return jsonify({'error': 'Invalid manager PIN'}), 403
+
+
 @bp.route('/current-shift', methods=['GET'])
 def current_shift():
     """Check if the currently logged-in cashier has an open shift."""

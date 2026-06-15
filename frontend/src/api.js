@@ -429,6 +429,12 @@ export const getLoyaltyConfig = () => withLocal(
   () => api.get('/loyalty/config'),
   () => local.lsStub({})
 )
+export const lookupLoyaltyCustomer = (params) =>
+  api.get('/loyalty/lookup', { params })
+
+// ── Auth helpers ───────────────────────────────────────────────────────────────
+export const verifyManagerPin = (pin) =>
+  api.post('/auth/verify-manager', { pin })
 
 // ── Terminals ─────────────────────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer, getStoreConfig, createSaleInvoice, earnPoints, mpesaStkPush, mpesaStkStatus } from '../api'
+import { createSale, createPaymentIntent, capturePaymentIntent, cancelPaymentIntent, lookupAccount, printReceipt, openDrawer, getStoreConfig, createSaleInvoice, earnPoints, redeemPoints, mpesaStkPush, mpesaStkStatus, lookupLoyaltyCustomer, verifyManagerPin, getLoyaltyConfig } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
 import { printSaleReceipt, printTaxInvoice } from '../utils/print'
@@ -62,6 +62,47 @@ export default function PaymentModal({
   const [printMsg, setPrintMsg] = useState('')
   const [pointsEarned, setPointsEarned] = useState(null)  // { points_earned, new_balance }
 
+  // Loyalty split tender state
+  const [loyaltyConfig, setLoyaltyConfig]         = useState({ kes_per_point: 1 })
+  const [loyaltyPhone, setLoyaltyPhone]           = useState('')
+  const [loyaltyCustomer, setLoyaltyCustomer]     = useState(null)
+  const [loyaltyLooking, setLoyaltyLooking]       = useState(false)
+  const [loyaltyLookErr, setLoyaltyLookErr]       = useState('')
+  const [loyaltyPoints, setLoyaltyPoints]         = useState('')
+  const [loyaltyMgrPin, setLoyaltyMgrPin]         = useState('')
+  const [loyaltyMgr, setLoyaltyMgr]               = useState(null)
+  const [loyaltyVerifying, setLoyaltyVerifying]   = useState(false)
+  const [loyaltyMgrErr, setLoyaltyMgrErr]         = useState('')
+
+  useEffect(() => {
+    getLoyaltyConfig().then(r => setLoyaltyConfig(r.data || {})).catch(() => {})
+  }, [])
+
+  // Auto-print receipt and open drawer when sale completes
+  useEffect(() => {
+    if (!completedSale) return
+    // Auto ESC/POS print; fall back to browser print on failure
+    printReceipt(completedSale.id).catch(async () => {
+      try {
+        const r = await getStoreConfig()
+        printSaleReceipt(completedSale, r.data || {})
+      } catch {}
+    })
+    // Auto-open cash drawer for cash or split payments
+    const m = completedSale.payment_method
+    if (m === 'cash' || m === 'split') {
+      openDrawer().catch(() => {})
+    }
+  }, [completedSale?.id])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Enter key → new sale on the success screen
+  useEffect(() => {
+    if (!completedSale) return
+    function onKey(e) { if (e.key === 'Enter') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [completedSale, onClose])
+
   // Account payment state
   const [acctQuery, setAcctQuery] = useState('')
   const [acctResults, setAcctResults] = useState([])
@@ -102,6 +143,11 @@ export default function PaymentModal({
     if (customer?.id && sale?.id) {
       earnPoints({ customer_id: customer.id, sale_id: sale.id, sale_total: total })
         .then(r => { if (r?.data?.points_earned) setPointsEarned(r.data) })
+        .catch(() => {})
+    }
+    // Redeem points for any loyalty split tenders (deduct from customer balance)
+    for (const t of splitTenders.filter(t => t.method === 'loyalty')) {
+      redeemPoints({ customer_id: t.customer_id, points: t.points_redeemed, sale_id: sale?.id })
         .catch(() => {})
     }
   }
@@ -225,6 +271,12 @@ export default function PaymentModal({
     try {
       const res = await createSale(buildPayload({ payment_method: 'mpesa', mpesa_ref: ref }))
       handleSaleSuccess(res.data)
+      // Auto-attach loyalty if M-Pesa phone matches a customer and no customer already attached
+      if (!customer && mpesaPhone) {
+        lookupLoyaltyCustomer({ phone: mpesaPhone }).then(r => {
+          if (r.data?.customer) onSetCustomer?.(r.data.customer)
+        }).catch(() => {})
+      }
     } catch (e) {
       setError(e.message)
       setMpesaStage('manual')
@@ -497,17 +549,20 @@ export default function PaymentModal({
 
           {printMsg && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{printMsg}</div>}
 
+          {/* Reprint / extras — auto-print already fired, these are manual backups */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleReprint}>ESC/POS</button>
-            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={printBrowserReceipt}>Print Receipt</button>
+            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleReprint}>Reprint ESC/POS</button>
+            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={printBrowserReceipt}>Reprint (Browser)</button>
             {(saleMethod === 'cash' || saleMethod === 'split') && (
               <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={handleOpenDrawer}>Open Drawer</button>
             )}
           </div>
-          <div style={{ marginBottom: 8 }}>
+          <div style={{ marginBottom: 12 }}>
             <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={handlePrintInvoice}>Print Invoice (A4)</button>
           </div>
-          <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={onClose}>New Sale</button>
+          <button className="btn btn-success btn-lg" style={{ width: '100%', fontSize: 18, padding: '14px', letterSpacing: 0.5 }} onClick={onClose}>
+            New Sale &nbsp;<span style={{ fontSize: 13, opacity: 0.7 }}>[Enter]</span>
+          </button>
         </div>
       </div>
     )
@@ -873,6 +928,7 @@ export default function PaymentModal({
                       { label: 'M-Pesa',  fn: () => { setSplitScreen('mpesa');   setSplitMpesaStage('input'); setSplitMpesaRef(''); setError('') } },
                       { label: 'Card',    fn: () => { setSplitScreen('card');    setSplitCardStatus('');     setSplitCardIntentId(null); setError('') } },
                       { label: 'Account', fn: () => { setSplitScreen('account'); setSplitAcctAmt(splitRemaining.toFixed(2)); setError('') } },
+                      { label: 'Loyalty Points', fn: () => { setSplitScreen('loyalty'); setLoyaltyPhone(''); setLoyaltyCustomer(null); setLoyaltyPoints(''); setLoyaltyMgr(null); setLoyaltyMgrPin(''); setLoyaltyLookErr(''); setLoyaltyMgrErr(''); setError('') } },
                     ].map(({ label, fn }) => (
                       <button key={label} className="pay-method-tile" onClick={fn}>{label}</button>
                     ))}
@@ -1074,6 +1130,145 @@ export default function PaymentModal({
                 </div>
               </>
             )}
+
+            {/* ── Loyalty Points tender ── */}
+            {splitScreen === 'loyalty' && (() => {
+              const kesPerPt   = loyaltyConfig.kes_per_point || 1
+              const ptsBal     = loyaltyCustomer?.loyalty_points || 0
+              const maxKes     = Math.min(ptsBal * kesPerPt, splitRemaining)
+              const maxPts     = Math.ceil(maxKes / kesPerPt)
+              const ptsInput   = parseInt(loyaltyPoints) || 0
+              const kesValue   = Math.min(ptsInput * kesPerPt, splitRemaining)
+              const validPts   = ptsInput > 0 && ptsInput <= ptsBal && kesValue > 0
+
+              async function doLookup() {
+                if (!loyaltyPhone.trim()) return
+                setLoyaltyLooking(true); setLoyaltyLookErr('')
+                try {
+                  const r = await lookupLoyaltyCustomer({ phone: loyaltyPhone.trim() })
+                  setLoyaltyCustomer(r.data.customer)
+                  setLoyaltyPoints(String(Math.min(maxPts, r.data.customer.loyalty_points)))
+                } catch (e) {
+                  setLoyaltyLookErr(e.response?.data?.error || 'Not found')
+                } finally { setLoyaltyLooking(false) }
+              }
+
+              async function doVerifyMgr() {
+                if (!loyaltyMgrPin.trim()) return
+                setLoyaltyVerifying(true); setLoyaltyMgrErr('')
+                try {
+                  const r = await verifyManagerPin(loyaltyMgrPin.trim())
+                  setLoyaltyMgr(r.data)
+                } catch (e) {
+                  setLoyaltyMgrErr(e.response?.data?.error || 'Invalid PIN')
+                } finally { setLoyaltyVerifying(false) }
+              }
+
+              function doAddLoyalty() {
+                if (!loyaltyCustomer || !loyaltyMgr || !validPts) return
+                addSplitTender({
+                  method: 'loyalty',
+                  amount: kesValue,
+                  label: `Points (${ptsInput} pts)`,
+                  points_redeemed: ptsInput,
+                  customer_id: loyaltyCustomer.id,
+                  approved_by: loyaltyMgr.name,
+                })
+              }
+
+              return (
+                <>
+                  <div style={{ fontWeight: 600, marginBottom: 12 }}>Loyalty Points Redemption</div>
+
+                  {/* Step 1: Look up customer */}
+                  {!loyaltyCustomer ? (
+                    <>
+                      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
+                        Enter customer phone or M-Pesa number
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                        <input className="input" placeholder="+254 7XX XXX XXX or 07XX..."
+                          value={loyaltyPhone} onChange={e => setLoyaltyPhone(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && doLookup()}
+                          style={{ flex: 1 }} />
+                        <button className="btn btn-ghost" onClick={doLookup} disabled={loyaltyLooking}>
+                          {loyaltyLooking ? '...' : 'Find'}
+                        </button>
+                      </div>
+                      {loyaltyLookErr && <p className="error-msg">{loyaltyLookErr}</p>}
+                    </>
+                  ) : (
+                    <>
+                      {/* Customer found */}
+                      <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
+                        <div style={{ fontWeight: 600 }}>{loyaltyCustomer.name}</div>
+                        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                          {loyaltyCustomer.phone} · {ptsBal.toLocaleString()} pts · Value: {KES(ptsBal * kesPerPt)}
+                        </div>
+                        {loyaltyCustomer.tier_name && (
+                          <div style={{ fontSize: 12, color: loyaltyCustomer.tier_color || 'var(--accent)', marginTop: 2 }}>
+                            {loyaltyCustomer.tier_name} tier
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Points to redeem */}
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                        <input className="input" type="number" min={1} max={ptsBal}
+                          placeholder="Points to redeem"
+                          value={loyaltyPoints}
+                          onChange={e => setLoyaltyPoints(e.target.value)}
+                          style={{ flex: 1 }} />
+                        <button className="btn btn-ghost btn-sm" onClick={() => setLoyaltyPoints(String(maxPts))}>
+                          Use max ({maxPts})
+                        </button>
+                      </div>
+                      {validPts && (
+                        <div style={{ fontSize: 13, color: 'var(--success)', marginBottom: 12, fontWeight: 600 }}>
+                          = {KES(kesValue)} off this transaction
+                        </div>
+                      )}
+
+                      {/* Step 2: Manager approval */}
+                      {!loyaltyMgr ? (
+                        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
+                          <div style={{ fontSize: 13, color: 'var(--warning)', fontWeight: 600, marginBottom: 8 }}>
+                            Manager PIN required to approve
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <input className="input" type="password" inputMode="numeric"
+                              placeholder="Manager PIN"
+                              value={loyaltyMgrPin}
+                              onChange={e => setLoyaltyMgrPin(e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && doVerifyMgr()}
+                              style={{ flex: 1 }} />
+                            <button className="btn btn-ghost" onClick={doVerifyMgr} disabled={loyaltyVerifying}>
+                              {loyaltyVerifying ? '...' : 'Approve'}
+                            </button>
+                          </div>
+                          {loyaltyMgrErr && <p className="error-msg">{loyaltyMgrErr}</p>}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 13, color: 'var(--success)', marginBottom: 12 }}>
+                          Approved by {loyaltyMgr.name}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <button className="btn btn-ghost btn-lg" style={{ flex: 1 }}
+                      onClick={() => { setSplitScreen('select'); setError('') }}>Back</button>
+                    {loyaltyCustomer && loyaltyMgr && (
+                      <button className="btn btn-primary btn-lg" style={{ flex: 2 }}
+                        onClick={doAddLoyalty} disabled={!validPts}>
+                        Redeem {KES(kesValue)} ({ptsInput} pts)
+                      </button>
+                    )}
+                  </div>
+                </>
+              )
+            })()}
           </>
         )}
 
