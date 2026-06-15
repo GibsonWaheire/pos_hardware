@@ -139,6 +139,12 @@ def _ensure_columns():
         ('invoices',        'etims_qr_code',                'TEXT'),
         ('invoices',        'etims_submitted_at',           'DATETIME'),
         ('invoices',        'etims_error',                  'TEXT'),
+        ('stores',          'printer_config',               'TEXT'),
+        ('sales',           'etims_status',                 'VARCHAR(20)'),
+        ('sales',           'etims_cu_invoice_number',      'VARCHAR(50)'),
+        ('sales',           'etims_qr_code',                'TEXT'),
+        ('sales',           'etims_submitted_at',           'DATETIME'),
+        ('sales',           'etims_error',                  'TEXT'),
     ]
     with db.engine.connect() as conn:
         for table, col, col_type in cols_to_add:
