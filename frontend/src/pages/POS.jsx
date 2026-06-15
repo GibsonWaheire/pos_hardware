@@ -15,6 +15,12 @@ import IdleCheckout from '../components/IdleCheckout'
 import PaymentModal from '../components/PaymentModal'
 import ManagerAuthModal from '../components/ManagerAuthModal'
 
+const CAT_COLORS = [
+  '#4f6ef7', '#16a34a', '#d97706', '#dc2626',
+  '#7c3aed', '#0891b2', '#db2777', '#65a30d',
+  '#ea580c', '#0284c7',
+]
+
 export default function POS() {
   const { user } = useAuth()
   const { fmt } = useCurrency()
@@ -599,12 +605,14 @@ export default function POS() {
         <div className="cat-sidebar-title">Categories</div>
         <button
           className={`cat-sidebar-btn${!activeCat ? ' active' : ''}`}
+          style={{ '--cat-color': '#6b7280' }}
           onClick={() => setActiveCat(null)}
         >All</button>
-        {categories.map(c => (
+        {categories.map((c, i) => (
           <button
             key={c.id}
             className={`cat-sidebar-btn${activeCat === c.id ? ' active' : ''}`}
+            style={{ '--cat-color': CAT_COLORS[i % CAT_COLORS.length] }}
             onClick={() => setActiveCat(c.id)}
           >{c.name}</button>
         ))}
@@ -755,10 +763,6 @@ export default function POS() {
 
         {/* Cart / Bill items */}
         <div className="bill-items" style={{ position: 'relative' }}>
-          <IdleCheckout
-            visible={cartItems.length === 0}
-            storeConfig={storeConfig}
-          />
           {cartItems.length > 0 && (
             <Cart
               items={cartItems}
