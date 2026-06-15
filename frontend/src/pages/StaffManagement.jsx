@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { getAllStaff, createStaff, updateStaff, unlockStaff, getStaffActivity } from '../api'
+import { useAuth } from '../context/AuthContext'
 import Pagination from '../components/Pagination'
 
-const ROLES = ['cashier', 'inventory', 'purchasing', 'receiving', 'supplier', 'manager', 'admin']
+const ALL_ROLES   = ['cashier', 'inventory', 'purchasing', 'receiving', 'supplier', 'manager', 'admin']
+const MGR_ROLES   = ['cashier', 'inventory', 'purchasing', 'receiving', 'supplier', 'manager']
 
 const ROLE_COLOURS = {
   cashier:    { bg: '#dbeafe', color: '#1e40af' },
@@ -28,6 +30,10 @@ function fmtDateTime(iso) {
 const BLANK_FORM = { name: '', role: 'cashier', pin: '', personal_pin: '', department_pin: '' }
 
 export default function StaffManagement() {
+  const { user: currentUser } = useAuth()
+  const isAdmin = currentUser?.role === 'admin'
+  const ROLES = isAdmin ? ALL_ROLES : MGR_ROLES
+
   const [staff, setStaff]           = useState([])
   const [loading, setLoading]       = useState(true)
   const [showInactive, setShowInactive] = useState(false)
@@ -62,7 +68,15 @@ export default function StaffManagement() {
     setModal('create')
   }
 
+  function canActOn(s) {
+    // Managers cannot act on admin accounts
+    if (!isAdmin && s.role === 'admin') return false
+    // Nobody can act on themselves here (use profile/settings for self)
+    return true
+  }
+
   function openEdit(s) {
+    if (!canActOn(s)) return
     setForm({ name: s.name, role: s.role, pin: '', personal_pin: '', department_pin: '' })
     setEditing(s)
     setErr('')
@@ -96,6 +110,7 @@ export default function StaffManagement() {
   }
 
   async function handleToggleActive(s) {
+    if (!canActOn(s)) return
     try {
       await updateStaff(s.id, { is_active: !s.is_active })
       await load()
@@ -105,6 +120,7 @@ export default function StaffManagement() {
   }
 
   async function handleUnlock(s) {
+    if (!canActOn(s)) return
     setUnlocking(s.id)
     try {
       await unlockStaff(s.id)
@@ -191,6 +207,7 @@ export default function StaffManagement() {
             <tbody>
               {paged.map(s => {
                 const locked = isLocked(s)
+                const protected_ = !canActOn(s)
                 return (
                   <tr key={s.id} style={{ borderBottom: '1px solid var(--border)', opacity: s.is_active ? 1 : 0.5 }}>
                     <td style={{ ...tdS, fontWeight: 600 }}>
@@ -234,22 +251,29 @@ export default function StaffManagement() {
                     </td>
                     <td style={{ ...tdS, color: 'var(--text-muted)', fontSize: 12 }}>{fmtDate(s.created_at)}</td>
                     <td style={{ ...tdS, textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <button className="btn btn-ghost btn-sm" onClick={() => openActivity(s)}>Activity</button>
-                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)}>Edit</button>
-                        {locked && (
-                          <button className="btn btn-sm" style={{ background: '#fef3c7', color: '#92400e', border: 'none' }}
-                            onClick={() => handleUnlock(s)} disabled={unlocking === s.id}>
-                            {unlocking === s.id ? '…' : 'Unlock'}
-                          </button>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                        {protected_ && (
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>Admin-only</span>
                         )}
-                        <button
-                          className="btn btn-sm"
-                          style={{ background: s.is_active ? '#fee2e2' : '#dcfce7', color: s.is_active ? '#dc2626' : '#15803d', border: 'none' }}
-                          onClick={() => handleToggleActive(s)}
-                        >
-                          {s.is_active ? 'Deactivate' : 'Reactivate'}
-                        </button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openActivity(s)}>Activity</button>
+                        {!protected_ && (
+                          <>
+                            <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)}>Edit</button>
+                            {locked && (
+                              <button className="btn btn-sm" style={{ background: '#fef3c7', color: '#92400e', border: 'none' }}
+                                onClick={() => handleUnlock(s)} disabled={unlocking === s.id}>
+                                {unlocking === s.id ? '…' : 'Unlock'}
+                              </button>
+                            )}
+                            <button
+                              className="btn btn-sm"
+                              style={{ background: s.is_active ? '#fee2e2' : '#dcfce7', color: s.is_active ? '#dc2626' : '#15803d', border: 'none' }}
+                              onClick={() => handleToggleActive(s)}
+                            >
+                              {s.is_active ? 'Deactivate' : 'Reactivate'}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

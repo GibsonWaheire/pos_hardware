@@ -84,7 +84,7 @@ function Kpi({ label, value, sub, color, icon, onClick, badge }) {
   )
 }
 
-function ShiftCard({ shift, shiftStats, nav }) {
+function ShiftCard({ shift, shiftStats, nav, userRole }) {
   const { fmt } = useCurrency()
   const isOpen = shift?.status === 'open'
   const isPending = shift?.status === 'pending_close'
@@ -96,7 +96,9 @@ function ShiftCard({ shift, shiftStats, nav }) {
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
           No cashier shift is currently active. Sales cannot be processed.
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => nav('/shifts')}>Open Shift →</button>
+        {userRole !== 'admin' && (
+          <button className="btn btn-primary btn-sm" onClick={() => nav('/shifts')}>Open Shift →</button>
+        )}
       </div>
     )
   }
@@ -376,7 +378,7 @@ export default function Dashboard() {
           </div>
 
           {/* Shift status */}
-          {isManager && <ShiftCard shift={mgr?.shift} shiftStats={mgr?.shift_stats} nav={nav} />}
+          {isManager && <ShiftCard shift={mgr?.shift} shiftStats={mgr?.shift_stats} nav={nav} userRole={user?.role} />}
 
         </div>
 

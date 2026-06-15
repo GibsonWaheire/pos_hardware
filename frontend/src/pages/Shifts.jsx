@@ -205,7 +205,7 @@ export default function Shifts() {
       {/* ── Page header ── */}
       <div className="page-header">
         <span className="page-title">Shifts</span>
-        {!currentShift && (
+        {!currentShift && user?.role !== 'admin' && (
           <button className="btn btn-success" onClick={() => {
             setOpenForm({ cashier_id: '', cashier_name: '', opening_float: '' })
             setFormError('')
