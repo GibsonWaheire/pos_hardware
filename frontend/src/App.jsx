@@ -33,36 +33,50 @@ import Login from './pages/Login'
 
 // ── Nav items and their allowed roles ────────────────────────────────────────
 
+// type:'divider' items render as a thin separator line; they are filtered by role
+// like regular items so they only appear when surrounding items are visible.
 const NAV = [
-  // Cashier — only sees Checkout
+  // ── Cashier ──────────────────────────────────────────────────────────────────
   { to: '/',                label: 'Checkout',  icon: '🛒', end: true,  roles: ['cashier'] },
-  // Manager / Admin
+
+  // ── Manager / Admin — Operations ─────────────────────────────────────────────
   { to: '/dashboard',       label: 'Dashboard', icon: '📊',             roles: ['manager','admin'] },
-  { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['manager','admin'] },
-  { to: '/customers',       label: 'Customers', icon: '👤',             roles: ['manager','admin'] },
-  { to: '/returns',         label: 'Returns',   icon: '↩️',             roles: ['manager','admin'] },
-  { to: '/accounts',        label: 'Accounts',  icon: '🏦',             roles: ['manager','admin'] },
-  { to: '/loyalty',         label: 'Loyalty',   icon: '⭐',             roles: ['manager','admin'] },
-  { to: '/terminals',       label: 'Terminals', icon: '🖥️',             roles: ['manager','admin'] },
   { to: '/reports',         label: 'Reports',   icon: '📈',             roles: ['manager','admin'] },
   { to: '/audit-log',       label: 'Audit Log', icon: '🔍',             roles: ['manager','admin'] },
   { to: '/eod-checklist',   label: 'EOD',       icon: '🌙',             roles: ['manager','admin'] },
-  { to: '/staff',           label: 'Staff',     icon: '👥',             roles: ['manager','admin'] },
-  { to: '/settings',        label: 'Settings',  icon: '⚙️',             roles: ['manager','admin'] },
-  // Inventory
+
+  // ── Manager / Admin — Sales & Customers ──────────────────────────────────────
+  { type: 'divider',                                                     roles: ['manager','admin'] },
+  { to: '/customers',       label: 'Customers', icon: '👤',             roles: ['manager','admin'] },
+  { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['manager','admin'] },
+  { to: '/returns',         label: 'Returns',   icon: '↩️',             roles: ['manager','admin'] },
+  { to: '/accounts',        label: 'Accounts',  icon: '🏦',             roles: ['manager','admin'] },
+  { to: '/loyalty',         label: 'Loyalty',   icon: '⭐',             roles: ['manager','admin'] },
+
+  // ── Manager / Admin — Stock & Supply ─────────────────────────────────────────
+  { type: 'divider',                                                     roles: ['manager','admin'] },
   { to: '/products',        label: 'Products',  icon: '📦',             roles: ['inventory','manager','admin'] },
   { to: '/inventory',       label: 'Inventory', icon: '🗂️',            roles: ['inventory','manager','admin'] },
-  { to: '/reports',         label: 'Reports',   icon: '📈',             roles: ['inventory'] },
-  // Purchasing
-  { to: '/inventory',       label: 'Stock',     icon: '🗂️',            roles: ['purchasing'] },
   { to: '/suppliers',       label: 'Suppliers', icon: '🚚',             roles: ['purchasing','manager','admin'] },
   { to: '/purchase-orders', label: 'Orders',    icon: '📋',             roles: ['supplier','purchasing','manager','admin'] },
-  // Receiving bay
+
+  // ── Manager / Admin — System ──────────────────────────────────────────────────
+  { type: 'divider',                                                     roles: ['manager','admin'] },
+  { to: '/staff',           label: 'Staff',     icon: '👥',             roles: ['manager','admin'] },
+  { to: '/terminals',       label: 'Terminals', icon: '🖥️',             roles: ['manager','admin'] },
+  { to: '/cloud-sync',      label: 'Cloud',     icon: '☁️',             roles: ['admin'] },
+  { to: '/settings',        label: 'Settings',  icon: '⚙️',             roles: ['manager','admin'] },
+
+  // ── Inventory role ────────────────────────────────────────────────────────────
+  { to: '/reports',         label: 'Reports',   icon: '📈',             roles: ['inventory'] },
+
+  // ── Purchasing role ───────────────────────────────────────────────────────────
+  { to: '/inventory',       label: 'Stock',     icon: '🗂️',            roles: ['purchasing'] },
+
+  // ── Receiving role ────────────────────────────────────────────────────────────
   { to: '/receiver',        label: 'Dashboard', icon: '📊',             roles: ['receiving'] },
   { to: '/purchase-orders', label: 'Receive',   icon: '📥',             roles: ['receiving'] },
   { to: '/inventory',       label: 'Stock',     icon: '🗂️',            roles: ['receiving'] },
-  // Admin
-  { to: '/cloud-sync',      label: 'Cloud',     icon: '☁️',             roles: ['admin'] },
 ]
 
 const HOME_BY_ROLE = {
@@ -206,13 +220,17 @@ function AppInner() {
         <nav className="sidebar">
           <div className="sidebar-logo">POS</div>
 
-          {visibleNav.map(({ to, label, icon, end }) => (
-            <NavLink key={to} to={to} end={!!end}
-              className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-              <span className="nav-icon">{icon}</span>
-              <span>{label}</span>
-            </NavLink>
-          ))}
+          {visibleNav.map((item, i) =>
+            item.type === 'divider'
+              ? <div key={`div-${i}`} style={{ width: 36, height: 1, background: 'var(--border)', margin: '4px 0', flexShrink: 0 }} />
+              : (
+                <NavLink key={item.to + item.label} to={item.to} end={!!item.end}
+                  className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+                  <span className="nav-icon">{item.icon}</span>
+                  <span>{item.label}</span>
+                </NavLink>
+              )
+          )}
 
           {/* Spacer */}
           <div style={{ flex: 1 }} />
