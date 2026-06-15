@@ -164,6 +164,27 @@ def log_action(user, action, entity_type, entity_id=None, entity_name=None,
         print(f'[audit] log_action failed: {e}')
 
 
+def prune_old_logs(audit_days=30, stock_days=90):
+    """
+    Delete old audit_log and stock_movement rows to keep the DB lean.
+    Called automatically on every shift close. Non-destructive to sales data.
+    - audit_logs: entries older than audit_days (default 30)
+    - stock_movements: entries older than stock_days (default 90)
+    """
+    try:
+        from models import AuditLog, StockMovement
+        cutoff_audit = datetime.utcnow() - timedelta(days=audit_days)
+        cutoff_stock = datetime.utcnow() - timedelta(days=stock_days)
+
+        deleted_audit = AuditLog.query.filter(AuditLog.created_at < cutoff_audit).delete()
+        deleted_stock = StockMovement.query.filter(StockMovement.created_at < cutoff_stock).delete()
+        db.session.commit()
+        print(f'[prune] Removed {deleted_audit} audit entries (>{audit_days}d) and {deleted_stock} stock movements (>{stock_days}d)')
+    except Exception as e:
+        db.session.rollback()
+        print(f'[prune] Log pruning failed (non-fatal): {e}')
+
+
 def stamp(obj, user, is_create=False):
     """Stamp created_by_* or updated_by_* on a model instance."""
     if not user:

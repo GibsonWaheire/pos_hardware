@@ -388,11 +388,23 @@ def close_shift(shift_id):
         import traceback; traceback.print_exc()
         # Shift is already closed — return success even if report gen failed
         db.session.rollback()
+        try:
+            from auth_utils import prune_old_logs
+            prune_old_logs()
+        except Exception:
+            pass
         result = shift.to_dict()
         result['report_id']     = None
         result['report_number'] = None
         result['report_warning'] = f'Shift closed but report generation failed: {e}'
         return jsonify(result)
+
+    # Prune old logs now that shift report is safely stored
+    try:
+        from auth_utils import prune_old_logs
+        prune_old_logs()
+    except Exception:
+        pass
 
     result = shift.to_dict()
     result['report_id']     = rpt.id

@@ -42,6 +42,7 @@ export default function Shifts() {
   const [actualOther, setActualOther] = useState('')
   const [recoNotes,   setRecoNotes]   = useState('')
   const [closingShift, setClosingShift] = useState(false)
+  const [hasPrinted,   setHasPrinted]   = useState(false)
 
   // Collapsible sections inside panel
   const [txnsOpen,      setTxnsOpen]      = useState(true)
@@ -81,6 +82,7 @@ export default function Shifts() {
     setActualCash(shift.cashier_cash_count != null ? String(shift.cashier_cash_count) : '')
     setActualMpesa(''); setActualCard(''); setActualOther('')
     setRecoNotes(shift.cashier_close_notes || '')
+    setHasPrinted(false)
     setTxnsOpen(true); setOverridesOpen(true)
     try {
       const r = await getShiftReconciliation(shift.id)
@@ -128,7 +130,7 @@ export default function Shifts() {
     } finally { setClosingShift(false) }
   }
 
-  async function handlePrintAndClose() {
+  function handlePrintReport() {
     if (!detail?.recoData) return
     const exp = detail.recoData.expected
     const mkRow = (t, e, actual) => {
@@ -154,7 +156,7 @@ export default function Shifts() {
         total_variance: tenders.reduce((s, t) => s + t.variance, 0),
       },
     })
-    await handleCloseShift(false)
+    setHasPrinted(true)
   }
 
   function printDetailReport() {
@@ -393,12 +395,13 @@ export default function Shifts() {
                 actualOther={actualOther} setActualOther={setActualOther}
                 recoNotes={recoNotes} setRecoNotes={setRecoNotes}
                 closingShift={closingShift}
+                hasPrinted={hasPrinted}
                 txnsOpen={txnsOpen} setTxnsOpen={setTxnsOpen}
                 overridesOpen={overridesOpen} setOverridesOpen={setOverridesOpen}
                 computeVar={computeVar}
                 varLabel={varLabel}
                 onClose={handleCloseShift}
-                onPrintAndClose={handlePrintAndClose}
+                onPrint={handlePrintReport}
               />
             ) : null}
           </div>
@@ -456,12 +459,13 @@ function PanelBody({
   txnsOpen, setTxnsOpen,
   overridesOpen, setOverridesOpen,
   computeVar, varLabel,
-  onClose, onPrintAndClose,
+  hasPrinted, onClose, onPrint,
 }) {
   const exp  = rd.expected
   const ov   = rd.overrides
   const txns = rd.transactions
-  const isOpen = shift.status === 'open'
+  const isOpen   = shift.status === 'open'
+  const canClose = shift.status === 'open' || shift.status === 'pending_close'
 
   // Revenue from tender breakdown
   const totalRevenue = Object.values(txns.by_tender || {}).reduce((s, t) => s + (t.total || 0), 0)
@@ -492,8 +496,24 @@ function PanelBody({
         }
       </div>
 
+      {/* Cashier submission banner (pending_close only) */}
+      {shift.status === 'pending_close' && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 8, marginBottom: 16,
+          background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e',
+        }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Cashier ended shift — awaiting manager close</div>
+          {shift.cashier_cash_count != null && (
+            <div style={{ fontSize: 12 }}>
+              Cashier reported cash: <strong>KES {Number(shift.cashier_cash_count).toLocaleString()}</strong>
+              {shift.cashier_close_notes && ` · "${shift.cashier_close_notes}"`}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Tender breakdown (for closed shifts — show actual vs expected) */}
-      {!isOpen && shift.actual_cash != null && (
+      {shift.status === 'closed' && shift.actual_cash != null && (
         <div style={{ marginBottom: 22 }}>
           <SectionTitle>Reconciliation Result</SectionTitle>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -632,8 +652,8 @@ function PanelBody({
         </div>
       )}
 
-      {/* ══ RECONCILE & CLOSE SECTION (open shifts only) ══ */}
-      {isOpen && (
+      {/* ══ RECONCILE & CLOSE SECTION (open + pending_close shifts) ══ */}
+      {canClose && (
         <div style={{ borderTop: '2px solid var(--border)', paddingTop: 20, marginTop: 8 }}>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14, color: 'var(--danger)' }}>
             Reconcile &amp; Close Shift
@@ -714,22 +734,25 @@ function PanelBody({
             Print in portrait, A4, no margins
           </div>
 
-          {/* Close actions */}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          {/* Actions — print and close are independent */}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
+            {hasPrinted && (
+              <span style={{ fontSize: 12, color: 'var(--success)', marginRight: 4 }}>✓ Report printed</span>
+            )}
             <button
               className="btn btn-ghost"
-              onClick={() => onClose(true)}
-              disabled={!allFilled || closingShift}
-              style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}
+              onClick={onPrint}
+              disabled={!allFilled}
             >
-              {closingShift ? 'Closing…' : 'Close Without Printing'}
+              Print Report
             </button>
             <button
               className="btn btn-primary"
-              onClick={onPrintAndClose}
+              onClick={() => onClose(!hasPrinted)}
               disabled={!allFilled || closingShift}
+              style={hasPrinted ? {} : { background: 'var(--warning)', borderColor: 'var(--warning)' }}
             >
-              {closingShift ? 'Closing…' : 'Print & Close Shift'}
+              {closingShift ? 'Closing…' : hasPrinted ? 'Close Shift' : 'Close Without Printing'}
             </button>
           </div>
         </div>
