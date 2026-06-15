@@ -119,7 +119,11 @@ class Staff(db.Model):
             'supplier_id': self.supplier_id,
             'is_active': self.is_active,
             'has_personal_pin': bool(self.personal_pin or self.pin),
+            'has_dept_pin': bool(self.department_pin),
             'has_auth_card': bool(self.auth_card_code),
+            'login_attempts': self.login_attempts or 0,
+            'locked_until': self.locked_until.isoformat() if self.locked_until else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 

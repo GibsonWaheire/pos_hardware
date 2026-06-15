@@ -27,6 +27,8 @@ import Services from './pages/Services'
 import Appointments from './pages/Appointments'
 import AuditLog from './pages/AuditLog'
 import EODChecklist from './pages/EODChecklist'
+import StaffManagement from './pages/StaffManagement'
+import ReceiverDashboard from './pages/ReceiverDashboard'
 import Login from './pages/Login'
 
 // ── Nav items and their allowed roles ────────────────────────────────────────
@@ -39,16 +41,14 @@ const NAV = [
   { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['manager','admin'] },
   { to: '/customers',       label: 'Customers', icon: '👤',             roles: ['manager','admin'] },
   { to: '/returns',         label: 'Returns',   icon: '↩️',             roles: ['manager','admin'] },
-  { to: '/shifts',          label: 'Shifts',    icon: '⏱️',             roles: ['manager','admin'] },
   { to: '/accounts',        label: 'Accounts',  icon: '🏦',             roles: ['manager','admin'] },
   { to: '/loyalty',         label: 'Loyalty',   icon: '⭐',             roles: ['manager','admin'] },
   { to: '/terminals',       label: 'Terminals', icon: '🖥️',             roles: ['manager','admin'] },
   { to: '/reports',         label: 'Reports',   icon: '📈',             roles: ['manager','admin'] },
   { to: '/audit-log',       label: 'Audit Log', icon: '🔍',             roles: ['manager','admin'] },
   { to: '/eod-checklist',   label: 'EOD',       icon: '🌙',             roles: ['manager','admin'] },
+  { to: '/staff',           label: 'Staff',     icon: '👥',             roles: ['manager','admin'] },
   { to: '/settings',        label: 'Settings',  icon: '⚙️',             roles: ['manager','admin'] },
-  { to: '/services',        label: 'Services',  icon: '🔧',             roles: ['manager','admin'] },
-  { to: '/appointments',    label: 'Appointments', icon: '📅',          roles: ['manager','admin'] },
   // Inventory
   { to: '/products',        label: 'Products',  icon: '📦',             roles: ['inventory','manager','admin'] },
   { to: '/inventory',       label: 'Inventory', icon: '🗂️',            roles: ['inventory','manager','admin'] },
@@ -58,6 +58,7 @@ const NAV = [
   { to: '/suppliers',       label: 'Suppliers', icon: '🚚',             roles: ['purchasing','manager','admin'] },
   { to: '/purchase-orders', label: 'Orders',    icon: '📋',             roles: ['supplier','purchasing','manager','admin'] },
   // Receiving bay
+  { to: '/receiver',        label: 'Dashboard', icon: '📊',             roles: ['receiving'] },
   { to: '/purchase-orders', label: 'Receive',   icon: '📥',             roles: ['receiving'] },
   { to: '/inventory',       label: 'Stock',     icon: '🗂️',            roles: ['receiving'] },
   // Admin
@@ -69,7 +70,7 @@ const HOME_BY_ROLE = {
   inventory:  '/inventory',
   purchasing: '/purchase-orders',
   supplier:   '/purchase-orders',
-  receiving:  '/purchase-orders',
+  receiving:  '/receiver',
   manager:    '/dashboard',
   admin:      '/dashboard',
 }
@@ -295,6 +296,8 @@ function AppInner() {
           <Route path="/reports"         element={<RoleGuard roles={['inventory','manager','admin']}><Reports /></RoleGuard>} />
           <Route path="/audit-log"      element={<RoleGuard roles={['manager','admin']}><AuditLog /></RoleGuard>} />
           <Route path="/eod-checklist"  element={<RoleGuard roles={['manager','admin']}><EODChecklist /></RoleGuard>} />
+          <Route path="/staff"          element={<RoleGuard roles={['manager','admin']}><StaffManagement /></RoleGuard>} />
+          <Route path="/receiver"       element={<RoleGuard roles={['receiving','manager','admin']}><ReceiverDashboard /></RoleGuard>} />
           <Route path="/services"        element={<RoleGuard roles={['manager','admin']}><Services /></RoleGuard>} />
           <Route path="/appointments"    element={<RoleGuard roles={['cashier','manager','admin']}><Appointments /></RoleGuard>} />
           <Route path="/cloud-sync"      element={<RoleGuard roles={['admin']}><CloudSync /></RoleGuard>} />

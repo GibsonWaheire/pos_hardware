@@ -1,7 +1,7 @@
 from datetime import datetime
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 from db import db
-from models import Staff
+from models import Staff, AuditLog
 from auth_utils import get_current_user, hash_pin, check_pin, needs_hashing, log_action
 
 bp = Blueprint('staff', __name__, url_prefix='/api/staff')
@@ -9,7 +9,9 @@ bp = Blueprint('staff', __name__, url_prefix='/api/staff')
 
 @bp.route('', methods=['GET'])
 def list_staff():
-    staff = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
+    include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+    q = Staff.query if include_inactive else Staff.query.filter_by(is_active=True)
+    staff = q.order_by(Staff.name).all()
     return jsonify([s.to_dict() for s in staff])
 
 
@@ -86,6 +88,21 @@ def unlock_staff(staff_id):
     log_action(caller, 'unlock_account', 'staff', member.id, member.name)
     db.session.commit()
     return jsonify({'message': f'{member.name} account unlocked', 'staff': member.to_dict()})
+
+
+@bp.route('/<int:staff_id>/activity', methods=['GET'])
+def staff_activity(staff_id):
+    """Last N audit events for a staff member. Manager/admin only."""
+    caller = get_current_user()
+    if not caller or caller['role'] not in ('manager', 'admin'):
+        return jsonify({'error': 'Manager or admin access required'}), 403
+
+    limit = min(int(request.args.get('limit', 20)), 100)
+    logs = (AuditLog.query
+            .filter_by(user_id=staff_id)
+            .order_by(AuditLog.created_at.desc())
+            .limit(limit).all())
+    return jsonify([l.to_dict() for l in logs])
 
 
 @bp.route('/verify-pin', methods=['POST'])

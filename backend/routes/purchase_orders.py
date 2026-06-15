@@ -51,7 +51,11 @@ def list_pos():
         query = query.filter_by(supplier_id=member.supplier_id)
 
     if status:
-        query = query.filter_by(status=status)
+        statuses = [s.strip() for s in status.split(',') if s.strip()]
+        if len(statuses) == 1:
+            query = query.filter_by(status=statuses[0])
+        else:
+            query = query.filter(PurchaseOrder.status.in_(statuses))
     if supplier_id:
         query = query.filter_by(supplier_id=int(supplier_id))
 

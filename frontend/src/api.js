@@ -139,6 +139,9 @@ export const updateStaff = (id, data) => withLocal(
   () => api.put(`/staff/${id}`, data),
   () => local.lsStub(data)
 )
+export const unlockStaff    = (id)  => api.post(`/staff/${id}/unlock`)
+export const getStaffActivity = (id) => api.get(`/staff/${id}/activity`)
+export const getAllStaff    = ()     => api.get('/staff?include_inactive=true')
 
 // ── Payments (Stripe Terminal) ────────────────────────────────────────────────
 
