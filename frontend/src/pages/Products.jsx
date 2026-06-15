@@ -7,6 +7,9 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
 import { printBarcodeLabel } from '../utils/print'
+import Pagination from '../components/Pagination'
+
+const PAGE_SIZE = 25
 
 const EMPTY_FORM = {
   name: '', barcode: '', price: '', tax_rate: '0',
@@ -24,6 +27,7 @@ export default function Products() {
   const [categories, setCategories] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [modal, setModal] = useState(null)  // null | { mode: 'add'|'edit', data: {} }
   const [form, setForm] = useState(EMPTY_FORM)
   const [storeDefaults, setStoreDefaults] = useState({ default_tax_rate: 0.16, default_low_stock_threshold: 5 })
@@ -290,7 +294,7 @@ export default function Products() {
             <tbody>
               {products.length === 0 ? (
                 <tr><td colSpan={8} className="empty-state">No products yet</td></tr>
-              ) : products.map(p => (
+              ) : products.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(p => (
                 <tr key={p.id}>
                   <td>
                     {p.image_url
@@ -341,6 +345,7 @@ export default function Products() {
               ))}
             </tbody>
           </table>
+          <Pagination total={products.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
         </div>
       </div>
 

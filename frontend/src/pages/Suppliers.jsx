@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { getSuppliers, createSupplier, updateSupplier, deleteSupplier } from '../api'
+import Pagination from '../components/Pagination'
 
 const EMPTY = { name: '', contact_name: '', phone: '', email: '', address: '', notes: '' }
+const PAGE_SIZE = 20
 
 export default function Suppliers() {
   const [suppliers, setSuppliers] = useState([])
@@ -9,6 +11,8 @@ export default function Suppliers() {
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [page, setPage] = useState(1)
+  const [expanded, setExpanded] = useState(null)  // supplier id that is expanded
 
   useEffect(() => { load() }, [])
 
@@ -53,30 +57,57 @@ export default function Suppliers() {
         {suppliers.length === 0 ? (
           <div className="empty-state">No suppliers yet. Add your first supplier to create purchase orders.</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
-            {suppliers.map(s => (
-              <div key={s.id} className="card" style={{ opacity: s.is_active ? 1 : 0.5 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <div style={{ fontWeight: 700, fontSize: 16 }}>{s.name}</div>
-                  <span className={s.is_active ? 'badge badge-green' : 'badge badge-red'}>
-                    {s.is_active ? 'Active' : 'Inactive'}
-                  </span>
-                </div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.8 }}>
-                  {s.contact_name && <div>Contact: {s.contact_name}</div>}
-                  {s.phone && <div>Phone: {s.phone}</div>}
-                  {s.email && <div>Email: {s.email}</div>}
-                  {s.address && <div>Address: {s.address}</div>}
-                  {s.notes && <div style={{ marginTop: 4, fontStyle: 'italic' }}>{s.notes}</div>}
-                </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)}>Edit</button>
-                  {s.is_active && (
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDeactivate(s)}>Deactivate</button>
-                  )}
-                </div>
-              </div>
-            ))}
+          <div className="card" style={{ padding: 0 }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th style={{ width: 24 }}></th>
+                  <th>Name</th>
+                  <th>Contact</th>
+                  <th>Phone</th>
+                  <th>Email</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {suppliers.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(s => (
+                  <>
+                    <tr key={s.id} style={{ opacity: s.is_active ? 1 : 0.55, cursor: 'pointer' }}
+                      onClick={() => setExpanded(expanded === s.id ? null : s.id)}>
+                      <td style={{ color: 'var(--text-muted)', fontSize: 12, paddingRight: 0 }}>
+                        {expanded === s.id ? '▾' : '▸'}
+                      </td>
+                      <td style={{ fontWeight: 600 }}>{s.name}</td>
+                      <td style={{ color: 'var(--text-muted)' }}>{s.contact_name || '—'}</td>
+                      <td style={{ color: 'var(--text-muted)' }}>{s.phone || '—'}</td>
+                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{s.email || '—'}</td>
+                      <td>
+                        <span className={s.is_active ? 'badge badge-green' : 'badge badge-red'}>
+                          {s.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)}>Edit</button>
+                        {s.is_active && (
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDeactivate(s)}>Deactivate</button>
+                        )}
+                      </td>
+                    </tr>
+                    {expanded === s.id && (
+                      <tr key={`${s.id}-detail`} style={{ background: 'var(--surface2)' }}>
+                        <td colSpan={7} style={{ padding: '10px 20px', fontSize: 13, color: 'var(--text-muted)' }}>
+                          {s.address && <span style={{ marginRight: 24 }}>Address: {s.address}</span>}
+                          {s.notes  && <span style={{ fontStyle: 'italic' }}>Notes: {s.notes}</span>}
+                          {!s.address && !s.notes && <span>No additional details.</span>}
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ))}
+              </tbody>
+            </table>
+            <Pagination total={suppliers.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
           </div>
         )}
       </div>

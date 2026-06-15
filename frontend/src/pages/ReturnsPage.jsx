@@ -3,6 +3,9 @@ import { getReturns, createReturn, getSales, approveReturn, rejectReturn, getInv
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
 import { printCreditNote } from '../utils/print'
+import Pagination from '../components/Pagination'
+
+const PAGE_SIZE = 20
 
 const EMPTY_FORM = {
   original_receipt: '', original_sale_id: null, reason: '',
@@ -16,7 +19,8 @@ export default function ReturnsPage() {
 
   const [returns, setReturns] = useState([])
   const [pendingCount, setPendingCount] = useState(0)
-  const [filterStatus, setFilterStatus] = useState('all')  // all | pending_approval | completed | rejected
+  const [filterStatus, setFilterStatus] = useState('all')
+  const [page, setPage] = useState(1)  // all | pending_approval | completed | rejected
   const [modal, setModal] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [receiptLookup, setReceiptLookup] = useState('')
@@ -235,7 +239,7 @@ export default function ReturnsPage() {
             <tbody>
               {returns.length === 0 ? (
                 <tr><td colSpan={9} className="empty-state">No returns found</td></tr>
-              ) : returns.map(r => (
+              ) : returns.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(r => (
                 <tr key={r.id}>
                   <td style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{r.return_number}</td>
                   <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: 12 }}>{r.original_receipt || '—'}</td>
@@ -270,6 +274,7 @@ export default function ReturnsPage() {
               ))}
             </tbody>
           </table>
+          <Pagination total={returns.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
         </div>
       </div>
 

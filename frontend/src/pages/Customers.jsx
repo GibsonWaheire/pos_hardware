@@ -7,6 +7,9 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
 import { printTaxInvoice } from '../utils/print'
+import Pagination from '../components/Pagination'
+
+const PAGE_SIZE = 20
 
 const EMPTY = { name: '', phone: '', email: '', date_of_birth: '', tier_id: '', notes: '' }
 
@@ -18,6 +21,7 @@ export default function Customers() {
   const [customers, setCustomers] = useState([])
   const [tiers, setTiers] = useState([])
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [modal, setModal] = useState(null)      // null | { mode: 'add'|'edit'|'detail', ... }
   const [form, setForm] = useState(EMPTY)
   const [detail, setDetail] = useState(null)    // { customer, transactions }
@@ -106,7 +110,7 @@ export default function Customers() {
             <tbody>
               {customers.length === 0 ? (
                 <tr><td colSpan={8} className="empty-state">No customers yet</td></tr>
-              ) : customers.map(c => (
+              ) : customers.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(c => (
                 <tr key={c.id}>
                   <td style={{ fontWeight: 500 }}>{c.name}</td>
                   <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: 12 }}>{c.member_id}</td>
@@ -131,6 +135,7 @@ export default function Customers() {
               ))}
             </tbody>
           </table>
+          <Pagination total={customers.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
         </div>
       </div>
 

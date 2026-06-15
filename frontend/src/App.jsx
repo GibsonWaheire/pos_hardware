@@ -33,7 +33,7 @@ import Login from './pages/Login'
 
 const NAV = [
   // Cashier — only sees Checkout
-  { to: '/',                label: 'Checkout',  icon: '🛒', end: true,  roles: ['cashier','admin'] },
+  { to: '/',                label: 'Checkout',  icon: '🛒', end: true,  roles: ['cashier'] },
   // Manager / Admin
   { to: '/dashboard',       label: 'Dashboard', icon: '📊',             roles: ['manager','admin'] },
   { to: '/quotes',          label: 'Quotes',    icon: '📄',             roles: ['manager','admin'] },

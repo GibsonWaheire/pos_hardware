@@ -9,6 +9,9 @@ import {
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
 import { printGRN, printDamageReport, printCountSheet, printMovementReport } from '../utils/print'
+import Pagination from '../components/Pagination'
+
+const PAGE_SIZE = 25
 
 export default function Inventory() {
   const { fmt } = useCurrency()
@@ -28,6 +31,11 @@ export default function Inventory() {
   const [tab, setTab] = useState('stock')
   const [loading, setLoading] = useState(true)
   const [stockSearch, setStockSearch] = useState('')
+  const [stockPage,    setStockPage]    = useState(1)
+  const [alertPage,    setAlertPage]    = useState(1)
+  const [movePage,     setMovePage]     = useState(1)
+  const [damagePage,   setDamagePage]   = useState(1)
+  const [grnPage,      setGrnPage]      = useState(1)
 
   // Movement filters
   const [mvTypeFilter, setMvTypeFilter] = useState('')
@@ -238,7 +246,7 @@ export default function Inventory() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredProducts.map(p => (
+                  {filteredProducts.slice((stockPage-1)*PAGE_SIZE, stockPage*PAGE_SIZE).map(p => (
                     <tr key={p.id}>
                       <td style={{ fontWeight: 500 }}>{p.name}</td>
                       <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: 12 }}>{p.barcode || '—'}</td>
@@ -272,6 +280,7 @@ export default function Inventory() {
                   ))}
                 </tbody>
               </table>
+              <Pagination total={filteredProducts.length} page={stockPage} pageSize={PAGE_SIZE} onChange={setStockPage} />
             </div>
           </div>
 
@@ -279,26 +288,29 @@ export default function Inventory() {
           alerts.length === 0 ? (
             <div className="empty-state" style={{ color: 'var(--success)' }}>All products are well-stocked</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {alerts.map(p => (
-                <div key={p.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderColor: p.stock_qty === 0 ? 'var(--danger)' : 'var(--warning)' }}>
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{p.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{p.barcode} · {p.category_name || 'Uncategorized'}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 700, fontSize: 18, color: p.stock_qty === 0 ? 'var(--danger)' : 'var(--warning)' }}>{p.stock_qty} in stock</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Reorder at: {p.low_stock_threshold}</div>
+            <div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {alerts.slice((alertPage-1)*PAGE_SIZE, alertPage*PAGE_SIZE).map(p => (
+                  <div key={p.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderColor: p.stock_qty === 0 ? 'var(--danger)' : 'var(--warning)' }}>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{p.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{p.barcode} · {p.category_name || 'Uncategorized'}</div>
                     </div>
-                    {!isPurchasing && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => {
-                        setAdjustModal(p); setAdjForm({ qty_change: '', reason: 'correction' }); setAdjError('')
-                      }}>Adjust</button>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 700, fontSize: 18, color: p.stock_qty === 0 ? 'var(--danger)' : 'var(--warning)' }}>{p.stock_qty} in stock</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Reorder at: {p.low_stock_threshold}</div>
+                      </div>
+                      {!isPurchasing && (
+                        <button className="btn btn-ghost btn-sm" onClick={() => {
+                          setAdjustModal(p); setAdjForm({ qty_change: '', reason: 'correction' }); setAdjError('')
+                        }}>Adjust</button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+              <Pagination total={alerts.length} page={alertPage} pageSize={PAGE_SIZE} onChange={setAlertPage} />
             </div>
           )
 
@@ -330,7 +342,7 @@ export default function Inventory() {
                 <tbody>
                   {movements.length === 0 ? (
                     <tr><td colSpan={8} className="empty-state">No movements recorded yet</td></tr>
-                  ) : movements.map(m => (
+                  ) : movements.slice((movePage-1)*PAGE_SIZE, movePage*PAGE_SIZE).map(m => (
                     <tr key={m.id}>
                       <td style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date(m.created_at).toLocaleString()}</td>
                       <td style={{ fontWeight: 500 }}>{m.product_name}</td>
@@ -346,6 +358,7 @@ export default function Inventory() {
                   ))}
                 </tbody>
               </table>
+              <Pagination total={movements.length} page={movePage} pageSize={PAGE_SIZE} onChange={setMovePage} />
             </div>
           </div>
 
@@ -359,7 +372,7 @@ export default function Inventory() {
                 <tbody>
                   {damageReports.length === 0 ? (
                     <tr><td colSpan={8} className="empty-state">No damage reports</td></tr>
-                  ) : damageReports.map(r => (
+                  ) : damageReports.slice((damagePage-1)*PAGE_SIZE, damagePage*PAGE_SIZE).map(r => (
                     <tr key={r.id}>
                       <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.report_number}</td>
                       <td style={{ fontWeight: 500 }}>{r.product_name}</td>
@@ -379,6 +392,7 @@ export default function Inventory() {
                   ))}
                 </tbody>
               </table>
+              <Pagination total={damageReports.length} page={damagePage} pageSize={PAGE_SIZE} onChange={setDamagePage} />
             </div>
           </div>
 
@@ -392,7 +406,7 @@ export default function Inventory() {
                 <tbody>
                   {grns.length === 0 ? (
                     <tr><td colSpan={8} className="empty-state">No GRNs yet — auto-generated when PO items are received</td></tr>
-                  ) : grns.map(g => (
+                  ) : grns.slice((grnPage-1)*PAGE_SIZE, grnPage*PAGE_SIZE).map(g => (
                     <tr key={g.id}>
                       <td style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600 }}>{g.grn_number}</td>
                       <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{g.po_number}</td>
@@ -418,6 +432,7 @@ export default function Inventory() {
                   ))}
                 </tbody>
               </table>
+              <Pagination total={grns.length} page={grnPage} pageSize={PAGE_SIZE} onChange={setGrnPage} />
             </div>
           </div>
         ) : tab === 'reorder' ? (() => {

@@ -3,6 +3,9 @@ import { getCurrentShift, openShift, getShifts, getStaff, getShiftReconciliation
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
 import { printShiftReconciliation } from '../utils/print'
+import Pagination from '../components/Pagination'
+
+const PAGE_SIZE = 20
 
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleString('en-KE') : '—' }
 function fmtTime(iso) {
@@ -43,6 +46,7 @@ export default function Shifts() {
   const [recoNotes,   setRecoNotes]   = useState('')
   const [closingShift, setClosingShift] = useState(false)
   const [hasPrinted,   setHasPrinted]   = useState(false)
+  const [page, setPage] = useState(1)
 
   // Collapsible sections inside panel
   const [txnsOpen,      setTxnsOpen]      = useState(true)
@@ -280,7 +284,7 @@ export default function Shifts() {
               <tbody>
                 {shifts.length === 0 ? (
                   <tr><td colSpan={10} className="empty-state">No shifts yet</td></tr>
-                ) : shifts.map(s => (
+                ) : shifts.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(s => (
                   <tr key={s.id}>
                     <td style={{ fontWeight: 500 }}>{s.cashier_name || '—'}</td>
                     <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(s.opened_at)}</td>
@@ -314,6 +318,7 @@ export default function Shifts() {
                 ))}
               </tbody>
             </table>
+            <Pagination total={shifts.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
           </div>
         )}
       </div>

@@ -2,12 +2,16 @@ import { useState, useEffect } from 'react'
 import { getAccounts, getAccount, createAccount, updateAccount, depositToAccount, adjustAccount, lookupAccount, getAccountStatement, getAccountAlerts, getStoreConfig } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
 import { printAccountStatement } from '../utils/print'
+import Pagination from '../components/Pagination'
+
+const PAGE_SIZE = 20
 
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleString() : '—' }
 
 export default function Accounts() {
   const { currency, fmt } = useCurrency()
   const [accounts, setAccounts] = useState([])
+  const [page, setPage] = useState(1)
   const [selected, setSelected] = useState(null)   // full account with transactions
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -89,7 +93,7 @@ export default function Accounts() {
                 </tr>
               </thead>
               <tbody>
-                {displayList.map(acct => {
+                {displayList.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(acct => {
                   const alert = alerts.find(a => a.account.id === acct.id)
                   return (
                   <tr key={acct.id} style={{ cursor: 'pointer', background: alert?.type === 'over_limit' ? '#fff5f5' : undefined }} onClick={() => openAccount(acct.id)}>
@@ -127,6 +131,7 @@ export default function Accounts() {
                 })}
               </tbody>
             </table>
+            <Pagination total={displayList.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
           </div>
         )}
       </div>

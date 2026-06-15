@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react'
 import { getReconciliation, getStoreConfig } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
 import { printReconciliation } from '../utils/print'
+import Pagination from '../components/Pagination'
+
+const PAGE_SIZE = 50
 
 function todayStr() { return new Date().toISOString().split('T')[0] }
 function fmtTime(iso) {
@@ -45,8 +48,10 @@ export default function AuditLog() {
   const [loading, setLoading]   = useState(false)
   const [expanded, setExpanded] = useState({})
   const [store, setStore]       = useState({})
+  const [page, setPage]         = useState(1)
 
   useEffect(() => { load() }, [dateFrom, dateTo])
+  useEffect(() => { setPage(1) }, [tab, dateFrom, dateTo])
   useEffect(() => { getStoreConfig().then(r => setStore(r.data || {})).catch(() => {}) }, [])
 
   async function load() {
@@ -78,7 +83,8 @@ export default function AuditLog() {
     }
   }
 
-  const events = filteredEvents()
+  const allEvents = filteredEvents()
+  const events = allEvents.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE)
   const s = data?.summary || {}
 
   return (
@@ -242,6 +248,7 @@ export default function AuditLog() {
             </tbody>
           </table>
         )}
+        <Pagination total={allEvents.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
       </div>
     </div>
   )

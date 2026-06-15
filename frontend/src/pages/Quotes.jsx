@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import Pagination from '../components/Pagination'
+
+const PAGE_SIZE = 20
 import { getQuotes, getQuote, createQuote, updateQuote, updateQuoteStatus, convertQuote, deleteQuote, getProducts, getStoreConfig } from '../api'
 import { useCurrency } from '../context/CurrencyContext'
 import { printDoc, A4_CSS } from '../utils/print'
@@ -19,6 +22,7 @@ export default function Quotes() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(1)
   const [selected, setSelected] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
   const [showConvert, setShowConvert] = useState(null)  // quote to convert
@@ -103,7 +107,7 @@ export default function Quotes() {
                 </tr>
               </thead>
               <tbody>
-                {quotes.map(qt => (
+                {quotes.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(qt => (
                   <tr key={qt.id} style={{ cursor: 'pointer' }} onClick={() => openDetail(qt.id)}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{qt.quote_number}</td>
                     <td style={{ fontWeight: 500 }}>{qt.customer_name || '—'}</td>
@@ -136,6 +140,7 @@ export default function Quotes() {
                 ))}
               </tbody>
             </table>
+            <Pagination total={quotes.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
           </div>
         )}
       </div>

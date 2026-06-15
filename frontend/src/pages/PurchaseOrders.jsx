@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
+import Pagination from '../components/Pagination'
+
+const PAGE_SIZE = 20
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
 import {
@@ -27,6 +30,7 @@ export default function PurchaseOrders() {
 
   const [pos, setPOs] = useState([])
   const [pendingPos, setPendingPOs] = useState([])
+  const [page, setPage] = useState(1)
   const [suppliers, setSuppliers] = useState([])
   const [products, setProducts] = useState([])
   const [modal, setModal] = useState(null)  // null | 'create' | { mode: 'receive', po } | { mode: 'reject', po } | { mode: 'dispatch', po }
@@ -366,7 +370,7 @@ export default function PurchaseOrders() {
             <tbody>
               {pos.length === 0 ? (
                 <tr><td colSpan={8} className="empty-state">No purchase orders yet</td></tr>
-              ) : pos.map(po => (
+              ) : pos.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE).map(po => (
                 <tr key={po.id}>
                   <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{po.po_number}</td>
                   <td>{po.supplier_name || '—'}</td>
@@ -420,6 +424,7 @@ export default function PurchaseOrders() {
               ))}
             </tbody>
           </table>
+          <Pagination total={pos.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
         </div>
       </div>
 
