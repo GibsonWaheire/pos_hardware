@@ -106,11 +106,26 @@ Every feature gating decision must follow this table.
 | 40 | UI/UX Pass — IdleScreen customer-facing attract mode (60s welcome + 30s product slides), scan flash enlarged to 280px customer-visible card, PaymentModal 2-panel wide layout with method tiles + split tender table | ✅ |
 | 36 | Google Sheets Export — nightly push (APScheduler 23:45), 5 tabs, service account JSON auth, Settings UI, Push Now button | ✅ |
 | 37 | eTIMS / KRA Integration — eTIMS API client, auto-submit on invoice create, sandbox mode, QR code on printed invoices, Settings eTIMS tab, pending/retry endpoints | ✅ |
-| 41 | Comprehensive Audit Logging Foundation — log_action on every sale, void, no-sale, override, stock adjustment; reconciliation API endpoint combining all event sources; printReconciliation A4 landscape report | ✅ (partial — AuditLog.jsx page **TODO tomorrow**) |
+| 41 | Comprehensive Audit Logging Foundation — log_action on every sale, void, no-sale, override, stock adjustment; reconciliation API endpoint combining all event sources; printReconciliation A4 landscape report | ✅ (partial — AuditLog.jsx page **TODO**) |
+| 42 | ESC/POS printer dev mode + per-client DB config — PRINTER_TYPE=none default (silent), printer_config JSON on Store, Settings printer UI (type/host/port/serial/USB), POST /hardware/test-printer, receiving role in Settings | ✅ |
+| 43 | Thermal receipt preview on payment + extended history filter — two-column success screen with paper-slip receipt preview, print status dot, date-range history filter (cashier max 4 days / manager unlimited) | ✅ |
+| 44 | Shift-Sale link + manager-as-cashier + cashier End Shift — shift_id set on every sale (was always NULL); manager/admin open POS directly (no second manager needed); manager self-approves overrides/voids/discounts without PIN dialog; cashier "End Shift" submits cash count → pending_close → manager reviews and closes; 500 error on shift close fixed (try/catch around report gen); pending_close banner in Shifts page | ✅ |
 
 ---
 
-## Remaining Phases
+## Remaining / Backlog
+
+| # | Feature | Status |
+|---|---|---|
+| 45 | AuditLog.jsx page — full audit trail UI (Phase 41 foundation done, page not built) | TODO |
+| 46 | Inventory KES bug — Inventory.jsx price column still shows $ sign | TODO |
+| 47 | Cash drawer via printer RJ-11 — currently uses separate serial port; should send kick through printer connection | TODO |
+| 48 | Card terminal (Stripe) — requires STRIPE_SECRET_KEY; stub in place | TODO |
+| 49 | Cashier shift self-close option — optional setting `allow_cashier_self_close` so cashier can fully close without manager in simple deployments | TODO |
+
+---
+
+## Phase Detail
 
 ---
 

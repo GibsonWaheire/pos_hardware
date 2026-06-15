@@ -170,6 +170,9 @@ export const mpesaStkStatus = (checkout_request_id) =>
 export const requestOverrideApproval = (data) =>
   api.post('/overrides/approve', data)
 
+export const selfApproveOverride = (data) =>
+  api.post('/overrides/self-approve', data)
+
 export const getOverrides = (params) =>
   api.get('/overrides', { params })
 
@@ -303,6 +306,7 @@ export const closeShift = (id, data) => withLocal(
   () => api.post(`/shifts/${id}/close`, data),
   () => local.lsCloseShift(id, data)
 )
+export const cashierEndShift = (data) => api.post('/shifts/current/cashier-end', data)
 export const getShiftSummary = (id) => withLocal(
   () => api.get(`/shifts/${id}/summary`),
   () => local.lsStub({})

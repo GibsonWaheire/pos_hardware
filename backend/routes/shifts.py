@@ -16,8 +16,8 @@ def list_shifts():
 
 @bp.route('/current', methods=['GET'])
 def get_current_shift():
-    """Return the currently open shift, if any."""
-    shift = Shift.query.filter_by(status='open').order_by(Shift.opened_at.desc()).first()
+    """Return the currently open or pending-close shift, if any."""
+    shift = Shift.query.filter(Shift.status.in_(['open', 'pending_close'])).order_by(Shift.opened_at.desc()).first()
     if not shift:
         return jsonify({'shift': None})
     return jsonify({'shift': shift.to_dict()})
@@ -27,8 +27,8 @@ def get_current_shift():
 def open_shift():
     data = request.json or {}
 
-    # Prevent opening a second shift while one is already open
-    existing = Shift.query.filter_by(status='open').first()
+    # Prevent opening a second shift while one is already open or pending close
+    existing = Shift.query.filter(Shift.status.in_(['open', 'pending_close'])).first()
     if existing:
         return jsonify({'error': 'A shift is already open', 'shift': existing.to_dict()}), 409
 
@@ -214,11 +214,45 @@ def get_reconciliation(shift_id):
     })
 
 
+@bp.route('/current/cashier-end', methods=['POST'])
+def cashier_end_shift():
+    """
+    Cashier submits their cash count and hands off to manager for final close.
+    Sets shift status to 'pending_close'. Cashier can no longer make sales after this.
+    Body: { actual_cash: float, notes: str }
+    """
+    user = get_current_user()
+    shift = Shift.query.filter(Shift.status.in_(['open', 'pending_close'])).order_by(Shift.opened_at.desc()).first()
+    if not shift:
+        return jsonify({'error': 'No open shift found'}), 404
+
+    # Only the shift's cashier (or manager/admin) can end it
+    if user and user.get('role') == 'cashier' and shift.cashier_id and shift.cashier_id != user.get('id'):
+        return jsonify({'error': 'You can only end your own shift'}), 403
+
+    data = request.json or {}
+    shift.cashier_cash_count  = float(data.get('actual_cash', 0) or 0)
+    shift.cashier_close_notes = data.get('notes', '')
+    shift.cashier_ended_at    = datetime.utcnow()
+    shift.status              = 'pending_close'
+    db.session.commit()
+
+    sales = [s for s in shift.sales if s.status == 'completed']
+    return jsonify({
+        'shift': shift.to_dict(),
+        'summary': {
+            'transaction_count': len(sales),
+            'total_revenue': round(sum(s.total for s in sales), 2),
+        },
+        'message': 'Shift submitted for manager review',
+    })
+
+
 @bp.route('/<int:shift_id>/close', methods=['POST'])
 def close_shift(shift_id):
     """
-    Close a shift. Requires full reconciliation unless admin_bypass.
-    Cashiers cannot close shifts (403).
+    Close a shift. Manager/admin only. Requires reconciliation or admin_bypass.
+    Accepts both 'open' and 'pending_close' shifts.
     Body: {
       reconciliation_submitted: bool,
       actual_cash: float,
@@ -232,21 +266,26 @@ def close_shift(shift_id):
     """
     user = get_current_user()
 
-    # Cashiers cannot close shifts
+    # Cashiers cannot close shifts — they use cashier-end instead
     if user and user.get('role') == 'cashier':
-        return jsonify({'error': 'Cashiers cannot close shifts. Contact your manager.'}), 403
+        return jsonify({'error': 'Use "End Shift" to submit your cash count. Manager will finalize the close.'}), 403
 
     shift = Shift.query.get_or_404(shift_id)
-    if shift.status != 'open':
+    if shift.status not in ('open', 'pending_close'):
         return jsonify({'error': 'Shift is not open'}), 400
 
     data = request.json or {}
-    is_admin      = user and user.get('role') == 'admin'
+    role          = user.get('role') if user else None
+    is_admin      = role == 'admin'
+    is_manager    = role in ('manager', 'admin')
     admin_bypass  = bool(data.get('admin_bypass')) and is_admin
     recon_submitted = bool(data.get('reconciliation_submitted'))
 
+    # Manager can close without reconciliation if they're closing a cashier's pending shift
+    # (cashier already submitted their count); admin can always bypass
     if not recon_submitted and not admin_bypass:
-        return jsonify({'error': 'Reconciliation required before closing shift'}), 400
+        if shift.status != 'pending_close' or not is_manager:
+            return jsonify({'error': 'Reconciliation required before closing shift'}), 400
 
     now = datetime.utcnow()
 
@@ -278,7 +317,9 @@ def close_shift(shift_id):
         sum(s.total for s in sales if s.payment_method not in ('cash', 'mpesa', 'card', 'split')), 2
     )
 
-    actual_cash  = float(data.get('actual_cash', 0) or 0)
+    # Pre-fill from cashier's submitted count if manager didn't provide a value
+    cashier_count = shift.cashier_cash_count or 0
+    actual_cash  = float(data.get('actual_cash') if data.get('actual_cash') is not None else cashier_count)
     actual_mpesa = float(data.get('actual_mpesa', 0) or 0)
     actual_card  = float(data.get('actual_card', 0) or 0)
     actual_other = float(data.get('actual_other', 0) or 0)
@@ -314,19 +355,31 @@ def close_shift(shift_id):
     db.session.commit()
 
     # Auto-generate immutable report snapshot
-    rpt = _generate_shift_report(shift, user, {
-        'expected_cash': expected_cash, 'expected_mpesa': expected_mpesa,
-        'expected_card': expected_card, 'expected_other': expected_other,
-        'actual_cash': actual_cash, 'actual_mpesa': actual_mpesa,
-        'actual_card': actual_card, 'actual_other': actual_other,
-        'variance_cash': variance_cash, 'variance_mpesa': variance_mpesa,
-        'variance_card': variance_card, 'variance_other': variance_other,
-        'closed_without_print': closed_without_print,
-        'admin_bypass': admin_bypass,
-        'all_returns': all_returns,
-    })
-    db.session.add(rpt)
-    db.session.commit()
+    rpt = None
+    try:
+        rpt = _generate_shift_report(shift, user, {
+            'expected_cash': expected_cash, 'expected_mpesa': expected_mpesa,
+            'expected_card': expected_card, 'expected_other': expected_other,
+            'actual_cash': actual_cash, 'actual_mpesa': actual_mpesa,
+            'actual_card': actual_card, 'actual_other': actual_other,
+            'variance_cash': variance_cash, 'variance_mpesa': variance_mpesa,
+            'variance_card': variance_card, 'variance_other': variance_other,
+            'closed_without_print': closed_without_print,
+            'admin_bypass': admin_bypass,
+            'all_returns': all_returns,
+        })
+        db.session.add(rpt)
+        db.session.commit()
+    except Exception as e:
+        print(f'[ShiftClose] Report generation error: {e}')
+        import traceback; traceback.print_exc()
+        # Shift is already closed — return success even if report gen failed
+        db.session.rollback()
+        result = shift.to_dict()
+        result['report_id']     = None
+        result['report_number'] = None
+        result['report_warning'] = f'Shift closed but report generation failed: {e}'
+        return jsonify(result)
 
     result = shift.to_dict()
     result['report_id']     = rpt.id

@@ -478,7 +478,7 @@ class Shift(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     cashier_id     = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=True)
     cashier_name   = db.Column(db.String(100))
-    status         = db.Column(db.String(20), default='open')  # open | pending_reconciliation | reconciled | voided
+    status         = db.Column(db.String(20), default='open')  # open | pending_close | closed
     opening_float  = db.Column(db.Float, default=0.0)
     closing_float  = db.Column(db.Float)
     expected_cash  = db.Column(db.Float)
@@ -506,6 +506,11 @@ class Shift(db.Model):
     closed_without_print = db.Column(db.Boolean, default=False)
     admin_bypass         = db.Column(db.Boolean, default=False)
 
+    # Cashier-initiated close fields
+    cashier_cash_count  = db.Column(db.Float, nullable=True)    # cash count submitted by cashier
+    cashier_close_notes = db.Column(db.Text, nullable=True)     # cashier handover notes
+    cashier_ended_at    = db.Column(db.DateTime, nullable=True) # when cashier clicked End Shift
+
     sales = db.relationship('Sale', backref='shift', lazy=True)
 
     def to_dict(self):
@@ -527,6 +532,9 @@ class Shift(db.Model):
             'reconciled_at': self.reconciled_at.isoformat() if self.reconciled_at else None,
             'closed_without_print': self.closed_without_print,
             'admin_bypass': self.admin_bypass,
+            'cashier_cash_count': self.cashier_cash_count,
+            'cashier_close_notes': self.cashier_close_notes,
+            'cashier_ended_at': self.cashier_ended_at.isoformat() if self.cashier_ended_at else None,
         }
 
 

@@ -144,3 +144,48 @@ def approve():
         'action':       action,
         'item_name':    approval.item_name,
     }), 201
+
+
+@bp.route('/self-approve', methods=['POST'])
+def self_approve():
+    """
+    Manager/admin self-authorizes an override using their own session.
+    No card or PIN required — their elevated role is the authorization.
+    Used when manager is operating the POS directly.
+    """
+    user = get_current_user()
+    if not user or user.get('role') not in ('manager', 'admin'):
+        return jsonify({'error': 'Manager or admin session required'}), 403
+
+    data     = request.json or {}
+    action   = data.get('action', '').strip()
+    if action not in _ALLOWED_ACTIONS:
+        return jsonify({'error': f'Invalid action. Must be one of: {", ".join(_ALLOWED_ACTIONS)}'}), 400
+
+    item_name    = data.get('item_name', '')
+    original_qty = data.get('original_qty')
+    new_qty      = data.get('new_qty')
+
+    approval = OverrideApproval(
+        cashier_id   = user['id'],
+        cashier_name = user['name'],
+        manager_id   = user['id'],
+        manager_name = user['name'],
+        manager_role = user['role'],
+        auth_method  = 'self',
+        action       = action,
+        item_name    = str(item_name)[:200],
+        original_qty = int(original_qty) if original_qty is not None else None,
+        new_qty      = int(new_qty)      if new_qty      is not None else None,
+        created_at   = datetime.utcnow(),
+    )
+    db.session.add(approval)
+    db.session.commit()
+
+    return jsonify({
+        'id':           approval.id,
+        'manager_name': user['name'],
+        'manager_role': user['role'],
+        'action':       action,
+        'item_name':    approval.item_name,
+    }), 201

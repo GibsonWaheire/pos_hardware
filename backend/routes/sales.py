@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from db import db
-from models import Sale, SaleItem, Product, OfflineQueue, CustomerAccount, AccountTransaction, OverrideApproval
+from models import Sale, SaleItem, Product, OfflineQueue, CustomerAccount, AccountTransaction, OverrideApproval, Shift
 from auth_utils import get_current_user, log_action
 from datetime import datetime, date
 from hardware.printer import print_receipt
@@ -41,6 +41,10 @@ def create_sale():
     user = get_current_user()
     cashier_id   = user['id']   if user else None
     cashier_name = user['name'] if user else 'Unknown'
+
+    # Link to the currently open (or pending-close) shift
+    open_shift = Shift.query.filter(Shift.status.in_(['open', 'pending_close'])).order_by(Shift.opened_at.desc()).first()
+    current_shift_id = open_shift.id if open_shift else None
 
     items_data = data.get('items', [])
     if not items_data:
@@ -202,6 +206,7 @@ def create_sale():
         mpesa_amount=mpesa_amount,
         cashier_id=cashier_id,
         cashier_name=cashier_name,
+        shift_id=current_shift_id,
         offline_id=offline_id,
         stripe_payment_intent_id=stripe_intent,
         mpesa_ref=mpesa_ref_val,

@@ -3,6 +3,7 @@ import {
   getProducts, getProductByBarcode, getProductByPlu,
   getCurrentShift, openShift, getAccountByCustomer, getLoyaltyConfig,
   getSales, getStoreConfig, printReceipt, getCategories,
+  selfApproveOverride, cashierEndShift,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useCurrency } from '../context/CurrencyContext'
@@ -34,9 +35,10 @@ export default function POS() {
   const [gateBusy, setGateBusy]       = useState(false)
   const [gateError, setGateError]     = useState('')
 
+  const isElevated = ['manager', 'admin'].includes(user?.role)
+
   useEffect(() => {
     if (!user) return
-    if (user.role === 'admin') { setShiftStatus('open'); return }  // admin bypasses shift gate
     if (SHIFT_KEY && sessionStorage.getItem(SHIFT_KEY)) { setShiftStatus('open'); return }
     checkShift()
   }, [user]) // eslint-disable-line
@@ -44,9 +46,20 @@ export default function POS() {
   async function checkShift() {
     try {
       const res = await getCurrentShift()
-      if (res.data.shift) { if (SHIFT_KEY) sessionStorage.setItem(SHIFT_KEY, '1'); setShiftStatus('open') }
-      else setShiftStatus('none')
-    } catch { setShiftStatus('none') }
+      const shift = res.data.shift
+      if (shift) {
+        // pending_close shifts: cashier who ended it is locked out; elevated users proceed
+        if (shift.status === 'pending_close' && !isElevated) {
+          setShiftStatus('ended')
+          return
+        }
+        if (SHIFT_KEY) sessionStorage.setItem(SHIFT_KEY, '1')
+        setShiftStatus('open')
+      } else {
+        // Elevated users bypass the "no shift" gate — they can open one themselves
+        setShiftStatus(isElevated ? 'none_elevated' : 'none')
+      }
+    } catch { setShiftStatus(isElevated ? 'none_elevated' : 'none') }
   }
 
   async function handleOpenShift() {
@@ -241,6 +254,14 @@ export default function POS() {
   const today = new Date().toISOString().split('T')[0]
   const [historyDateFrom, setHistoryDateFrom] = useState(today)
   const [historyDateTo, setHistoryDateTo]     = useState(today)
+
+  // End Shift (cashier-initiated)
+  const [endShiftOpen, setEndShiftOpen]   = useState(false)
+  const [endShiftCash, setEndShiftCash]   = useState('')
+  const [endShiftNotes, setEndShiftNotes] = useState('')
+  const [endShiftBusy, setEndShiftBusy]   = useState(false)
+  const [endShiftMsg, setEndShiftMsg]     = useState('')
+  const [endShiftDone, setEndShiftDone]   = useState(false)
 
   // Payment
   const [paymentOpen, setPaymentOpen] = useState(false)
@@ -459,6 +480,48 @@ export default function POS() {
     setPendingOverride(null)
   }
 
+  // Elevated users (manager/admin) self-approve overrides without a PIN dialog
+  useEffect(() => {
+    if (!pendingOverride || !isElevated) return
+    const po = pendingOverride
+    selfApproveOverride({
+      action:       po.action,
+      item_name:    po.itemName,
+      original_qty: po.currentQty,
+      new_qty:      po.newQty,
+    }).then(res => {
+      setPendingApprovalIds(prev => [...prev, res.data.id])
+      if (po.action === 'REMOVE_COMMITTED_ITEM') removeItem(po.itemId)
+      else updateQty(po.itemId, po.delta)
+      setPendingOverride(null)
+    }).catch(() => setPendingOverride(null))
+  }, [pendingOverride]) // eslint-disable-line
+
+  // Elevated users auto-approve void-all
+  useEffect(() => {
+    if (!voidAllAuth || !isElevated) return
+    clearCart()
+    setVoidAllAuth(false)
+  }, [voidAllAuth]) // eslint-disable-line
+
+  async function handleEndShift() {
+    setEndShiftBusy(true); setEndShiftMsg('')
+    try {
+      await cashierEndShift({
+        actual_cash: parseFloat(endShiftCash) || 0,
+        notes: endShiftNotes,
+      })
+      setEndShiftDone(true)
+      if (SHIFT_KEY) sessionStorage.removeItem(SHIFT_KEY)
+      setTimeout(() => {
+        setEndShiftOpen(false)
+        setShiftStatus('ended')
+      }, 2500)
+    } catch (e) {
+      setEndShiftMsg(e.response?.data?.error || e.message)
+    } finally { setEndShiftBusy(false) }
+  }
+
   const clearCart = useCallback(() => {
     setCartItems([])
     setCurrentItemId(null)
@@ -474,7 +537,7 @@ export default function POS() {
   function requestItemDiscount(itemId) {
     setDiscountAuthTarget(itemId)
     setDiscountInput('')
-    setDiscountStep('auth')
+    setDiscountStep(isElevated ? 'input' : 'auth')  // elevated users skip auth step
   }
 
   function applyItemDiscount() {
@@ -571,6 +634,48 @@ export default function POS() {
   // ── Shift gate screens ────────────────────────────────────────────────────
   if (shiftStatus === 'checking') {
     return <div style={gateWrap}><div style={{ color: 'var(--text-muted)' }}>Checking shift…</div></div>
+  }
+
+  // Cashier whose shift was ended (pending manager close)
+  if (shiftStatus === 'ended') {
+    return (
+      <div style={gateWrap}>
+        <div style={gateCard}>
+          <div style={{ fontSize: 48, textAlign: 'center' }}>✅</div>
+          <h2 style={{ margin: '8px 0 4px', textAlign: 'center' }}>Shift Submitted</h2>
+          <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: 13, margin: '0 0 24px' }}>
+            Your cash count has been submitted. The manager will review and close the shift.
+          </p>
+          <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: 12 }}>
+            You can now hand over to the next cashier or log out.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Manager/admin opening their own shift (no extra auth needed)
+  if (shiftStatus === 'none_elevated') {
+    return (
+      <div style={gateWrap}>
+        <div style={gateCard}>
+          <div style={{ fontSize: 48, textAlign: 'center' }}>🔓</div>
+          <h2 style={{ margin: '8px 0 4px', textAlign: 'center' }}>Open Shift</h2>
+          <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: 13, margin: '0 0 24px' }}>
+            Opening shift as <strong>{user?.name}</strong>
+          </p>
+          <label style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>Opening Float (KES)</label>
+          <input type="number" min="0" value={gateFloat}
+            onChange={e => setGateFloat(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleOpenShift()}
+            placeholder="0" style={{ ...gateInput, marginBottom: 12 }} autoFocus />
+          {gateError && <div style={gateErr}>{gateError}</div>}
+          <button style={gateBtn} onClick={handleOpenShift} disabled={gateBusy}>
+            {gateBusy ? 'Opening…' : 'Open Shift'}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (shiftStatus === 'none') {
@@ -785,6 +890,11 @@ export default function POS() {
                 Void All
               </button>
             )}
+            <button className="btn btn-ghost btn-sm"
+              style={{ fontSize: 11, color: 'var(--danger)', marginLeft: 4 }}
+              onClick={() => { setEndShiftOpen(true); setEndShiftMsg(''); setEndShiftDone(false) }}>
+              End Shift
+            </button>
           </div>
         </div>
 
@@ -1018,8 +1128,8 @@ export default function POS() {
         </div>
       )}
 
-      {/* Manager auth: locked item override (qty change or remove) */}
-      {pendingOverride && (
+      {/* Manager auth: locked item override — skipped for elevated users (auto via useEffect) */}
+      {pendingOverride && !isElevated && (
         <ManagerAuthModal
           title={pendingOverride.action === 'REMOVE_COMMITTED_ITEM' ? 'Remove Locked Item' : 'Modify Locked Item'}
           description={
@@ -1038,8 +1148,8 @@ export default function POS() {
         />
       )}
 
-      {/* Manager auth: void all */}
-      {voidAllAuth && (
+      {/* Manager auth: void all — skipped for elevated users (auto via useEffect) */}
+      {voidAllAuth && !isElevated && (
         <ManagerAuthModal
           title="Void Entire Sale"
           description={`Clear all ${cartItems.length} item${cartItems.length !== 1 ? 's' : ''} from the bill`}
@@ -1048,14 +1158,56 @@ export default function POS() {
         />
       )}
 
-      {/* Manager auth: item discount — step 1 */}
-      {discountAuthTarget && discountStep === 'auth' && (
+      {/* Manager auth: item discount — step 1 (skipped for elevated users) */}
+      {discountAuthTarget && discountStep === 'auth' && !isElevated && (
         <ManagerAuthModal
           title="Apply Item Discount"
           description="Manager authorization required to discount a line item"
           onAuthorize={() => setDiscountStep('input')}
           onCancel={() => setDiscountAuthTarget(null)}
         />
+      )}
+
+      {/* End Shift modal */}
+      {endShiftOpen && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !endShiftBusy && setEndShiftOpen(false)}>
+          <div className="modal" style={{ width: 400 }}>
+            <div className="modal-title">End Shift</div>
+            {endShiftDone ? (
+              <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Shift submitted for manager review</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>You can now hand over to the next cashier.</div>
+              </div>
+            ) : (
+              <>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+                  Count your cash drawer and enter the total. The manager will review and finalize the close.
+                </p>
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label className="label">Cash in Drawer (KES)</label>
+                  <input className="input" type="number" min="0" step="0.01" autoFocus
+                    placeholder="0.00" value={endShiftCash}
+                    onChange={e => setEndShiftCash(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 16 }}>
+                  <label className="label">Handover Notes (optional)</label>
+                  <textarea className="input" rows={3} placeholder="Any notes for the manager…"
+                    value={endShiftNotes}
+                    onChange={e => setEndShiftNotes(e.target.value)}
+                    style={{ resize: 'vertical' }} />
+                </div>
+                {endShiftMsg && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 8 }}>{endShiftMsg}</div>}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button className="btn btn-secondary" onClick={() => setEndShiftOpen(false)} disabled={endShiftBusy}>Cancel</button>
+                  <button className="btn btn-danger" onClick={handleEndShift} disabled={endShiftBusy}>
+                    {endShiftBusy ? 'Submitting…' : 'Submit & End Shift'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
       {/* Manager auth: item discount — step 2 */}
       {discountAuthTarget && discountStep === 'input' && (() => {

@@ -77,8 +77,11 @@ export default function Shifts() {
   async function viewDetail(shift) {
     setDetail({ shift, recoData: null })
     setDetailLoading(true)
-    setActualCash(''); setActualMpesa(''); setActualCard(''); setActualOther('')
-    setRecoNotes(''); setTxnsOpen(true); setOverridesOpen(true)
+    // Pre-fill cashier's submitted cash count for pending_close shifts
+    setActualCash(shift.cashier_cash_count != null ? String(shift.cashier_cash_count) : '')
+    setActualMpesa(''); setActualCard(''); setActualOther('')
+    setRecoNotes(shift.cashier_close_notes || '')
+    setTxnsOpen(true); setOverridesOpen(true)
     try {
       const r = await getShiftReconciliation(shift.id)
       setDetail({ shift, recoData: r.data })
@@ -207,8 +210,29 @@ export default function Shifts() {
         )}
       </div>
 
-      {/* ── Active shift banner ── */}
-      {currentShift && (
+      {/* ── Active / pending-close shift banner ── */}
+      {currentShift && currentShift.status === 'pending_close' && (
+        <div style={{
+          background: '#7c3aed18', border: '1px solid #7c3aed', borderRadius: 10,
+          margin: '0 24px', padding: '14px 20px',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0,
+        }}>
+          <div>
+            <div style={{ fontWeight: 700, color: '#7c3aed', fontSize: 15, marginBottom: 2 }}>
+              Awaiting Manager Close — {currentShift.cashier_name || 'Unassigned'}
+            </div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+              Cashier ended at {fmtDate(currentShift.cashier_ended_at)}
+              {currentShift.cashier_cash_count != null && ` · Cashier cash count: ${fmt(currentShift.cashier_cash_count)}`}
+              {currentShift.cashier_close_notes && ` · Note: ${currentShift.cashier_close_notes}`}
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={() => viewDetail(currentShift)}>
+            Review & Close
+          </button>
+        </div>
+      )}
+      {currentShift && currentShift.status === 'open' && (
         <div style={{
           background: '#14532d22', border: '1px solid var(--success)', borderRadius: 10,
           margin: '0 24px', padding: '14px 20px',
@@ -273,8 +297,12 @@ export default function Shifts() {
                     </td>
                     <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.reconciled_by_name || '—'}</td>
                     <td>
-                      <span className={s.status === 'open' ? 'badge badge-green' : 'badge badge-blue'}>
-                        {s.status}
+                      <span className={
+                        s.status === 'open' ? 'badge badge-green' :
+                        s.status === 'pending_close' ? 'badge badge-yellow' :
+                        'badge badge-blue'
+                      }>
+                        {s.status === 'pending_close' ? 'Pending Close' : s.status}
                       </span>
                     </td>
                     <td>
