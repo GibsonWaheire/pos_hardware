@@ -814,8 +814,9 @@ export const openDrawer = () => withLocal(
 )
 export const getHardwareStatus = () => withLocal(
   () => api.get('/hardware/status'),
-  () => local.lsStub({ printer: { type: 'network' }, cash_drawer: { port: '/dev/ttyUSB0' } })
+  () => local.lsStub({ printer: { type: 'none' }, cash_drawer: { port: '/dev/ttyUSB0' } })
 )
+export const testPrinter = () => api.post('/hardware/test-printer')
 
 // ── eTIMS / KRA ────────────────────────────────────────────────────────────────
 export const submitEtims         = (invoiceId) => api.post(`/invoices/${invoiceId}/submit-etims`)

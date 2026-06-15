@@ -35,19 +35,39 @@ def open_drawer_endpoint():
     return jsonify({'error': 'Cash drawer unavailable — check CASH_DRAWER_PORT in .env'}), 503
 
 
+@bp.route('/test-printer', methods=['POST'])
+def test_printer_endpoint():
+    """Print a test page to verify printer connection."""
+    from hardware.printer import _get_printer, _get_printer_config
+    cfg = _get_printer_config()
+    ptype = cfg.get('type', 'none')
+
+    if ptype == 'none':
+        return jsonify({'ok': True, 'message': 'Dev mode — no printer configured (type=none)'})
+
+    try:
+        p = _get_printer(cfg)
+        if p is None:
+            return jsonify({'ok': True, 'message': 'Dev mode — no printer configured'})
+        p.set(align='center', bold=True)
+        p.text('POS Hardware\n')
+        p.set(bold=False)
+        p.text('Printer test OK\n\n\n')
+        p.cut()
+        p.close()
+        return jsonify({'ok': True, 'message': 'Test page printed'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 503
+
+
 @bp.route('/status', methods=['GET'])
 def hardware_status():
-    """
-    Non-blocking hardware status check.
-    Just reports what's configured — does not attempt to connect.
-    """
+    """Non-blocking hardware status — reports config, does not attempt to connect."""
+    from hardware.printer import _get_printer_config
     import os
+    cfg = _get_printer_config()
     return jsonify({
-        'printer': {
-            'type': os.getenv('PRINTER_TYPE', 'network'),
-            'host': os.getenv('PRINTER_HOST') if os.getenv('PRINTER_TYPE') == 'network' else None,
-            'port': os.getenv('PRINTER_SERIAL_PORT') if os.getenv('PRINTER_TYPE') == 'serial' else None,
-        },
+        'printer': cfg,
         'cash_drawer': {
             'port': os.getenv('CASH_DRAWER_PORT', '/dev/ttyUSB0'),
         },

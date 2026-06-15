@@ -11,7 +11,7 @@ If not installed or printer is unavailable, print_receipt() logs and returns Fal
 import os
 from datetime import datetime
 
-PRINTER_TYPE = os.getenv('PRINTER_TYPE', 'network')  # network | usb | serial
+PRINTER_TYPE = os.getenv('PRINTER_TYPE', 'none')  # network | usb | serial | none
 
 # Fallback values from env (overridden by store DB config when available)
 _ENV_STORE_NAME    = os.getenv('STORE_NAME', 'POS Hardware Store')
@@ -22,28 +22,58 @@ _ENV_STORE_TAX_ID  = os.getenv('STORE_TAX_ID', '')
 LINE_WIDTH = 48   # characters — 80mm thermal (48 cols at 12cpi)
 
 
-def _get_printer():
-    """Return an escpos Printer instance based on env config."""
+def _get_printer_config():
+    """Load printer config from DB Store, fall back to env vars."""
     try:
-        if PRINTER_TYPE == 'network':
-            from escpos.printer import Network
-            host = os.getenv('PRINTER_HOST', '192.168.1.100')
-            port = int(os.getenv('PRINTER_PORT', 9100))
-            return Network(host, port=port)
+        from app import app
+        from models import Store
+        import json as _json
+        with app.app_context():
+            store = Store.query.first()
+            if store and store.printer_config:
+                cfg = _json.loads(store.printer_config)
+                if cfg.get('type'):
+                    return cfg
+    except Exception:
+        pass
+    # Env-var fallback
+    return {
+        'type':         PRINTER_TYPE,
+        'host':         os.getenv('PRINTER_HOST', '192.168.1.100'),
+        'port':         int(os.getenv('PRINTER_PORT', 9100)),
+        'usb_vendor':   os.getenv('PRINTER_USB_VENDOR',  '0x04b8'),
+        'usb_product':  os.getenv('PRINTER_USB_PRODUCT', '0x0202'),
+        'serial_port':  os.getenv('PRINTER_SERIAL_PORT', '/dev/ttyUSB0'),
+    }
 
-        elif PRINTER_TYPE == 'usb':
+
+def _get_printer(cfg=None):
+    """Return an escpos Printer instance based on config. Returns None in dev/none mode."""
+    if cfg is None:
+        cfg = _get_printer_config()
+
+    ptype = cfg.get('type', 'none')
+
+    if ptype == 'none':
+        return None  # dev / no-printer mode
+
+    try:
+        if ptype == 'network':
+            from escpos.printer import Network
+            return Network(cfg.get('host', '192.168.1.100'), port=int(cfg.get('port', 9100)))
+
+        elif ptype == 'usb':
             from escpos.printer import Usb
-            vendor  = int(os.getenv('PRINTER_USB_VENDOR',  '0x04b8'), 16)
-            product = int(os.getenv('PRINTER_USB_PRODUCT', '0x0202'), 16)
+            vendor  = int(cfg.get('usb_vendor',  '0x04b8'), 16)
+            product = int(cfg.get('usb_product', '0x0202'), 16)
             return Usb(vendor, product)
 
-        elif PRINTER_TYPE == 'serial':
+        elif ptype == 'serial':
             from escpos.printer import Serial
-            port = os.getenv('PRINTER_SERIAL_PORT', '/dev/ttyUSB0')
-            return Serial(port, baudrate=9600)
+            return Serial(cfg.get('serial_port', '/dev/ttyUSB0'), baudrate=9600)
 
         else:
-            raise ValueError(f'Unknown PRINTER_TYPE: {PRINTER_TYPE}')
+            raise ValueError(f'Unknown printer type: {ptype}')
 
     except ImportError:
         raise ImportError('python-escpos not installed. Run: pip install python-escpos')
@@ -97,6 +127,10 @@ def print_receipt(sale: dict, store: dict = None) -> bool:
     except Exception as e:
         print(f'[Printer] Could not connect: {e}')
         return False
+
+    if p is None:
+        print('[Printer] Dev mode — print skipped (PRINTER_TYPE=none)')
+        return True
 
     if store is None:
         store = _get_store()
@@ -193,6 +227,7 @@ def print_receipt(sale: dict, store: dict = None) -> bool:
         return False
     finally:
         try:
-            p.close()
+            if p is not None:
+                p.close()
         except Exception:
             pass

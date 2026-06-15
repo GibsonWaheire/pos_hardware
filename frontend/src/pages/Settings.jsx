@@ -9,9 +9,10 @@ import {
   getNotificationLog, testNotification,
   testEtimsConnection, listPendingEtims, retryPendingEtims, submitEtims,
   pushSheetsNow, getSheetsStatus,
+  testPrinter,
 } from '../api'
 
-const ROLES = ['cashier', 'inventory', 'purchasing', 'manager', 'admin', 'supplier']
+const ROLES = ['cashier', 'inventory', 'receiving', 'purchasing', 'manager', 'admin', 'supplier']
 
 const EMPTY_STAFF = {
   name: '', personal_pin: '', role: 'cashier',
@@ -30,6 +31,7 @@ const EMPTY_STORE = {
 const ROLE_LABELS = {
   cashier:    'Cashier — operates POS terminal, processes sales',
   inventory:  'Inventory — manages stock, adjustments, GRNs',
+  receiving:  'Receiving — receiver bay: GRNs, damage reports, stock-in (no PO creation)',
   purchasing: 'Purchasing — creates/manages purchase orders and suppliers',
   manager:    'Manager — approves, reports, full store access (no system config)',
   admin:      'Admin — full access including system settings and cloud sync',
@@ -88,6 +90,14 @@ export default function Settings() {
   const [sheetsPushResult, setSheetsPushResult] = useState(null)
   const [sheetsStatus, setSheetsStatus]   = useState(null)
 
+  // Printer config state
+  const EMPTY_PRINTER = { type: 'none', host: '', port: '9100', serial_port: '/dev/ttyUSB0', usb_vendor: '0x04b8', usb_product: '0x0202' }
+  const [printerForm, setPrinterForm]       = useState(EMPTY_PRINTER)
+  const [printerSaving, setPrinterSaving]   = useState(false)
+  const [printerMsg, setPrinterMsg]         = useState('')
+  const [printerTestBusy, setPrinterTestBusy] = useState(false)
+  const [printerTestResult, setPrinterTestResult] = useState(null)
+
   // eTIMS state
   const EMPTY_ETIMS = { enabled: false, mode: 'sandbox', tin: '', bhf_id: '00', device_serial: '' }
   const [etimsForm, setEtimsForm]       = useState(EMPTY_ETIMS)
@@ -134,6 +144,9 @@ export default function Settings() {
         setSheetsForm(prev => ({ ...EMPTY_SHEETS, ...prev, ...d.sheets_config,
           tabs: { ...EMPTY_SHEETS.tabs, ...(d.sheets_config.tabs || {}) }
         }))
+      }
+      if (d.printer_config && Object.keys(d.printer_config).length) {
+        setPrinterForm(prev => ({ ...EMPTY_PRINTER, ...prev, ...d.printer_config }))
       }
     } catch (e) { console.error(e) }
   }
@@ -185,6 +198,27 @@ export default function Settings() {
       setSheetsMsg('Google Sheets settings saved')
       setTimeout(() => setSheetsMsg(''), 3000)
     } catch (e) { setSheetsMsg(e.message) } finally { setSheetsSaving(false) }
+  }
+
+  async function savePrinterConfig() {
+    setPrinterSaving(true); setPrinterMsg('')
+    try {
+      await updateStoreConfig({ printer_config: printerForm })
+      setPrinterMsg('Printer settings saved')
+      setTimeout(() => setPrinterMsg(''), 3000)
+    } catch (e) { setPrinterMsg(e.message) } finally { setPrinterSaving(false) }
+  }
+
+  async function handleTestPrinter() {
+    // Save first, then test
+    try { await updateStoreConfig({ printer_config: printerForm }) } catch (_) {}
+    setPrinterTestBusy(true); setPrinterTestResult(null)
+    try {
+      const res = await testPrinter()
+      setPrinterTestResult(res.data)
+    } catch (e) {
+      setPrinterTestResult({ ok: false, error: e.response?.data?.error || e.message })
+    } finally { setPrinterTestBusy(false) }
   }
 
   async function handlePushNow() {
@@ -443,12 +477,88 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* ── Hardware Status ── */}
+        {/* ── Hardware ── */}
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Hardware</div>
         <div className="card" style={{ marginBottom: 24 }}>
-          <HardwareRow label="Receipt Printer" desc="ESC/POS over Network / USB / Serial" />
+          {/* Printer config — admin only */}
+          {user?.role === 'admin' ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Receipt Printer (ESC/POS)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, alignItems: 'start' }}>
+                <div className="form-group">
+                  <label className="label">Connection Type</label>
+                  <select className="input" value={printerForm.type}
+                    onChange={e => setPrinterForm(f => ({ ...f, type: e.target.value }))}>
+                    <option value="none">None (dev / no printer)</option>
+                    <option value="network">Network (TCP/IP)</option>
+                    <option value="usb">USB</option>
+                    <option value="serial">Serial Port</option>
+                  </select>
+                </div>
+                {printerForm.type === 'network' && (<>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 12 }}>
+                    <div className="form-group">
+                      <label className="label">Printer IP Address</label>
+                      <input className="input" placeholder="192.168.1.100" value={printerForm.host}
+                        onChange={e => setPrinterForm(f => ({ ...f, host: e.target.value }))} />
+                    </div>
+                    <div className="form-group">
+                      <label className="label">Port</label>
+                      <input className="input" type="number" placeholder="9100" value={printerForm.port}
+                        onChange={e => setPrinterForm(f => ({ ...f, port: e.target.value }))} />
+                    </div>
+                  </div>
+                </>)}
+                {printerForm.type === 'usb' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div className="form-group">
+                      <label className="label">USB Vendor ID (hex)</label>
+                      <input className="input" placeholder="0x04b8" value={printerForm.usb_vendor}
+                        onChange={e => setPrinterForm(f => ({ ...f, usb_vendor: e.target.value }))} />
+                    </div>
+                    <div className="form-group">
+                      <label className="label">USB Product ID (hex)</label>
+                      <input className="input" placeholder="0x0202" value={printerForm.usb_product}
+                        onChange={e => setPrinterForm(f => ({ ...f, usb_product: e.target.value }))} />
+                    </div>
+                  </div>
+                )}
+                {printerForm.type === 'serial' && (
+                  <div className="form-group">
+                    <label className="label">Serial Port</label>
+                    <input className="input" placeholder="/dev/ttyUSB0 or COM3" value={printerForm.serial_port}
+                      onChange={e => setPrinterForm(f => ({ ...f, serial_port: e.target.value }))} />
+                  </div>
+                )}
+                {printerForm.type === 'none' && (
+                  <div style={{ paddingTop: 28, fontSize: 12, color: 'var(--text-muted)' }}>
+                    No printer connected. Sales will complete normally and receipts can be reprinted when a printer is configured.
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
+                <button className="btn btn-primary" onClick={savePrinterConfig} disabled={printerSaving}>
+                  {printerSaving ? 'Saving...' : 'Save Printer Config'}
+                </button>
+                {printerForm.type !== 'none' && (
+                  <button className="btn btn-secondary" onClick={handleTestPrinter} disabled={printerTestBusy}>
+                    {printerTestBusy ? 'Printing...' : 'Print Test Page'}
+                  </button>
+                )}
+                {printerMsg && <span style={{ fontSize: 13, color: printerMsg.includes('saved') ? 'var(--success)' : 'var(--danger)' }}>{printerMsg}</span>}
+                {printerTestResult && (
+                  <span style={{ fontSize: 13, color: printerTestResult.ok ? 'var(--success)' : 'var(--danger)' }}>
+                    {printerTestResult.ok ? (printerTestResult.message || 'Test OK') : (printerTestResult.error || 'Failed')}
+                  </span>
+                )}
+              </div>
+              <div style={{ borderTop: '1px solid var(--border)', margin: '16px 0' }} />
+            </div>
+          ) : (
+            <HardwareRow label="Receipt Printer" desc="ESC/POS over Network / USB / Serial (admin configures)" />
+          )}
           <HardwareRow label="Barcode Scanner" desc="HID — acts as keyboard input, always ready" />
-          <HardwareRow label="Cash Drawer" desc="Triggered via printer or direct serial" />
+          <HardwareRow label="Cash Drawer" desc="Triggered via printer RJ-11 port (ESC/POS kick command)" />
           <HardwareRow label="Card Terminal" desc="Stripe Terminal SDK — requires STRIPE_SECRET_KEY" />
         </div>
 
@@ -972,6 +1082,7 @@ const ROLE_BADGE = {
   manager:    'badge-blue',
   cashier:    'badge-green',
   inventory:  'badge-green',
+  receiving:  'badge-green',
   purchasing: 'badge-yellow',
   supplier:   'badge-blue',
 }

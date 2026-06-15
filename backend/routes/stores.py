@@ -43,5 +43,9 @@ def update_config():
     if 'sheets_config' in d and session.get('role') == 'admin':
         store.sheets_config = json.dumps(d['sheets_config'])
 
+    # Printer config — admin only
+    if 'printer_config' in d and session.get('role') == 'admin':
+        store.printer_config = json.dumps(d['printer_config'])
+
     db.session.commit()
     return jsonify(store.to_dict())

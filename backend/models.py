@@ -835,6 +835,7 @@ class Store(db.Model):
     notification_config = db.Column(db.Text, nullable=True)           # JSON blob — AT + SMTP + event toggles
     etims_config        = db.Column(db.Text, nullable=True)           # JSON blob — KRA eTIMS credentials/settings
     sheets_config       = db.Column(db.Text, nullable=True)           # JSON blob — Google Sheets export settings
+    printer_config      = db.Column(db.Text, nullable=True)           # JSON blob — ESC/POS printer connection settings
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
@@ -848,6 +849,9 @@ class Store(db.Model):
         sheets = {}
         try: sheets = _json.loads(self.sheets_config) if self.sheets_config else {}
         except: pass
+        printer = {}
+        try: printer = _json.loads(self.printer_config) if self.printer_config else {}
+        except: pass
         return {
             'id': self.id, 'name': self.name, 'address': self.address,
             'phone': self.phone, 'email': self.email, 'currency': self.currency,
@@ -860,6 +864,7 @@ class Store(db.Model):
             'notification_config': notif,
             'etims_config': etims,
             'sheets_config': sheets,
+            'printer_config': printer,
         }
 
 
