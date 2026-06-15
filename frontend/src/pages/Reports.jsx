@@ -70,6 +70,7 @@ export default function Reports() {
   const [actualOther, setActualOther] = useState('')
   const [recoNotes, setRecoNotes]   = useState('')
   const [closingShift, setClosingShift] = useState(false)
+  const [closedReport, setClosedReport] = useState(null)
   const [overridesOpen, setOverridesOpen] = useState(false)
   const [txnsOpen, setTxnsOpen]     = useState(false)
 
@@ -164,7 +165,7 @@ export default function Reports() {
     setRecoLoading(true)
     setRecoModal(true)
     setActualCash(''); setActualMpesa(''); setActualCard(''); setActualOther('')
-    setRecoNotes(''); setOverridesOpen(false); setTxnsOpen(false)
+    setRecoNotes(''); setOverridesOpen(false); setTxnsOpen(false); setClosedReport(null)
     try {
       const r = await getShiftReconciliation(currentShift.id)
       setRecoData(r.data)
@@ -188,21 +189,10 @@ export default function Reports() {
     return            { text: `OVER by ${fmt(v)}`, color: 'var(--warning)' }
   }
 
-  async function handleCloseShift(closedWithoutPrint) {
+  async function handleCloseShift() {
     if (!currentShift || !recoData) return
-
-    const exp = recoData.expected
-
-    if (!closedWithoutPrint) {
-      const confirmed = window.confirm('Confirm hardcopy printed and filed?')
-      if (!confirmed) return
-    } else {
-      const confirmed = window.confirm(
-        'Closing without printing means no hardcopy. This will be flagged in the admin report. Continue?'
-      )
-      if (!confirmed) return
-    }
-
+    const confirmed = window.confirm('Close shift and submit reconciliation?')
+    if (!confirmed) return
     setClosingShift(true)
     try {
       const res = await closeShift(currentShift.id, {
@@ -212,13 +202,11 @@ export default function Reports() {
         actual_card:  parseFloat(actualCard)  || 0,
         actual_other: parseFloat(actualOther) || 0,
         notes: recoNotes,
-        closed_without_print: closedWithoutPrint,
+        closed_without_print: false,
       })
       setCurrentShift(null)
-      setRecoModal(false)
-      setRecoData(null)
+      setClosedReport(res.data)
       await loadShiftReports()
-      alert(`Shift closed. Report ${res.data.report_number} generated.`)
     } catch (e) {
       alert('Error closing shift: ' + e.message)
     } finally {
@@ -226,32 +214,19 @@ export default function Reports() {
     }
   }
 
-  async function handlePrintAndClose() {
-    if (!currentShift || !recoData) return
-    // Build a temporary report object for printing before actual close
-    const exp = recoData.expected
-    const tenders = []
-    if (exp.cash)  tenders.push({ tender: 'cash',  expected: exp.cash,  actual: parseFloat(actualCash)  || 0, variance: computeVariance(actualCash, exp.cash),  status: computeVariance(actualCash, exp.cash)  === 0 ? 'BALANCED' : computeVariance(actualCash, exp.cash)  < 0 ? 'SHORT' : 'OVER' })
-    if (exp.mpesa) tenders.push({ tender: 'mpesa', expected: exp.mpesa, actual: parseFloat(actualMpesa) || 0, variance: computeVariance(actualMpesa, exp.mpesa), status: computeVariance(actualMpesa, exp.mpesa) === 0 ? 'BALANCED' : computeVariance(actualMpesa, exp.mpesa) < 0 ? 'SHORT' : 'OVER' })
-    if (exp.card)  tenders.push({ tender: 'card',  expected: exp.card,  actual: parseFloat(actualCard)  || 0, variance: computeVariance(actualCard, exp.card),  status: computeVariance(actualCard, exp.card)  === 0 ? 'BALANCED' : computeVariance(actualCard, exp.card)  < 0 ? 'SHORT' : 'OVER' })
-    if (exp.other) tenders.push({ tender: 'other', expected: exp.other, actual: parseFloat(actualOther) || 0, variance: computeVariance(actualOther, exp.other), status: computeVariance(actualOther, exp.other) === 0 ? 'BALANCED' : computeVariance(actualOther, exp.other) < 0 ? 'SHORT' : 'OVER' })
-
-    const previewReport = {
-      report_number: 'PREVIEW',
-      content: {
-        shift: currentShift,
-        reconciled_by: { name: user?.name, role: user?.role },
-        tenders,
-        overrides: recoData.overrides,
-        transactions: recoData.transactions,
-        total_expected_revenue: exp.total,
-        total_actual_revenue: tenders.reduce((s, t) => s + t.actual, 0),
-        total_variance: tenders.reduce((s, t) => s + t.variance, 0),
-      },
+  function handlePrintClosed() {
+    if (!closedReport) return
+    if (closedReport.content?.tenders) {
+      printShiftReconciliation(closedReport)
+    } else {
+      printShiftReportDoc(closedReport)
     }
-    printShiftReconciliation(previewReport)
-    // After print dialog, proceed to close
-    await handleCloseShift(false)
+  }
+
+  function handleDoneAfterClose() {
+    setRecoModal(false)
+    setRecoData(null)
+    setClosedReport(null)
   }
 
   const canFile    = user && ['manager', 'admin'].includes(user.role)
@@ -1112,32 +1087,39 @@ export default function Reports() {
                     <textarea className="input" rows={2} value={recoNotes} onChange={e => setRecoNotes(e.target.value)} style={{ resize: 'vertical' }} />
                   </div>
 
-                  {/* Print hint */}
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16 }}>
-                    Print in portrait, A4, no margins
-                  </div>
-
                   {/* Action buttons */}
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    <button className="btn btn-ghost" onClick={() => { setRecoModal(false); setRecoData(null) }}>
-                      Cancel
-                    </button>
-                    <button
-                      className="btn btn-ghost"
-                      onClick={() => handleCloseShift(true)}
-                      disabled={!allFilled || closingShift}
-                      style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}
-                    >
-                      {closingShift ? 'Closing...' : 'Close Without Printing'}
-                    </button>
-                    <button
-                      className="btn btn-primary"
-                      onClick={handlePrintAndClose}
-                      disabled={!allFilled || closingShift}
-                    >
-                      {closingShift ? 'Closing...' : 'Print & Close Shift'}
-                    </button>
-                  </div>
+                  {closedReport ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{
+                        background: '#dcfce7', border: '1px solid #86efac', borderRadius: 8,
+                        padding: '12px 16px', color: '#15803d', fontWeight: 600, fontSize: 14,
+                      }}>
+                        Shift closed — Report {closedReport.report_number} generated.
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        Print in portrait, A4, no margins
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <button className="btn btn-ghost" onClick={handleDoneAfterClose}>Done</button>
+                        <button className="btn btn-primary" onClick={handlePrintClosed}>
+                          Print Report
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      <button className="btn btn-ghost" onClick={() => { setRecoModal(false); setRecoData(null) }}>
+                        Cancel
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleCloseShift}
+                        disabled={!allFilled || closingShift}
+                      >
+                        {closingShift ? 'Closing...' : 'Close Shift'}
+                      </button>
+                    </div>
+                  )}
                 </>
               )
             })()}
