@@ -199,32 +199,34 @@ function AppInner() {
     <>
     {locked && <LockScreen user={user} onUnlock={() => setLocked(false)} />}
     <div className="app-layout">
-      <nav className="sidebar">
-        <div className="sidebar-logo">POS</div>
+      {user.role !== 'cashier' && (
+        <nav className="sidebar">
+          <div className="sidebar-logo">POS</div>
 
-        {visibleNav.map(({ to, label, icon, end }) => (
-          <NavLink key={to} to={to} end={!!end}
-            className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            <span className="nav-icon">{icon}</span>
-            <span>{label}</span>
-          </NavLink>
-        ))}
+          {visibleNav.map(({ to, label, icon, end }) => (
+            <NavLink key={to} to={to} end={!!end}
+              className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+              <span className="nav-icon">{icon}</span>
+              <span>{label}</span>
+            </NavLink>
+          ))}
 
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
+          {/* Spacer */}
+          <div style={{ flex: 1 }} />
 
-        {/* Pending sync badge */}
-        {pendingCount > 0 && (
-          <div style={{ padding: '6px 12px', margin: '0 8px 4px', background: '#f59e0b22', borderRadius: 8, textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700 }}>{pendingCount} pending sync</div>
+          {/* Pending sync badge */}
+          {pendingCount > 0 && (
+            <div style={{ padding: '6px 12px', margin: '0 8px 4px', background: '#f59e0b22', borderRadius: 8, textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700 }}>{pendingCount} pending sync</div>
+            </div>
+          )}
+
+          {/* Role dot at bottom of sidebar */}
+          <div style={{ padding: '12px 0 4px', borderTop: '1px solid var(--border)', width: '100%', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ ...roleDot, background: ROLE_COLOUR[user.role] || '#888' }} title={user.role} />
           </div>
-        )}
-
-        {/* Role dot at bottom of sidebar */}
-        <div style={{ padding: '12px 0 4px', borderTop: '1px solid var(--border)', width: '100%', display: 'flex', justifyContent: 'center' }}>
-          <div style={{ ...roleDot, background: ROLE_COLOUR[user.role] || '#888' }} title={user.role} />
-        </div>
-      </nav>
+        </nav>
+      )}
 
       <div style={mainWrap}>
         {/* Offline banner — managers/admin only; cashier doesn't need to know */}
