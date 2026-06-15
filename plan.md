@@ -131,6 +131,7 @@ Every feature gating decision must follow this table.
 | 57 | Product images on POS — tile grid (with images) when browsing by category; small thumbnails in search list; scan flash already had images | ✅ |
 | 58 | Staff Management + Receiver Dashboard — StaffManagement.jsx (CRUD, PIN reset, deactivate/unlock, activity log); ReceiverDashboard.jsx (home for receiving role: pending POs, GRNs, damage reports); Shift History merged into Cashier tab in Reports; sidebar reorganised with section dividers | ✅ |
 | 59 | Sales analytics charts — Charts.jsx reusable SVG components (LineChart, BarChart, DonutChart, HorizontalBars); Sales tab: revenue trend, payment donut, transactions/day bar, top products bars; Category tab: revenue bars + share donut; Cashier tab: horizontal bars | ✅ |
+| 60 | Barcode label printing — printBarcodeLabels() multi-product/qty/format; LabelPrintModal (format picker, per-product qty, sheet estimate); Products batch select + per-row Label button; auto-offered on PO receive | ✅ |
 
 ---
 
