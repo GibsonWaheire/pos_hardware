@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { BarChart, LineChart, DonutChart, HorizontalBars } from '../components/Charts'
 import {
   getSalesReport, getTopProducts, getPaymentBreakdown,
   getReportByCashier, getReportByCategory, getInventoryReport,
@@ -366,55 +367,90 @@ export default function Reports() {
           {/* ── Sales tab ── */}
           {activeTab === 'sales' && salesData && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
-                <StatCard label="Revenue" value={fmt(salesData.total_revenue)} />
+              {/* KPI tiles */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
+                <StatCard label="Revenue" value={fmt(salesData.total_revenue)} color="var(--accent)" />
                 <StatCard label="Transactions" value={salesData.total_transactions} />
                 <StatCard label="Avg Sale" value={salesData.total_transactions ? fmt(salesData.total_revenue / salesData.total_transactions) : '—'} />
                 {paymentData.map(p => (
-                  <StatCard key={p.method} label={p.method} value={fmt(p.total)} sub={`${p.count} sales`} />
+                  <StatCard key={p.method} label={p.method} value={fmt(p.total)} sub={`${p.count} txns`} />
                 ))}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div className="card" style={{ padding: 0 }}>
-                  <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>Daily Breakdown</div>
-                  {salesData.rows.length === 0 ? (
-                    <div className="empty-state">No data</div>
-                  ) : (
-                    <table className="table">
-                      <thead><tr><th>Date</th><th>Sales</th><th>Revenue</th><th>Tax</th></tr></thead>
-                      <tbody>
-                        {salesData.rows.map(r => (
-                          <tr key={r.date}>
-                            <td>{r.date}</td>
-                            <td>{r.transactions}</td>
-                            <td style={{ fontWeight: 600 }}>{fmt(r.revenue)}</td>
-                            <td style={{ color: 'var(--text-muted)' }}>{fmt(r.tax)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
+
+              {/* Row 1: Revenue trend (line) + Payment donut */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 16 }}>
+                <div className="card">
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Revenue Trend</div>
+                  <LineChart
+                    data={salesData.rows}
+                    valueKey="revenue"
+                    labelKey="date"
+                    subKey="transactions"
+                    subLabel="sales ·"
+                    fmt={fmt}
+                    height={200}
+                    color="var(--accent)"
+                  />
                 </div>
-                <div className="card" style={{ padding: 0 }}>
-                  <div style={{ padding: '14px 16px 10px', fontWeight: 600, fontSize: 14 }}>Top Products / Services</div>
-                  {topProducts.length === 0 ? (
-                    <div className="empty-state">No data</div>
-                  ) : (
-                    <table className="table">
-                      <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Revenue</th></tr></thead>
-                      <tbody>
-                        {topProducts.slice(0, 15).map((p, i) => (
-                          <tr key={i}>
-                            <td style={{ color: 'var(--text-muted)' }}>{i + 1}</td>
-                            <td>{p.product_name}</td>
-                            <td style={{ color: 'var(--text-muted)' }}>{p.total_qty}</td>
-                            <td style={{ fontWeight: 600 }}>{fmt(p.total_revenue)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
+                <div className="card">
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Payment Methods</div>
+                  <DonutChart
+                    data={paymentData}
+                    labelKey="method"
+                    valueKey="total"
+                    fmt={fmt}
+                    size={160}
+                  />
                 </div>
+              </div>
+
+              {/* Row 2: Daily transactions bar + Top products horizontal bars */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                <div className="card">
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Transactions per Day</div>
+                  <BarChart
+                    data={salesData.rows}
+                    valueKey="transactions"
+                    labelKey="date"
+                    color="#22c55e"
+                    height={180}
+                  />
+                </div>
+                <div className="card">
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Top Products</div>
+                  <HorizontalBars
+                    data={topProducts}
+                    valueKey="total_revenue"
+                    labelKey="product_name"
+                    subKey="total_qty"
+                    subLabel="units"
+                    fmt={fmt}
+                    maxItems={10}
+                    color="var(--accent)"
+                  />
+                </div>
+              </div>
+
+              {/* Row 3: Daily breakdown table */}
+              <div className="card" style={{ padding: 0 }}>
+                <div style={{ padding: '12px 16px 8px', fontWeight: 600, fontSize: 13 }}>Daily Breakdown</div>
+                {salesData.rows.length === 0 ? (
+                  <div className="empty-state">No data</div>
+                ) : (
+                  <table className="table">
+                    <thead><tr><th>Date</th><th>Sales</th><th>Revenue</th><th>Tax</th></tr></thead>
+                    <tbody>
+                      {salesData.rows.map(r => (
+                        <tr key={r.date}>
+                          <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.date}</td>
+                          <td>{r.transactions}</td>
+                          <td style={{ fontWeight: 600 }}>{fmt(r.revenue)}</td>
+                          <td style={{ color: 'var(--text-muted)' }}>{fmt(r.tax)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </>
           )}
@@ -454,18 +490,15 @@ export default function Reports() {
               {cashierData.length > 0 && (
                 <>
                   <div className="card" style={{ marginBottom: 16 }}>
-                    {(() => {
-                      const max = Math.max(...cashierData.map(c => c.revenue))
-                      return cashierData.map((c, i) => (
-                        <div key={i} style={{ marginBottom: 10 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-                            <span style={{ fontWeight: 500 }}>{c.cashier_name}</span>
-                            <span style={{ color: 'var(--text-muted)' }}>{c.transactions} sales · avg {fmt(c.avg_sale)}</span>
-                          </div>
-                          <InlineBar value={c.revenue} max={max} />
-                        </div>
-                      ))
-                    })()}
+                    <HorizontalBars
+                      data={cashierData}
+                      valueKey="revenue"
+                      labelKey="cashier_name"
+                      subKey="transactions"
+                      subLabel="sales"
+                      fmt={fmt}
+                      color="var(--accent)"
+                    />
                   </div>
                   <div className="card" style={{ padding: 0, marginBottom: 24 }}>
                     <table className="table">
@@ -588,20 +621,29 @@ export default function Reports() {
               {categoryData.length === 0 && !loading && <div className="empty-state">No data for this period</div>}
               {categoryData.length > 0 && (
                 <>
-                  <div className="card" style={{ marginBottom: 16 }}>
-                    <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 14 }}>Revenue by Category</div>
-                    {(() => {
-                      const max = Math.max(...categoryData.map(c => c.revenue))
-                      return categoryData.map((c, i) => (
-                        <div key={i} style={{ marginBottom: 10 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-                            <span style={{ fontWeight: 500 }}>{c.category_name}</span>
-                            <span style={{ color: 'var(--text-muted)' }}>{c.total_qty} units</span>
-                          </div>
-                          <InlineBar value={c.revenue} max={max} color="var(--success)" />
-                        </div>
-                      ))
-                    })()}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                    <div className="card">
+                      <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 13 }}>Revenue by Category</div>
+                      <HorizontalBars
+                        data={categoryData}
+                        valueKey="revenue"
+                        labelKey="category_name"
+                        subKey="total_qty"
+                        subLabel="units"
+                        fmt={fmt}
+                        color="#22c55e"
+                      />
+                    </div>
+                    <div className="card">
+                      <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 13 }}>Category Share</div>
+                      <DonutChart
+                        data={categoryData}
+                        labelKey="category_name"
+                        valueKey="revenue"
+                        fmt={fmt}
+                        size={160}
+                      />
+                    </div>
                   </div>
                   <div className="card" style={{ padding: 0 }}>
                     <table className="table">
