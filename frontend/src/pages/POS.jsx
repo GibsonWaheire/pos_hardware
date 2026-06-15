@@ -594,34 +594,35 @@ export default function POS() {
 
       {attracted && <IdleScreen storeName={storeConfig.name} onDismiss={() => setAttracted(false)} />}
 
-      {/* ══ Left: Compact search panel ══ */}
+      {/* ══ Far left: Category sidebar ══ */}
+      <div className="pos-cat-sidebar">
+        <div className="cat-sidebar-title">Categories</div>
+        <button
+          className={`cat-sidebar-btn${!activeCat ? ' active' : ''}`}
+          onClick={() => setActiveCat(null)}
+        >All</button>
+        {categories.map(c => (
+          <button
+            key={c.id}
+            className={`cat-sidebar-btn${activeCat === c.id ? ' active' : ''}`}
+            onClick={() => setActiveCat(c.id)}
+          >{c.name}</button>
+        ))}
+      </div>
+
+      {/* ══ Middle: Search panel ══ */}
       <div className="pos-search-panel">
         <div className="pos-search-wrap">
           <input
             ref={searchRef}
             className="pos-search-input"
-            placeholder="Search or scan barcode  (F3)"
+            placeholder="Search / scan  (F3)"
             value={searchQuery}
             onChange={e => { setSearchQuery(e.target.value); setNoResults(false) }}
             onKeyDown={handleSearchKey}
             autoComplete="off"
             autoFocus
           />
-          {categories.length > 0 && (
-            <div className="cat-pills">
-              <button
-                className={`cat-pill${!activeCat ? ' active' : ''}`}
-                onClick={() => setActiveCat(null)}
-              >All</button>
-              {categories.map(c => (
-                <button
-                  key={c.id}
-                  className={`cat-pill${activeCat === c.id ? ' active' : ''}`}
-                  onClick={() => setActiveCat(c.id)}
-                >{c.name}</button>
-              ))}
-            </div>
-          )}
         </div>
 
         {zeroPriceError && (
