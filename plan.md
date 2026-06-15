@@ -128,6 +128,9 @@ Every feature gating decision must follow this table.
 | 54 | Shift close improvements — pending_close shifts now visible to manager (cashier banner, pre-filled cash count); Print Report and Close Shift separated into independent buttons; `hasPrinted` state tracks if report was printed before close | ✅ |
 | 55 | Log decluttering — `prune_old_logs()` runs on every shift close: auth events pruned after 7 days, all other audit/stock events after 90 days | ✅ |
 | 56 | Reorder alerts in Purchase Orders — purchasing role sees reorder widget at top of PO page grouped by supplier with one-click "Create PO" pre-fill | ✅ |
+| 57 | Product images on POS — tile grid (with images) when browsing by category; small thumbnails in search list; scan flash already had images | ✅ |
+| 58 | Staff Management + Receiver Dashboard — StaffManagement.jsx (CRUD, PIN reset, deactivate/unlock, activity log); ReceiverDashboard.jsx (home for receiving role: pending POs, GRNs, damage reports); Shift History merged into Cashier tab in Reports; sidebar reorganised with section dividers | ✅ |
+| 59 | Sales analytics charts — Charts.jsx reusable SVG components (LineChart, BarChart, DonutChart, HorizontalBars); Sales tab: revenue trend, payment donut, transactions/day bar, top products bars; Category tab: revenue bars + share donut; Cashier tab: horizontal bars | ✅ |
 
 ---
 
