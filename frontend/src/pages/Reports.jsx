@@ -91,7 +91,11 @@ export default function Reports() {
         ])
         setSalesData(s.data); setTopProducts(tp.data); setPaymentData(pb.data)
       } else if (tab === 'cashier') {
-        const r = await getReportByCashier(params); setCashierData(r.data)
+        await Promise.all([
+          getReportByCashier(params).then(r => setCashierData(r.data)),
+          loadShiftReports(),
+          loadCurrentShift(),
+        ])
       } else if (tab === 'category') {
         const r = await getReportByCategory(params); setCategoryData(r.data)
       } else if (tab === 'inventory') {
@@ -100,8 +104,6 @@ export default function Reports() {
         const r = await getPurchasingReport(params); setPurchasingData(r.data)
       } else if (tab === 'returns') {
         const r = await getReturnsReport(params); setReturnsData(r.data)
-      } else if (tab === 'shift-history') {
-        await Promise.all([loadShiftReports(), loadCurrentShift()])
       }
     } catch (e) { console.error(e) } finally { setLoading(false) }
   }
@@ -257,13 +259,12 @@ export default function Reports() {
   const isInventory = user?.role === 'inventory'
 
   const ALL_TABS = [
-    { key: 'sales',          label: 'Sales',         roles: ['manager', 'admin'] },
-    { key: 'cashier',        label: 'By Cashier',    roles: ['manager', 'admin'] },
-    { key: 'category',       label: 'By Category',   roles: ['manager', 'admin'] },
-    { key: 'inventory',      label: 'Inventory',     roles: ['inventory', 'manager', 'admin'] },
-    { key: 'purchasing',     label: 'Purchasing',    roles: ['purchasing', 'manager', 'admin'] },
-    { key: 'returns',        label: 'Returns',       roles: ['manager', 'admin'] },
-    { key: 'shift-history',  label: 'Shift History', roles: ['manager', 'admin'] },
+    { key: 'sales',          label: 'Sales',             roles: ['manager', 'admin'] },
+    { key: 'cashier',        label: 'Cashier & Shifts',  roles: ['manager', 'admin'] },
+    { key: 'category',       label: 'By Category',       roles: ['manager', 'admin'] },
+    { key: 'inventory',      label: 'Inventory',         roles: ['inventory', 'manager', 'admin'] },
+    { key: 'purchasing',     label: 'Purchasing',        roles: ['purchasing', 'manager', 'admin'] },
+    { key: 'returns',        label: 'Returns',           roles: ['manager', 'admin'] },
   ]
   const TABS = ALL_TABS.filter(t => t.roles.includes(user?.role))
   const activeTab = TABS.find(t => t.key === tab) ? tab : (TABS[0]?.key || 'inventory')
@@ -297,7 +298,7 @@ export default function Reports() {
         <div className="page-header">
           <span className="page-title">Reports</span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {activeTab !== 'inventory' && activeTab !== 'shift-history' && activeTab !== 'purchasing' && activeTab !== 'returns' && (
+            {activeTab !== 'inventory' && activeTab !== 'purchasing' && activeTab !== 'returns' && (
               <>
                 <input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 140 }} />
                 <span style={{ color: 'var(--text-muted)' }}>to</span>
@@ -327,7 +328,7 @@ export default function Reports() {
             )}
             {activeTab === 'cashier' && cashierData.length > 0 && (
               <button className="btn btn-ghost" onClick={() => printCashierReport(cashierData, dateFrom, dateTo)}>
-                Print Report
+                Print Cashier Report
               </button>
             )}
             {activeTab === 'inventory' && inventoryData && (
@@ -418,14 +419,41 @@ export default function Reports() {
             </>
           )}
 
-          {/* ── Cashier tab ── */}
+          {/* ── Cashier & Shifts tab ── */}
           {activeTab === 'cashier' && (
             <>
-              {cashierData.length === 0 && !loading && <div className="empty-state">No data for this period</div>}
+              {/* ── Active shift banner ── */}
+              {currentShift && (
+                <div style={{
+                  background: isOverdue ? '#fef2f2' : '#f0fdf4',
+                  border: `1px solid ${isOverdue ? 'var(--danger)' : 'var(--success)'}`,
+                  borderRadius: 10, marginBottom: 16, padding: '14px 20px',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: isOverdue ? 'var(--danger)' : 'var(--success)', marginBottom: 4 }}>
+                      {isOverdue ? 'OVERDUE — ' : ''}Shift Open — {currentShift.cashier_name || 'No cashier'}
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                      Opened: {fmtDate(currentShift.opened_at)} · Float: {fmt(currentShift.opening_float)}
+                    </div>
+                  </div>
+                  <button className="btn btn-danger" onClick={openReconciliation}>
+                    Reconcile &amp; Close Shift
+                  </button>
+                </div>
+              )}
+
+              {/* ── Revenue by cashier ── */}
+              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+                Revenue by Cashier — {dateFrom} to {dateTo}
+              </div>
+              {cashierData.length === 0 && !loading && (
+                <div className="empty-state" style={{ marginBottom: 20 }}>No sales data for this period</div>
+              )}
               {cashierData.length > 0 && (
                 <>
                   <div className="card" style={{ marginBottom: 16 }}>
-                    <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 14 }}>Revenue by Cashier</div>
                     {(() => {
                       const max = Math.max(...cashierData.map(c => c.revenue))
                       return cashierData.map((c, i) => (
@@ -439,7 +467,7 @@ export default function Reports() {
                       ))
                     })()}
                   </div>
-                  <div className="card" style={{ padding: 0 }}>
+                  <div className="card" style={{ padding: 0, marginBottom: 24 }}>
                     <table className="table">
                       <thead><tr><th>Cashier</th><th>Transactions</th><th>Revenue</th><th>Tax</th><th>Avg Sale</th></tr></thead>
                       <tbody>
@@ -456,6 +484,100 @@ export default function Reports() {
                     </table>
                   </div>
                 </>
+              )}
+
+              {/* ── Shift history ── */}
+              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+                Shift History
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {[['all', 'All'], ['pending', 'Pending'], ['filed', 'Filed']].map(([key, label]) => (
+                    <button key={key} onClick={async () => { setSrFilter(key); await loadShiftReports() }}
+                      className={srFilter === key ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => Promise.all([loadShiftReports(), loadCurrentShift()])}>Refresh</button>
+              </div>
+              {!loading && filteredReports.length === 0 && (
+                <div className="empty-state">No shift reports found</div>
+              )}
+              {!loading && filteredReports.length > 0 && (
+                <div className="card" style={{ padding: 0 }}>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Report #</th>
+                        <th>Cashier</th>
+                        <th>Opened</th>
+                        <th>Closed</th>
+                        <th>Total Sales</th>
+                        <th>Cash Var.</th>
+                        <th>M-Pesa Var.</th>
+                        <th>Overrides</th>
+                        <th>Status</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredReports.map(r => {
+                        const c = r.content || {}
+                        const summary = c.summary || {}
+                        const shift   = c.shift   || {}
+                        const tenders = c.tenders || []
+                        const cashTender  = tenders.find(t => t.tender === 'cash')
+                        const mpesaTender = tenders.find(t => t.tender === 'mpesa')
+                        const overrides   = c.overrides || c.item_overrides || {}
+                        const st = shiftHistoryStatus(r)
+                        return (
+                          <tr key={r.id}>
+                            <td style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{r.report_number}</td>
+                            <td style={{ fontWeight: 500 }}>{shift.cashier_name || '—'}</td>
+                            <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(r.period_start)}</td>
+                            <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(r.period_end)}</td>
+                            <td style={{ fontWeight: 600 }}>{fmt(summary.total_revenue)}</td>
+                            <td>
+                              {cashTender ? (
+                                <span style={{ fontWeight: 600, color: cashTender.variance === 0 ? 'var(--success)' : cashTender.variance < 0 ? 'var(--danger)' : 'var(--warning)' }}>
+                                  {cashTender.variance >= 0 ? '+' : ''}{fmt(cashTender.variance)}
+                                </span>
+                              ) : '—'}
+                            </td>
+                            <td>
+                              {mpesaTender ? (
+                                <span style={{ fontWeight: 600, color: mpesaTender.variance === 0 ? 'var(--success)' : mpesaTender.variance < 0 ? 'var(--danger)' : 'var(--warning)' }}>
+                                  {mpesaTender.variance >= 0 ? '+' : ''}{fmt(mpesaTender.variance)}
+                                </span>
+                              ) : '—'}
+                            </td>
+                            <td style={{ color: 'var(--text-muted)' }}>{overrides.count ?? '—'}</td>
+                            <td>
+                              <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: st.bg, color: st.color }}>
+                                {st.label}
+                              </span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                {canPrint && (
+                                  <button className="btn btn-ghost btn-sm" onClick={() => handlePrint(r)}>
+                                    {r.print_count > 0 ? `Reprint (${r.print_count})` : 'Print'}
+                                  </button>
+                                )}
+                                {canFile && r.status !== 'FILED' && (
+                                  <button className="btn btn-primary btn-sm" onClick={() => { setFileModal(r); setSignedNote('') }}>
+                                    File
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </>
           )}
@@ -707,128 +829,7 @@ export default function Reports() {
           )}
 
           {/* ── Shift History tab ── */}
-          {activeTab === 'shift-history' && (
-            <>
-              {/* Active shift banner */}
-              {currentShift && (
-                <div style={{
-                  background: isOverdue ? '#fef2f2' : '#f0fdf4',
-                  border: `1px solid ${isOverdue ? 'var(--danger)' : 'var(--success)'}`,
-                  borderRadius: 10, marginBottom: 16, padding: '14px 20px',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}>
-                  <div>
-                    <div style={{ fontWeight: 700, color: isOverdue ? 'var(--danger)' : 'var(--success)', marginBottom: 4 }}>
-                      {isOverdue ? 'OVERDUE — ' : ''}Shift Open — {currentShift.cashier_name || 'No cashier'}
-                    </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                      Opened: {fmtDate(currentShift.opened_at)} · Float: {fmt(currentShift.opening_float)}
-                    </div>
-                  </div>
-                  <button className="btn btn-danger" onClick={openReconciliation}>
-                    Reconcile &amp; Close Shift
-                  </button>
-                </div>
-              )}
-
-              {/* Filter bar */}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {[['all', 'All'], ['pending', 'Pending'], ['filed', 'Filed']].map(([key, label]) => (
-                    <button key={key} onClick={async () => { setSrFilter(key); await loadShiftReports() }}
-                      className={srFilter === key ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => Promise.all([loadShiftReports(), loadCurrentShift()])}>Refresh</button>
-              </div>
-
-              {loading && <div className="empty-state">Loading...</div>}
-
-              {!loading && filteredReports.length === 0 && (
-                <div className="empty-state">No shift reports found</div>
-              )}
-
-              {!loading && filteredReports.length > 0 && (
-                <div className="card" style={{ padding: 0 }}>
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Report #</th>
-                        <th>Cashier</th>
-                        <th>Opened</th>
-                        <th>Closed</th>
-                        <th>Total Sales</th>
-                        <th>Cash Var.</th>
-                        <th>M-Pesa Var.</th>
-                        <th>Overrides</th>
-                        <th>Status</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredReports.map(r => {
-                        const c = r.content || {}
-                        const summary = c.summary || {}
-                        const shift   = c.shift   || {}
-                        const tenders = c.tenders || []
-                        const cashTender  = tenders.find(t => t.tender === 'cash')
-                        const mpesaTender = tenders.find(t => t.tender === 'mpesa')
-                        const overrides   = c.overrides || c.item_overrides || {}
-                        const st = shiftHistoryStatus(r)
-                        return (
-                          <tr key={r.id}>
-                            <td style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{r.report_number}</td>
-                            <td style={{ fontWeight: 500 }}>{shift.cashier_name || '—'}</td>
-                            <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(r.period_start)}</td>
-                            <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(r.period_end)}</td>
-                            <td style={{ fontWeight: 600 }}>{fmt(summary.total_revenue)}</td>
-                            <td>
-                              {cashTender ? (
-                                <span style={{ fontWeight: 600, color: cashTender.variance === 0 ? 'var(--success)' : cashTender.variance < 0 ? 'var(--danger)' : 'var(--warning)' }}>
-                                  {cashTender.variance >= 0 ? '+' : ''}{fmt(cashTender.variance)}
-                                </span>
-                              ) : '—'}
-                            </td>
-                            <td>
-                              {mpesaTender ? (
-                                <span style={{ fontWeight: 600, color: mpesaTender.variance === 0 ? 'var(--success)' : mpesaTender.variance < 0 ? 'var(--danger)' : 'var(--warning)' }}>
-                                  {mpesaTender.variance >= 0 ? '+' : ''}{fmt(mpesaTender.variance)}
-                                </span>
-                              ) : '—'}
-                            </td>
-                            <td style={{ color: 'var(--text-muted)' }}>{overrides.count ?? '—'}</td>
-                            <td>
-                              <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: st.bg, color: st.color }}>
-                                {st.label}
-                              </span>
-                            </td>
-                            <td>
-                              <div style={{ display: 'flex', gap: 6 }}>
-                                {canPrint && (
-                                  <button className="btn btn-ghost btn-sm" onClick={() => handlePrint(r)}>
-                                    {r.print_count > 0 ? `Reprint (${r.print_count})` : 'Print'}
-                                  </button>
-                                )}
-                                {canFile && r.status !== 'FILED' && (
-                                  <button className="btn btn-primary btn-sm" onClick={() => { setFileModal(r); setSignedNote('') }}>
-                                    File
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-
-          {loading && tab !== 'shift-history' && <div className="empty-state">Loading...</div>}
+          {loading && activeTab !== 'cashier' && <div className="empty-state">Loading...</div>}
         </div>
       </div>
 
